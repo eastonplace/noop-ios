@@ -190,7 +190,7 @@ jobs:
           set -uo pipefail
           mkdir -p qa-artifacts/packages
           status=0
-          for package in NoopPhase34Core WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport StrandDesign NoopLocalAccess; do
+          for package in NoopPhase34Core WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport WorkoutRouteExport StrandDesign NoopLocalAccess; do
             echo "::group::$package"
             # `shell: bash` runs with -e: a bare failing pipeline would end the step here and hide every later package.
             if ! swift test --package-path "Packages/$package" 2>&1 | tee "qa-artifacts/packages/$package.txt"; then

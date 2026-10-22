@@ -6,6 +6,17 @@ import XCTest
 /// (the exact key STRING may differ across platforms — the cache is in-memory and per-platform — but the
 /// set of changes that must / must not invalidate a reused day is a shared contract).
 final class AnalyzeRecentDayCacheTests: XCTestCase {
+    func testSuccessorWakeContextInvalidatesWithoutMovingCycleBoundaryOrHeartRate() {
+        func key(_ context: String) -> String {
+            AnalyzeRecentDayCache.cacheKey(owner: "dev1", hrCount: 178_000, hrMaxTs: 1_700_000_000,
+                skinAnchorRaw: nil, cycleFingerprint: "c1700086400",
+                stepSleepFingerprint: context, hrvWindowDetail: false)
+        }
+        XCTAssertEqual(key("100:200:"), key("100:200:"))
+        XCTAssertNotEqual(key(""), key("100:200:"))
+        XCTAssertNotEqual(key("100:200:"), key("100:200:150-160"))
+    }
+
     func testRRProvenanceAndQualityInvalidateWithoutAnyHRChange() {
         func key(_ rr: String) -> String {
             AnalyzeRecentDayCache.cacheKey(owner: "whoop4-A", hrCount: 178_000,

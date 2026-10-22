@@ -128,6 +128,8 @@ final class LocalCoachEngine: ObservableObject {
     private let model: (any LocalCoachModelDriver)?
     private let source: @MainActor () -> LocalCoachSourceScope
     private let records: @MainActor () -> String
+    private let publishDailyBrief: @MainActor (LocalCoachBriefKind, String, Date) -> Void
+    private let clearPublishedBrief: @MainActor () -> Void
     private var scope: LocalCoachSourceScope
     private var recordsToken: String
     private var sourceObserver: AnyCancellable?
@@ -177,8 +179,14 @@ final class LocalCoachEngine: ObservableObject {
         do { store = try .appLocal() }
         catch { store = nil; failure = LocalCoachErrorPrefix.storageUnavailable + error.localizedDescription }
         self.init(data: LocalCoachDataService(repo: repo), persistence: store,
-                  model: Self.makeModel(), source: source, records: { Self.recordsToken(of: repo) })
+                  model: Self.makeModel(), source: source, records: { Self.recordsToken(of: repo) },
+                  publishDailyBrief: { kind, text, date in
+                      CoachBriefWidgetPublication.publish(kind: kind, text: text, generatedAt: date, repo: repo)
+                  }, clearPublishedBrief: { CoachBriefWidgetPublication.clear() })
         if let failure { storageError = failure; errorText = storageError; stateReadable = false }
+        if !settingsReadable || !preferences.enabled || !preferences.usePersonalData || scope.fenced {
+            clearPublishedBrief()
+        }
         observe(repo)
     }
 
@@ -197,12 +205,16 @@ final class LocalCoachEngine: ObservableObject {
     init(data: (any LocalCoachDataAccess)?, persistence: LocalCoachPersistence?,
          model: (any LocalCoachModelDriver)?, source: @escaping @MainActor () -> LocalCoachSourceScope,
          records: @escaping @MainActor () -> String = { "" }, isPreview: Bool = false,
+         publishDailyBrief: @escaping @MainActor (LocalCoachBriefKind, String, Date) -> Void = { _, _, _ in },
+         clearPublishedBrief: @escaping @MainActor () -> Void = {},
          notificationCenter: NotificationCenter = .default) {
         self.data = data
         self.persistence = persistence
         self.model = model
         self.source = source
         self.records = records
+        self.publishDailyBrief = publishDailyBrief
+        self.clearPublishedBrief = clearPublishedBrief
         self.scope = source()
         self.recordsToken = records()
         self.isPreview = isPreview
@@ -323,6 +335,7 @@ final class LocalCoachEngine: ObservableObject {
         ensureConversation(title: text)
         let requestDate = Date()
         let requestCalendar = Calendar.autoupdatingCurrent
+        let requestRecords = records()
         // A brief names its own first read; a question is routed by its wording.
         let evidencePlan = brief.map(Self.briefPlan)
             ?? CoachEvidencePolicy.plan(for: text, now: requestDate, calendar: requestCalendar)
@@ -399,6 +412,14 @@ final class LocalCoachEngine: ObservableObject {
                 if let index = self.messages.firstIndex(where: { $0.id == assistant.id }) {
                     guard !self.messages[index].text.isEmpty else { throw LocalCoachFailure.contextFull }
                     if brief != nil { self.dailyBrief = self.messages[index].text }
+                    // Never publish streaming text, weekly summaries, or a response whose personal
+                    // records changed mid-generation. The widget carries the completed brief's values.
+                    if let brief, brief == .morning || brief == .evening,
+                       personal, self.preferences.enabled, self.preferences.usePersonalData,
+                       !self.source().fenced, self.records() == requestRecords,
+                       WidgetLogicalDay.isSameDay(requestDate, Date(), calendar: requestCalendar) {
+                        self.publishDailyBrief(brief, self.messages[index].text, Date())
+                    }
                 }
                 self.history = Array((request.history + self.messages.suffix(2)).suffix(12))
                 self.finish(token, started: started)
@@ -460,6 +481,7 @@ final class LocalCoachEngine: ObservableObject {
 
     func deleteConversation(_ id: UUID) {
         reconcileSource()
+        clearPublishedBrief()
         if selectedConversationID == id { cancel(); selectedConversationID = nil; messages = []; history = [] }
         conversations.removeAll { $0.id == id }
         persistState()
@@ -480,6 +502,7 @@ final class LocalCoachEngine: ObservableObject {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.utf8.count <= 8_000, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         cancel()
+        clearPublishedBrief()
         messages[index].text = text
         messages[index].createdAt = Date()
         messages[index].evidence = []
@@ -781,6 +804,7 @@ final class LocalCoachEngine: ObservableObject {
 
     private func invalidateHistory() {
         cancel()
+        clearPublishedBrief()
         history = []
         historyFloor = Date()
     }
@@ -807,6 +831,7 @@ final class LocalCoachEngine: ObservableObject {
         }
         cancel()
         scope = current
+        clearPublishedBrief()
         messages = []; conversations = []; memories = []; plan = nil; history = []
         selectedConversationID = nil
         snapshot = .empty

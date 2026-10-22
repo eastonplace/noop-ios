@@ -1,0 +1,137 @@
+# Five NOOP feature additions
+
+## Scope and lineage
+
+This branch implements the five features Easton selected after the Ryan BR comparison:
+personal stress baseline, Coach Brief widget, improved step filtering, routine spreadsheet
+import, and GPS route export. It starts from NOOP main
+`6f49d855d6f747103f4dc2a60949cb933445c3c0`. Upstream behavior was reviewed at Ryan BR
+`8e4b0c16e7640607600fa6bde5424095eba6034e`.
+
+The additions use NOOP's existing iPhone UI, local Repository/SQLite, ReceiptLift store,
+Coach consent rules, verified widget publication, and route persistence. There is no
+new server service, cloud account, database schema bump, app version bump, or new
+runtime third-party dependency. Raw strap records and completed Strength sessions are
+not rewritten by these features.
+
+## Feature walkthrough
+
+### Personal Stress Baseline
+
+Open **Stress → Personal baseline → Use my previous 30 days**. It is off by default.
+The reference uses the previous 30 complete local calendar days, excluding today,
+with covered waking-hour HR means, a low-percentile daily reference, and the existing
+baseline fold. Four usable days permit a provisional reference; 14 establish it.
+Missing history, stale history, and read failures have explicit fallback states.
+
+The setting changes the hourly ribbon in Stress and Today. It does not redefine the
+stored daily stress score or silently change background widget metrics. This is an
+HR-only comparison; activity can also raise it. It is not a time-of-day percentage
+comparison or a medical stress measurement.
+
+History is reduced by bounded SQL summaries off the main actor. Active/canonical source
+precedence, cancellation, database replacement, source changes, and local calendar/DST
+boundaries are checked before publication.
+
+### Coach Brief widget
+
+Add **NOOP Coach Brief** from the iOS widget gallery (small or medium). Complete a
+morning or evening brief in Coach with local personal-data consent enabled. The widget
+shows the completed prose, generation time, and available verified metrics captured
+with that brief; tapping it opens Coach.
+
+The extension does not invoke AI, Bluetooth, network requests, or the health database.
+Partial/interrupted responses and weekly/activity summaries cannot replace the daily
+brief. Consent revocation, source transitions, relevant history edits, and the app's
+04:00 logical-day rollover clear or suppress it. An empty widget asks the user to open
+Coach. It depends on the app's existing on-device Coach availability.
+
+### Step filtering and derived history
+
+The shared counter now checks walking/running classifications when present, rejects
+implausible tick rates and resets, and handles duplicate or conflicting timestamps
+deterministically. Entirely unclassified legacy windows retain their counter estimate.
+Sleep-aware totals exclude isolated movement while preserving explicit awake stages
+and sustained gait. Existing per-user calibration and civil/physiological day boundaries
+remain in use.
+
+Daily and cycle totals use the same filtering. Manual workout counts reuse the class
+and rate kernel. The newest-first scan reuses a completed successor night's sleep
+context from the same source for late-evening calendar steps, without staging it again
+or changing its sleep attribution. Explicit awake spans survive overlapping sleep
+records, and the Strain detail uses the batch's exclusive cycle end. Step diagnostics
+use the same filtered total and state how many ticks sleep filtering excluded.
+Derived-analysis cache version advances to `cache-v6`, and the bounded,
+resumable history rescore/settlement moves to fresh `v5` identities. The repair rederives
+stored step totals and their Strain V2 contribution through the existing pipeline;
+raw recordings, edited sleep, and logged lifts retain their existing ownership rules.
+
+### Strength routine import
+
+Open **Lift → Routines → Import routines**. A CSV template is available in the import
+sheet. Choose a CSV or XLSX file, review all routines and validation messages, allow
+any explicitly listed new custom exercises, then confirm.
+
+Parsing/preview does not save. Confirmation uses the current ReceiptLift schema and
+atomic persistence callback. Imported routines receive fresh IDs and collision-safe
+names; existing routines are not replaced. Known exercises match on exact normalized
+names; unfamiliar ones require consent. Sets, reps, rest and target effort map into
+the existing plan fields. Planned loads are preserved visibly in exercise notes because
+the current plan model has no dedicated planned-load field. Completed workouts and
+Strength Strain calculations are unchanged.
+
+File size, expansion, row and cell counts are bounded. Unsupported formulas, malformed
+values and invalid workbooks produce errors. Request ownership prevents an older file
+read from replacing a newer preview; source changes and active workouts block a stale save.
+
+### GPS route export
+
+Open a saved workout with timestamped GPS measurements and choose **Export route** to
+share GPX or FIT through the native share sheet. **Export Workout Route** is also a
+discoverable Shortcuts action for the latest exportable saved route. Existing Siri
+shortcut phrases are retained.
+
+New recordings preserve measured timestamps, available altitude/accuracy, and segment
+breaks across pause, resume and relaunch. GPX and FIT use those measurements. FIT exports
+route/distance/timer information without an invented heart-rate or calorie summary.
+
+Older polyline-only routes remain viewable and restorable. They cannot be given real
+timestamps retroactively, so they are not offered as full measured exports. Active
+workout journal decoding remains backward compatible; any legacy portion of a resumed
+workout is distinguished from newly measured portions.
+
+## Verification and review
+
+Local portable checks use Swift 6.4.1. The full iPhone app and Apple-only package graph
+require macOS/Xcode CI; a Linux source parse is not a native build.
+
+- The full `NoopPhase34Core` package suite passes (28 tests), including seven new brief
+  payload tests for source/epoch/day/expiry isolation, malformed versions, Unicode bounds,
+  missing metrics and non-finite values.
+- Focused exact-source stress analytics tests pass (44 tests). Database integration
+  and iOS view ownership tests are committed for native CI.
+- The focused routine parser suite passes (14 tests), including CSV and real XLSX
+  paths. ReceiptLift persistence/source/preview tests are committed for iOS CI.
+- The GPS writer package passes (10 tests); the exact-source persistence/service harness
+  passes (9 tests). Garmin's FIT SDK independently recognizes and decodes the fixture
+  with valid integrity checks and pause-aware distance/timer values.
+- The focused exact-source step and scan-cache suite passes (37 tests), covering
+  classifications, rate bounds, wraps, duplicate conflicts, invalid counters, sleep
+  movement, overlapping awake spans, sustained bouts and successor-sleep cache
+  invalidation. Native daily/cycle, diagnostic-parity and repair integration tests
+  are included for macOS/iOS CI; they were not executed in the Linux harness.
+- All 12 existing static audit commands pass, including UI conventions, accessibility,
+  privacy, HealthKit, workout persistence, and project hygiene.
+
+The temporary component harnesses compile the repository's exact source and tests while
+excluding unrelated Apple-only modules; they are not substitutes for the complete
+macOS package or iOS suites. Native build/test results belong to the PR checks. The
+new GPS package is included in both package CI and the app workflow's retained tests.
+
+## Integration with pending work
+
+This branch does not merge PRs #66, #67 or #68. Their UI, Coach, source-isolation,
+reliability and app-metadata changes may overlap the same files. Reconcile those
+changes by behavior after the intended merge order is chosen, especially Today,
+RootTabView, LocalCoachEngine, IntelligenceEngine, project settings and app metadata.
+No existing pending branch is modified by this PR.

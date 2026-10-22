@@ -490,7 +490,8 @@ final class IntelligenceEngine: ObservableObject {
     /// or skipping an unchanged-HR tick. v2 (AN-02): days bucket by their civil interval and own offset.
     /// v3 (AN-05): Effort's cycle runs from the day's main-night onset to the next day's cycle start.
     /// v4 (D3b): the daily calorie total fills resting energy for the hours without valid heart rate.
-    nonisolated static let analyzeScanVersion = "cache-v5"
+    /// v5: R-R quality and nightly physiology. v6: classified, rate-checked, sleep-aware step totals.
+    nonisolated static let analyzeScanVersion = "cache-v6"
 
     /// F2: each scored night's raw skin-temperature mean (°C), persisted under the computed id so the skin
     /// baseline folds the whole history, as HRV / resting HR / respiration do from the computed rows.
@@ -894,9 +895,11 @@ final class IntelligenceEngine: ObservableObject {
     // v4: revisit source-backed days after the WHOOP R-R read/quality policy, nightly physiology, and
     // optional-baseline eligibility changes. Advance both UserDefaults identities and both durable passes
     // together: a completed v3 pass or its cursor must not suppress corrected historical rows or settlement.
-    static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v4.done"
-    static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v4.offset"
-    static let effortRescoreDurableProgressKey = "effort-rescore-v4"
+    // v5: rederive steps and their Strain V2 contribution using the shared activity/rate/sleep filter.
+    // New identities restart only derived history; raw samples, edited sleep and logged lifts are retained.
+    static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v5.done"
+    static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v5.offset"
+    static let effortRescoreDurableProgressKey = "effort-rescore-v5"
     static let effortRescoreChunkDays = 30
     private enum EffortRescoreMigrationError: Error { case chunkDidNotComplete }
 
@@ -1037,7 +1040,7 @@ final class IntelligenceEngine: ObservableObject {
     /// chunks, with the same cursor, chunking and safety net, scores every Charge against the rescored history,
     /// the result a from-scratch oldest-first run gives. It starts only once this generation's main pass is complete,
     /// so an app kill during that pass cannot start settlement early.
-    static let effortRescoreSettleDurableProgressKey = "effort-rescore-v4-settle"
+    static let effortRescoreSettleDurableProgressKey = "effort-rescore-v5-settle"
 
     private func runEffortRescoreSettleIfNeeded(store: WhoopStore, historyDays: Int, reference: Date,
                                                 calendar: Calendar, shouldPause: () -> Bool) async {
@@ -1599,8 +1602,10 @@ final class IntelligenceEngine: ObservableObject {
                 // midnight when it has no main night. Only today, the newest day of a current pass, has no
                 // scanned successor and keeps running to its last reading (F5: a partial window scans one
                 // lookahead day).
+                let newerScan = newerCivilDay.flatMap { newer in
+                    out.last.flatMap { $0.day == newer.day ? $0 : nil }
+                }
                 let nextCycleBoundary: Int? = newerCivilDay.map { newer in
-                    let newerScan = out.last.flatMap { $0.day == newer.day ? $0 : nil }
                     return AnalyticsEngine.CycleEnd.next(
                         cycleStart: newerScan?.result?.cycleStart,
                         nextDayInterval: newer.start..<newer.nextStart)
@@ -1624,6 +1629,10 @@ final class IntelligenceEngine: ObservableObject {
                                                        completedDay: civilDay.nextStart <= now ? civilDay : nil)
                 }
                 let dayInterval = civilDay.start..<civilDay.nextStart
+                // Reuse the completed successor night for late-evening steps; never restage it or
+                // attribute its recovery to today. Another strap's scan cannot supply this owner's mask.
+                let stepSleepSessions = newerScan?.readOwner == owner
+                    ? (newerScan?.result?.sleepSessions ?? []) : []
                 let dayOffset = clockOffsetByDay[day] ?? tzOffset
                 let dayEditedRows = Self.editedRowsForOwnerDay(
                     editedRows,
@@ -1702,6 +1711,7 @@ final class IntelligenceEngine: ObservableObject {
                         persistedSleepFingerprint: persistedSleepFingerprint,
                         cycleFingerprint: cycleFingerprint,
                         rrFingerprint: rrFingerprint ?? "",
+                        stepSleepFingerprint: SleepAwareStepCounter.sleepContextFingerprint(stepSleepSessions),
                         hrvWindowDetail: dayStart == currentCivilDayStart,
                         calorieFillEnd: dayInterval.upperBound > now ? now : nil)   // D3b: today fills to now
                     // An unreadable R-R witness cannot authorize reuse or seed a cache entry.
@@ -1876,9 +1886,10 @@ final class IntelligenceEngine: ObservableObject {
                             deviceId: owner, from: cycleTail.lowerBound, to: cycleTail.upperBound, limit: 200_000)
                         let tailSteps = try await store.stepSamples(
                             deviceId: owner, from: cycleTail.lowerBound, to: cycleTail.upperBound, limit: 200_000)
-                        cycleEnd = .init(end: nextCycleBoundary, tailHr: tailHr, tailSteps: tailSteps)
+                        cycleEnd = .init(end: nextCycleBoundary, tailHr: tailHr, tailSteps: tailSteps,
+                                         stepSleepSessions: stepSleepSessions)
                     } else {
-                        cycleEnd = .init(end: nextCycleBoundary)
+                        cycleEnd = .init(end: nextCycleBoundary, stepSleepSessions: stepSleepSessions)
                     }
                 } else {
                     cycleEnd = nil
@@ -1971,7 +1982,8 @@ final class IntelligenceEngine: ObservableObject {
                     stepsTrace = StepsEstimateEngine.rawCounterTrace(
                         daySteps: daySteps, dayKey: day, tzOffsetSeconds: dayOffset,
                         dayInterval: dayInterval,
-                        ticksPerStep: up.stepTicksPerStep)
+                        ticksPerStep: up.stepTicksPerStep,
+                        sleepSessions: res.sleepSessions + stepSleepSessions)
                 }
                 // ── RHR floor-vs-mean diagnostic (#691) ────────────────────────────────────────────────
                 // Make the recurring "NOOP's resting HR reads LOWER than my sleeping-HR app" reports

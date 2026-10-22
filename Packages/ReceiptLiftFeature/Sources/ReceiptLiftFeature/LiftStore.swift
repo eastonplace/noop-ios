@@ -165,6 +165,10 @@ final class LiftStore: ObservableObject {
   private var databaseTask: Task<Void, Error>?
   private var databaseInvalidated = false
   private var applyingReviewedRoutines = false
+  var routineImportParser: ReceiptLiftRoutineImportParser?
+  var validateRoutineImport: (@MainActor () throws -> Void)?
+  private var routineImportCommitInFlight = false
+  private var routineImportDeferredSave = false
   private var finishDate: Date?
   private let persistence: LiftPersistenceIO
   private let saveDebounceInterval: TimeInterval
@@ -383,6 +387,7 @@ final class LiftStore: ObservableObject {
   }
 
   func startRoutine(_ routine: LiftRoutine?) {
+    guard !routineImportCommitInFlight else { status = "Wait for your routines to finish importing."; return }
     guard canStartSession(), !databaseInvalidated else { status = "Finish your current NOOP workout before starting Lift."; return }
     activeSession = LiftSession(
       id: UUID(),
@@ -1445,6 +1450,61 @@ final class LiftStore: ObservableObject {
     }
   }
 
+  func prepareRoutineImport(_ draft: ReceiptLiftRoutineImportDraft) throws -> LiftRoutineImportPreview {
+    guard didFinishLoad, !databaseInvalidated else { throw LiftRoutineImportError.unavailable }
+    return try LiftRoutineImportBuilder.prepare(draft, routines: routines, exercises: exercises)
+  }
+
+  /// Commits the reviewed additions as one complete envelope through the host's existing atomic
+  /// transaction. Memory changes only after success; an error leaves every existing routine intact.
+  func importReviewedRoutines(_ preview: LiftRoutineImportPreview, allowNewExercises: Bool) async throws {
+    guard !applyingReviewedRoutines else { throw LiftRoutineImportError.busy }
+    applyingReviewedRoutines = true
+    defer { applyingReviewedRoutines = false }
+    await loadAndWait()
+    await waitForPendingSave()
+    try Task.checkCancellation()
+    guard didFinishLoad, let database, !databaseInvalidated, let validateRoutineImport else {
+      throw LiftRoutineImportError.unavailable
+    }
+    guard activeSession == nil, !isFinishing, canStartSession() else { throw LiftRoutineImportError.activeWorkout }
+    guard allowNewExercises || preview.newExercises.isEmpty else { throw LiftRoutineImportError.needsCustomExerciseConsent }
+    try validateRoutineImport()
+    try LiftRoutineImportBuilder.validate(preview, routines: routines, exercises: exercises)
+    var proposed = persistenceEnvelope()
+    proposed.userExercises.append(contentsOf: preview.newExercises)
+    proposed.routines.append(contentsOf: preview.routines)
+
+    // A background flush or unrelated edit while the transaction awaits must not enqueue an older
+    // envelope over this import. Coalesce it into the next full snapshot after the result is known.
+    routineImportCommitInFlight = true
+    defer {
+      routineImportCommitInFlight = false
+      if routineImportDeferredSave {
+        routineImportDeferredSave = false
+        flushPendingSave()
+      }
+    }
+    saveGeneration += 1
+    let generation = saveGeneration
+    let envelope = proposed
+    let task = Task { try await database.save(envelope, generation: generation) }
+    databaseTask = task
+    do { try await task.value }
+    catch {
+      databaseTask = nil
+      status = "Couldn’t import routines. Your preview is ready to retry."
+      throw error
+    }
+    guard !databaseInvalidated else { throw CancellationError() }
+    userExercises.append(contentsOf: preview.newExercises)
+    rebuildRuntimeExercises()
+    routines.append(contentsOf: preview.routines)
+    databaseSaveError = nil
+    status = preview.routines.count == 1 ? "Imported 1 routine" : "Imported \(preview.routines.count) routines"
+    NotificationCenter.default.post(name: Notification.Name("noop.notificationPlansDidChange"), object: nil)
+  }
+
   func applicationDidEnterBackground() {
     guard !isFinishing, didFinishLoad else { return }
     flushPendingSave()
@@ -1470,6 +1530,7 @@ final class LiftStore: ObservableObject {
 
   private func scheduleDatabaseSave(debounce: Bool) {
     guard let database, !databaseInvalidated else { return }
+    if routineImportCommitInFlight { routineImportDeferredSave = true; return }
     saveGeneration += 1
     let generation = saveGeneration
     let envelope = persistenceEnvelope()

@@ -260,9 +260,14 @@ public enum AnalyticsEngine {
         public let end: Int
         public let tailHr: [HRSample]
         public let tailSteps: [StepSample]
+        /// Already staged successor sleeps used ONLY to filter steps. A night starting on D and ending
+        /// on D+1 overlaps D's civil total without being attributed to D's sleep/recovery rollup.
+        public let stepSleepSessions: [SleepSession]
 
-        public init(end: Int, tailHr: [HRSample] = [], tailSteps: [StepSample] = []) {
+        public init(end: Int, tailHr: [HRSample] = [], tailSteps: [StepSample] = [],
+                    stepSleepSessions: [SleepSession] = []) {
             self.end = end; self.tailHr = tailHr; self.tailSteps = tailSteps
+            self.stepSleepSessions = stepSleepSessions
         }
 
         /// The boundary for D, from D+1's cycle start and civil interval.
@@ -523,6 +528,9 @@ public enum AnalyticsEngine {
         let allSessions = useMotionAwareWake
             ? detectedSessions.map { WakeMotionRefinement.refine($0, grav: gravity, steps: steps) }
             : detectedSessions
+        // The newest-first scan already staged tomorrow's night. Reuse its bounds/stages for additive
+        // step totals, retaining AN-07's single staging pass and wake-day attribution everywhere else.
+        let stepSleepSessions = allSessions + (cycleEnd?.stepSleepSessions ?? [])
         // Sessions attributed to `day` = those whose end falls on `day` (LOCAL day, #277). `day` is
         // the caller's local-day key; attribute by the same civil bounds so the bucket and the key agree.
         let matched = allSessions.filter { tsInDay($0.end) }
@@ -816,7 +824,7 @@ public enum AnalyticsEngine {
             // (#277); the wrap-aware tick math itself lives in the shared StepsCounter kernel so the daily
             // and per-workout (#398) totals can never disagree.
             let inDay = (daySteps ?? steps).filter { tsInDay($0.ts) }
-            guard let ticks = StepsCounter.stepsInWindow(inDay) else { return nil }
+            guard let ticks = SleepAwareStepCounter.stepsInWindow(inDay, sleepSessions: stepSleepSessions) else { return nil }
             // @57 counts motion ticks, not validated steps — the 5/MG counter overcounts. Divide
             // by the user-calibrated ticks-per-step (default 1.0 = raw pass-through; floor 0.5 so
             // a bad pref can at most double, never explode, the total). (#139)
@@ -925,7 +933,7 @@ public enum AnalyticsEngine {
         let cycleHr = mergedCycleHr.filter { $0.ts >= cycleFrom && $0.ts < cycleTo }
         let cycleStepRows = mergedCycleSteps.filter { $0.ts >= cycleFrom && $0.ts < cycleTo }
         let cycleStepsTotal: Int? = {
-            guard let ticks = StepsCounter.stepsInWindow(cycleStepRows) else { return nil }
+            guard let ticks = SleepAwareStepCounter.stepsInWindow(cycleStepRows, sleepSessions: stepSleepSessions) else { return nil }
             let scaled = Int((Double(ticks) / max(profile.stepTicksPerStep, 0.5)).rounded())
             return scaled > 0 ? scaled : nil
         }()
@@ -936,7 +944,8 @@ public enum AnalyticsEngine {
                 // to Today's live continuation. Using in-bed duration here made an otherwise-identical
                 // live and historical context diverge by awake-in-bed time.
                 validWornSleepMinutes: matched.isEmpty ? nil : tstS / 60.0,
-                steps: cycleStepsTotal ?? stepsTotal,
+                // A present cycle whose motion was all filtered must not regain an unrelated civil total.
+                steps: cycleStepRows.isEmpty ? stepsTotal : cycleStepsTotal,
                 activeEnergyKcal: nil,
                 hasWearCoverage: !matched.isEmpty || !cycleHr.isEmpty)))
 

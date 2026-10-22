@@ -58,7 +58,7 @@ final class StepsDailyTests: XCTestCase {
     func testJumpGuardDropsGapButKeepsRealSteps() {
         // 100 -> 300 (=200 real) ; 300 -> 1200 is a 900-tick GAP (>= 512) and is dropped ; 1200 -> 1500
         // (=300 real). Only the two in-range increments count => 200 + 300 = 500, the gap doesn't inflate.
-        let s = [step(0, 100), step(60, 300), step(3_600, 1_200), step(3_660, 1_500)]
+        let s = [step(0, 100), step(60, 300), step(3_600, 1_200), step(3_675, 1_500)]
         XCTAssertEqual(stepsFor(s), 500)
     }
 
@@ -66,14 +66,32 @@ final class StepsDailyTests: XCTestCase {
         // THE BUG (#132/#276/#316). A realistic ascending cumulative counter sampled at 1 Hz. The OLD
         // code summed the raw running total (here, byte @57 alone summed) — exploding the count; the NEW
         // wrap-aware diff sums only the per-record increments and yields a sane number.
-        let counters = [100, 127, 127, 130, 131, 131, 140, 152, 160, 175]
+        let counters = [100, 102, 102, 105, 106, 106, 109, 112, 114, 117]
         let samples = counters.enumerated().map { step($0.offset, $0.element) }
         // NEW behaviour: sum of wrap-aware deltas == last - first (all small increments, none >= 512).
-        let sane = counters.last! - counters.first!  // 75
+        let sane = counters.last! - counters.first!  // 17
         XCTAssertEqual(stepsFor(samples), sane)
         // OLD behaviour (summing the cumulative counter itself) would be vastly larger — prove the gap.
-        let oldOvercount = counters.reduce(0, +)  // 1373
+        let oldOvercount = counters.reduce(0, +)  // 1073
         XCTAssertGreaterThan(oldOvercount, sane * 10)
+    }
+
+    func testImplausibleOneSecondJumpIsExcludedButFollowingGaitCounts() {
+        XCTAssertEqual(stepsFor([step(0, 100), step(1, 127), step(2, 130)]), 3)
+    }
+
+    func testSuccessorNightFiltersLateEveningWithoutChangingSleepAttribution() {
+        let onset = noonUtc + 10 * 3_600
+        let rows = [step(10 * 3_600, 100), step(10 * 3_600 + 1, 102), step(10 * 3_600 + 20, 104)]
+        let tomorrowNight = SleepSession(start: onset, end: onset + 8 * 3_600,
+                                        efficiency: 1, stages: [], restingHR: nil, avgHRV: nil)
+        XCTAssertEqual(stepsFor(rows), 4, "Without a completed night the counter has no sleep evidence")
+        let result = AnalyticsEngine.analyzeDay(
+            day: dayUtc, steps: rows, profile: profile,
+            cycleEnd: .init(end: onset, stepSleepSessions: [tomorrowNight]))
+        XCTAssertNil(result.daily.steps, "The completed next-day night covers today's late-evening motion")
+        XCTAssertTrue(result.sleepSessions.isEmpty, "Step context must not move tomorrow's sleep onto today")
+        XCTAssertNil(result.cycleStart)
     }
 
     func testIgnoresSamplesOutsideTheTargetDay() {

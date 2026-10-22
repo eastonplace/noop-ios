@@ -13,6 +13,7 @@ struct ScheduleView: View {
   @State private var pendingRoutineDeletion: LiftRoutine?
   @State private var selectedDay = Date()
   @State private var didOpenCreator = false
+  @State private var showsRoutineImport = false
 
   var body: some View {
     LiftPage(
@@ -50,6 +51,9 @@ struct ScheduleView: View {
     .sheet(item: $scheduleRoute) { route in
       ScheduleWorkoutEditor(route: route)
         .environmentObject(store)
+    }
+    .sheet(isPresented: $showsRoutineImport) {
+      RoutineImportView().environmentObject(store)
     }
     .alert(
       "Delete \(pendingRoutineDeletion?.name ?? String(localized: "Routine"))?",
@@ -181,6 +185,21 @@ struct ScheduleView: View {
       Button { editorRoute = .create } label: { Label("Create routine", systemImage: "plus") }
         .buttonStyle(PrimaryPillButtonStyle())
         .padding(.top, NoopMetrics.space3)
+      if store.routineImportParser != nil {
+        ChipRow {
+          WidgetChipButton(title: "Import routines", systemImage: "square.and.arrow.down", accessibilityLabel: "Import routines",
+                           accessibilityHint: "Choose a CSV or Excel file and review it before saving") {
+            showsRoutineImport = true
+          }
+          .disabled(store.activeSession != nil)
+          .accessibilityIdentifier("routine.import.open")
+        }
+        .padding(.top, NoopMetrics.space3)
+        if store.activeSession != nil {
+          LiftNote(text: "Finish your active workout before importing routines.")
+            .padding(.top, NoopMetrics.space2)
+        }
+      }
     }
   }
 

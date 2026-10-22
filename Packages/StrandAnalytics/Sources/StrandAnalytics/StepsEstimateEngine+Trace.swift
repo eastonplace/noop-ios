@@ -74,8 +74,8 @@ extension StepsEstimateEngine {
 
     /// The WHOOP 5/MG raw-counter trace for one day. Recomputes the SAME wrap-aware sum
     /// `AnalyticsEngine.analyzeDay` runs over the cumulative `step_motion_counter` series: the time-ordered
-    /// records filtered to the LOCAL day, each consecutive `(cur - prev) & 0xFFFF` increment, the dropped
-    /// deltas (>= `maxStepDelta`, a sync-gap / reboot boundary), and the `ticksPerStep` scaling. Reports the
+    /// records filtered to the LOCAL day, each retained wrap-aware increment, class/rate/reset gates,
+    /// sleep filtering, and the `ticksPerStep` scaling. Reports the
     /// counter series length, the kept/dropped delta counts, the raw tick total and the scaled steps - the
     /// SAME value the daily `steps_est` carries (byte-identical math), so the trace can never diverge.
     ///
@@ -87,10 +87,8 @@ extension StepsEstimateEngine {
                                        dayKey: String,
                                        tzOffsetSeconds: Int,
                                        dayInterval: Range<Int>? = nil,
-                                       ticksPerStep: Double) -> [String] {
-        // The SAME maxStepDelta gate AnalyticsEngine.analyzeDay uses for the daily steps total.
-        let maxStepDelta = 512
-
+                                       ticksPerStep: Double,
+                                       sleepSessions: [SleepSession] = []) -> [String] {
         // The SAME filter + sort: keep only this LOCAL day's samples, time-ordered.
         let dayBounds = dayInterval
             ?? AnalyticsEngine.fixedOffsetDayInterval(dayKey, offsetSec: tzOffsetSeconds)
@@ -115,33 +113,40 @@ extension StepsEstimateEngine {
             return lines
         }
 
-        // Walk the wrap-aware deltas exactly as the production sum does.
-        var rawTotal = 0
+        // The production kernel owns class/rate/reset/duplicate handling. Pair diagnostics explain
+        // exclusions without reimplementing that logic or making another unfiltered total look scored.
+        var gaitTicks = 0
         var keptDeltas = 0
-        var droppedDeltas = 0
         var minDelta = Int.max
         var maxDelta = Int.min
-        for i in 1..<sorted.count {
-            let delta = (sorted[i].counter - sorted[i - 1].counter) & 0xFFFF  // wrap-aware u16 increment
-            if delta >= 1 && delta < maxStepDelta {
-                rawTotal += delta
-                keptDeltas += 1
-                minDelta = Swift.min(minDelta, delta)
-                maxDelta = Swift.max(maxDelta, delta)
-            } else if delta >= maxStepDelta {
-                droppedDeltas += 1   // a sync-gap / reboot boundary, not real steps (>= 512)
-            }
+        StepsCounter.forEachIncrement(in: sorted) { _, delta, _ in
+            gaitTicks += delta
+            keptDeltas += 1
+            minDelta = Swift.min(minDelta, delta)
+            maxDelta = Swift.max(maxDelta, delta)
         }
+        var positivePairs = 0
+        for i in 1..<sorted.count {
+            guard (0...65_535).contains(sorted[i].counter),
+                  (0...65_535).contains(sorted[i - 1].counter) else { continue }
+            let delta = (sorted[i].counter - sorted[i - 1].counter) & 0xFFFF  // wrap-aware u16 increment
+            if delta > 0 { positivePairs += 1 }
+        }
+        let droppedDeltas = Swift.max(0, positivePairs - keptDeltas)
+        let rawTotal = SleepAwareStepCounter.stepsInWindow(sorted, sleepSessions: sleepSessions) ?? 0
 
         let firstCounter = sorted.first!.counter
         let lastCounter = sorted.last!.counter
         lines.append("stepsRaw day=\(dayKey) counterSamples=\(sorted.count) "
             + "firstCounter=\(firstCounter) lastCounter=\(lastCounter) (cumulative u16 @57)")
         lines.append("stepsRaw deltas kept=\(keptDeltas) dropped=\(droppedDeltas) "
-            + "(dropped = delta>=\(maxStepDelta), a sync-gap/reboot boundary)")
+            + "(positive valid-counter pairs excluded by class/rate/reset/duplicate gates; before sleep filtering)")
         if keptDeltas > 0 {
             lines.append("stepsRaw keptRange min=\(minDelta) max=\(maxDelta) "
                 + "(each = (cur-prev)&0xFFFF, wrap-aware)")
+        }
+        if !sleepSessions.isEmpty {
+            lines.append("stepsRaw sleep retainedTicks=\(rawTotal) excludedTicks=\(Swift.max(0, gaitTicks - rawTotal))")
         }
 
         // The scaled total, the SAME expression analyzeDay produces for steps_est (ticks / ticksPerStep,

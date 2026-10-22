@@ -161,6 +161,13 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         guard model.repo.deviceId == source, model.repo.notificationSourceContext == currentContext else {
             feature.discard(); return
         }
+        feature.configureRoutineImport(parse: NoopReceiptLiftRoutineImportAdapter.parse) { [weak self, weak model, weak feature] in
+            guard let self, let model, let feature,
+                  self.coordinator === feature, self.selectedSourceOwner == sourceOwner,
+                  model.repo.deviceId == source, model.repo.notificationSourceContext == currentContext,
+                  !model.repo.verifiedExternalSurfaceFenced else { throw NoopRoutineImportSourceError.changed }
+            guard model.activeWorkout == nil, !feature.hasActiveSession else { throw NoopRoutineImportSourceError.activeWorkout }
+        }
         feature.strainProvider = Self.strainProvider(model: model, store: store)
         feature.setNotificationCompletionHandler { [weak model] start, end in
             guard let model, model.repo.notificationSourceContext == currentContext else { return }

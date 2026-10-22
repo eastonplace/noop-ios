@@ -61,7 +61,17 @@ final class WidgetTimelineReloadsTests: XCTestCase {
     }
 
     func testEveryKindIsDistinctAndIncludesStress() {
-        XCTAssertEqual(Set(WidgetKinds.all).count, 3)
+        XCTAssertEqual(Set(WidgetKinds.all).count, 4)
         XCTAssertTrue(WidgetKinds.all.contains(WidgetKinds.stress))
+        XCTAssertTrue(WidgetKinds.all.contains(WidgetKinds.coachBrief))
+    }
+
+    func testBriefPublicationReloadsOnlyCoachWidget() {
+        var recorded: [[String]] = []
+        let previous = WidgetTimelineReloads.reload
+        defer { WidgetTimelineReloads.reload = previous }
+        WidgetTimelineReloads.reload = { recorded.append($0) }
+        WidgetTimelineReloads.afterCoachBriefChange()
+        XCTAssertEqual(recorded, [[WidgetKinds.coachBrief]])
     }
 }

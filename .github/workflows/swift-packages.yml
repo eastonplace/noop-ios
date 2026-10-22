@@ -33,6 +33,7 @@ jobs:
           - WhoopStore
           - StrandAnalytics
           - StrandImport
+          - WorkoutRouteExport
           - StrandDesign
           - NoopLocalAccess
     steps:

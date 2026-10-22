@@ -1,0 +1,96 @@
+import XCTest
+import StrandAnalytics
+import WhoopProtocol
+import WhoopStore
+@testable import NOOP
+
+final class PersonalStressBaselineTests: XCTestCase {
+    private func scope(sourceIDs: [String] = ["active", "my-whoop"],
+                       context: String = "database-a:profile-a", revision: Int = 1,
+                       dataVersion: Int = 0, lineage: String = "active:epoch-1") -> StressReadScope {
+        StressReadScope(sourceIDs: sourceIDs, sourceContext: context,
+                        sourceLineage: lineage,
+                        repositoryRevision: revision, dataVersion: dataVersion)
+    }
+
+    func testReadIdentityChangesForEverySourceAndHistoryInvalidation() {
+        let original = scope()
+        XCTAssertNotEqual(original, scope(sourceIDs: ["other", "my-whoop"]))
+        XCTAssertNotEqual(original, scope(sourceIDs: ["my-whoop", "active"]))
+        XCTAssertNotEqual(original, scope(sourceIDs: []))
+        XCTAssertNotEqual(original, scope(context: "database-b:profile-a"))
+        XCTAssertNotEqual(original, scope(revision: 2))
+        XCTAssertNotEqual(original, scope(dataVersion: 1))
+        XCTAssertNotEqual(original, scope(lineage: "active:epoch-2"))
+    }
+
+    func testForegroundTaskRestartsForPreferenceDateAndTimezoneChanges() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let today = try XCTUnwrap(calendar.date(from: .init(year: 2026, month: 10, day: 22, hour: 12)))
+        let original = ForegroundStressTaskKey(scope: scope(), personalBaseline: false, now: today, calendar: calendar)
+        XCTAssertNotEqual(original, ForegroundStressTaskKey(scope: scope(), personalBaseline: true, now: today, calendar: calendar))
+        XCTAssertNotEqual(original, ForegroundStressTaskKey(scope: scope(), personalBaseline: false,
+            now: today.addingTimeInterval(86_400), calendar: calendar))
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Kathmandu"))
+        XCTAssertNotEqual(original, ForegroundStressTaskKey(scope: scope(), personalBaseline: false, now: today, calendar: calendar))
+    }
+
+    func testBuildingAndStaleCopiesExplainTheFallback() {
+        let building = PersonalStressBaselineCopy(PersonalStressBaseline.resolve(dailyHR: [60, 60]))
+        XCTAssertTrue(building.title.contains("2 of 4"))
+        XCTAssertTrue(building.detail.contains("day-relative"))
+        let values: [Double?] = Array(repeating: 60, count: 14) + Array(repeating: nil, count: 16)
+        let stale = PersonalStressBaselineCopy(PersonalStressBaseline.resolve(dailyHR: values))
+        XCTAssertTrue(stale.title.contains("fresh data"))
+        XCTAssertTrue(stale.detail.contains("16 days"))
+    }
+}
+
+@MainActor
+final class PersonalStressBaselineRepositoryTests: XCTestCase {
+    func testRepairedSourceAndCanonicalHistoryUseOneConsistentReference() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        repository.adoptActiveDeviceId("active-strap")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let now = try XCTUnwrap(calendar.date(from: .init(year: 2026, month: 10, day: 22, hour: 12)))
+        let midnight = Int(calendar.startOfDay(for: now).timeIntervalSince1970)
+        var active: [HRSample] = []
+        var canonical: [HRSample] = []
+        for back in 1...4 {
+            let hour = midnight - back * 86_400 + 9 * 3_600
+            active += (0..<300).map { .init(ts: hour + $0, bpm: 60) }
+            canonical += (0..<300).map { .init(ts: hour + $0, bpm: 80) }
+        }
+        canonical += (0..<300).map { .init(ts: midnight + 9 * 3_600 + $0, bpm: 75) }
+        _ = try await store.insert(Streams(hr: active), deviceId: "active-strap")
+        _ = try await store.insert(Streams(hr: canonical), deviceId: Repository.whoopSource)
+
+        let first = try await repository.foregroundStressRead(now: now, calendar: calendar, personalBaseline: true)
+        guard case .history(let activeBaseline) = first.baseline else { return XCTFail("Missing history") }
+        XCTAssertEqual(activeBaseline.baseline, 60, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(first.daytime.dayMean), 2, accuracy: 1e-9)
+
+        repository.adoptActiveDeviceId("replacement-strap")
+        let next = try await repository.foregroundStressRead(now: now, calendar: calendar, personalBaseline: true)
+        guard case .history(let canonicalBaseline) = next.baseline else { return XCTFail("Missing history") }
+        XCTAssertEqual(canonicalBaseline.baseline, 80, accuracy: 1e-9)
+        XCTAssertNotEqual(first.scope, next.scope)
+        XCTAssertLessThan(try XCTUnwrap(next.daytime.dayMean), 1.5)
+    }
+
+    func testCancelledForegroundRequestNeverReturnsAnEmptySuccess() async throws {
+        let repository = Repository(deviceId: Repository.whoopSource)
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await repository.foregroundStressRead(personalBaseline: true)
+        }
+        do {
+            _ = try await task.value
+            XCTFail("Cancellation must not be published as missing stress data")
+        } catch is CancellationError {}
+    }
+}

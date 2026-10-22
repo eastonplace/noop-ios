@@ -698,7 +698,9 @@ struct StrandiOSApp: App {
                     WidgetSnapshot.publishLive(from: model)
                 }
                 .onOpenURL { url in
-                    if url.host == "import-health" {
+                    if url.scheme == "noop", url.host == "coach" {
+                        router.openCoach()
+                    } else if url.host == "import-health" {
                         model.handleHealthImportURL(url)
                     } else if let link = WorkoutDeepLink(url: url) {
                         switch link {

@@ -27,12 +27,6 @@ import WhoopStore
 // Everything is computed live from `repo.days` (+ the stored series), so the math
 // is fully inspectable — see the "How this is computed" card at the bottom.
 
-private struct StressDaytimeLoad: Sendable {
-    let daytime: DaytimeStress.Result
-    let stressIndex: StressIndex.Components?
-    let frequencyDomain: HRVFreqDomain.Bands?
-}
-
 struct StressView: View {
     @EnvironmentObject var repo: Repository
 
@@ -40,6 +34,11 @@ struct StressView: View {
     @State private var storedSeries: [(day: String, value: Double)] = []
     @State private var loadState = LatestWinsLoadState()
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(PersonalStressBaselinePreference.enabledKey) private var personalBaselineEnabled = false
+    @State private var personalBaseline: PersonalStressBaseline.Resolution?
+    @State private var publishedStressKey: ForegroundStressTaskKey?
+    @State private var calendarRevision = 0
 
     /// Today's intraday stress read (hourly timeline + sustained-high flag), computed
     /// from the day's banked HR + R-R via the SAME 0–3 proxy the daily score uses. Nil
@@ -113,38 +112,66 @@ struct StressView: View {
         }
         .onAppear { rebuildModelIfNeeded() }
         .onChangeCompat(of: repo.days) { _ in rebuildModelIfNeeded() }
-        .task(id: repo.refreshSeq) { await load() }
+        .task(id: stressTaskKey) { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+            .receive(on: DispatchQueue.main)) { _ in
+            calendarRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)
+            .receive(on: DispatchQueue.main)) { _ in
+            calendarRevision &+= 1
+        }
+        .onChangeCompat(of: scenePhase) { phase in
+            if phase == .active { calendarRevision &+= 1 }
+        }
+    }
+
+    private var stressTaskKey: ForegroundStressTaskKey {
+        ForegroundStressTaskKey(scope: repo.stressReadScope, personalBaseline: personalBaselineEnabled,
+                                calendarRevision: calendarRevision)
     }
 
     @MainActor
     private func load() async {
         let requestID = loadState.begin()
-        let repositoryRevision = repo.refreshSeq
-        let sourceDeviceID = repo.deviceId
         guard await repo.storeHandle() != nil else {
             _ = loadState.finish(
                 .failed("NOOP could not open the local health store."),
                 requestID: requestID)
             return
         }
+        let requestKey = stressTaskKey
+        if publishedStressKey != requestKey {
+            daytime = nil
+            personalBaseline = nil
+        }
 
         async let storedSeriesLoad = repo.series(key: "stress", source: "my-whoop")
-        async let daytimeLoad = readDaytime(deviceID: sourceDeviceID)
-        let nextStoredSeries = await storedSeriesLoad
-        let nextDaytime = await daytimeLoad
-        guard !Task.isCancelled else {
+        let nextDaytime: ForegroundStressRead
+        do {
+            nextDaytime = try await repo.foregroundStressRead(
+                personalBaseline: personalBaselineEnabled, includeAdvancedReadouts: true)
+        } catch is CancellationError {
             _ = loadState.finish(.cancelled, requestID: requestID)
             return
+        } catch {
+            guard loadState.owns(requestID), requestKey == stressTaskKey else { return }
+            personalBaseline = .unavailable
+            publishedStressKey = requestKey
+            _ = loadState.finish(.failed("NOOP could not read the local stress signals."), requestID: requestID)
+            return
         }
-        guard loadState.owns(requestID),
-              repositoryRevision == repo.refreshSeq,
-              sourceDeviceID == repo.deviceId else {
+        let nextStoredSeries = await storedSeriesLoad
+        guard !Task.isCancelled, loadState.owns(requestID), requestKey == stressTaskKey,
+              nextDaytime.scope == repo.stressReadScope else {
             _ = loadState.finish(.cancelled, requestID: requestID)
             return
         }
 
         storedSeries = nextStoredSeries
         daytime = nextDaytime.daytime
+        personalBaseline = nextDaytime.baseline
+        publishedStressKey = requestKey
         stressIndex = nextDaytime.stressIndex
         freqHRV = nextDaytime.frequencyDomain
         rebuildModelIfNeeded()
@@ -153,33 +180,9 @@ struct StressView: View {
         _ = loadState.finish(hasData ? .loaded : .empty, requestID: requestID)
     }
 
-    /// Read TODAY's banked HR + R-R without mutating view state. The caller publishes this value only
-    /// after it proves that the request still owns the selected repository revision.
-    @MainActor
-    private func readDaytime(deviceID: String) async -> StressDaytimeLoad {
-        let cal = Calendar.current
-        let startOfDay = cal.startOfDay(for: Date())
-        let from = Int(startOfDay.timeIntervalSince1970)
-        let to = Int(Date().timeIntervalSince1970)
-        let tz = TimeZone.current.secondsFromGMT(for: Date())
-
-        let hr = await repo.hrSamples(from: from, to: to, limit: 200_000)
-        guard hr.count >= DaytimeStress.minHourHRSamples else {
-            return StressDaytimeLoad(
-                daytime: .empty,
-                stressIndex: nil,
-                frequencyDomain: nil)
-        }
-        let rr = (try? await repo.storeHandle()?.rrIntervals(
-            deviceId: deviceID, from: from, to: to, limit: 200_000)) ?? []
-        // These analytics walk large in-memory arrays. Keep the Repository/store reads actor-safe, then
-        // move the pure CPU work off the main actor so a dense day cannot stall navigation or scrolling.
-        return await Task { @concurrent in
-            StressDaytimeLoad(
-                daytime: DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tz),
-                stressIndex: StressIndex.components(rr: rr),
-                frequencyDomain: HRVFreqDomain.freqDomain(rr: rr))
-        }.value
+    private var personalBaselineSection: some View {
+        PersonalStressBaselineSection(enabled: $personalBaselineEnabled,
+                                      resolution: publishedStressKey == stressTaskKey ? personalBaseline : nil)
     }
 
     /// Recompute the cached `StressModel` only when (repo.days, storedSeries)
@@ -238,6 +241,8 @@ struct StressView: View {
                        : String(localized: "Showing the same-day stress signal; a daily score has not landed yet.")),
                 mode: .intradayOnly
             )
+            DrillInSeparator()
+            personalBaselineSection
             if day.sustainedHigh {
                 DrillInSeparator()
                 sustainedBreatheSection(day)
@@ -256,6 +261,8 @@ struct StressView: View {
     private func content(_ model: StressModel, mode: StressPresentationMode) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             stressHero(score: model.score, message: model.explanation, mode: mode)
+            DrillInSeparator()
+            personalBaselineSection
             // Only when the recent run stays in the HIGH band: a passive in-app nudge, never a notification.
             if let daytime, daytime.sustainedHigh {
                 DrillInSeparator()
@@ -302,7 +309,8 @@ struct StressView: View {
     /// Today's 24 hourly slots: a scored hour carries its 0-3 level, every other hour stays empty. The daily
     /// score never fabricates an hourly history.
     private var stressRibbonSlots: [Double?] {
-        StressTimelineSlots.map((daytime?.hours ?? []).map { ($0.hour, $0.level) })
+        guard publishedStressKey == stressTaskKey else { return Array(repeating: nil, count: 24) }
+        return StressTimelineSlots.map((daytime?.hours ?? []).map { ($0.hour, $0.level) })
     }
 
     /// The big sibling of Today's Stress module (see `StressHero`). The hour under the finger lives in that view, so
@@ -568,7 +576,11 @@ struct StressView: View {
     // MARK: Empty state
 
     private var baselineCalibrationState: some View {
-        ComingSoon(what: "Building your stress baseline. Wear your WHOOP overnight or import prior history.")
+        VStack(alignment: .leading, spacing: 0) {
+            ComingSoon(what: "Building your stress baseline. Wear your WHOOP overnight or import prior history.")
+            DrillInSeparator()
+            personalBaselineSection
+        }
     }
 
     /// Today has no scorable signal, though a baseline exists: the same hero with its honest empty ribbon.
@@ -580,6 +592,8 @@ struct StressView: View {
                 headline: String(localized: "No stress signal today"),
                 mode: .empty
             )
+            DrillInSeparator()
+            personalBaselineSection
             DrillInSeparator()
             methodologySection(nil)
         }
