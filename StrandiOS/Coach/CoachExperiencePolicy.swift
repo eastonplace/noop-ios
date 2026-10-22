@@ -10,7 +10,17 @@ enum CoachEvidencePlan: Equatable, Sendable {
 
 enum CoachEvidencePolicy {
     static let maximumDays = 31
-    static let rangeExplanation = "Coach can inspect up to 31 days per request. Choose a shorter period, or open Trends for longer history. Explicit dates must be valid and end today or earlier."
+    /// The journal association read is bounded on its own (4,096 records per source, at most 8 sources),
+    /// so it may look back further than other tools. Every other tool keeps `maximumDays`.
+    static let journalAssociationMaximumDays = 90
+    static let journalAssociationTool = "journal_associations"
+    /// The question behind every "Ask about patterns" action. It names the 90-day window the journal read allows.
+    static let journalPatternsPrompt = "What associations do my journal entries have with recovery over the last 90 days?"
+    static let rangeExplanation = "Coach can look at up to 31 days at a time. Try a shorter range."
+
+    static func maximumDays(for tool: String) -> Int {
+        tool == journalAssociationTool ? journalAssociationMaximumDays : maximumDays
+    }
 
     static func permitsPersonalRead(consent: Bool, recordsUpdating: Bool) -> Bool {
         consent && !recordsUpdating
@@ -26,33 +36,41 @@ enum CoachEvidencePolicy {
             || (words.contains("i") && !words.isDisjoint(with: ["sleep", "slept", "recover", "recovered", "train", "trained", "run", "ran"]))
         guard personal else { return .general }
 
-        let window = requestedWindow(in: text, now: now, calendar: calendar)
+        let tool = toolName(text: text, words: words)
+        let window = requestedWindow(in: text, now: now, calendar: calendar, maximum: maximumDays(for: tool))
         guard let days = window else { return .needsNarrowerRange }
-        let tool: String
-        if text.contains("how much history") || text.contains("data coverage") || text.contains("data freshness") {
-            tool = "data_freshness"
-        } else if text.contains("daily outlook") || text.contains("daily brief") || text.contains("plan today") {
+        if tool == "current_day", text.contains("daily outlook") || text.contains("daily brief") || text.contains("plan today") {
             return .read(tool: "current_day", days: 1)
-        } else if !words.isDisjoint(with: ["nutrition", "macros", "protein", "intake", "eaten", "food"]) {
-            tool = "nutrition"
-        } else if !words.isDisjoint(with: ["habits", "journal", "associations"]) {
-            tool = "journal_associations"
-        } else if text.contains("zones") {
-            tool = "workout_zones"
-        } else if text.contains("training load") || text.contains("overtraining") {
-            tool = "training_load"
-        } else if !words.isDisjoint(with: ["workout", "workouts", "training", "train", "trained", "activity", "sessions", "run", "runs", "ran", "lifting"]) {
-            tool = "workout_history"
-        } else if !words.isDisjoint(with: ["recovery", "hrv", "rhr", "strain", "trend", "trends"]) {
-            tool = words.contains("ready") || words.contains("readiness") ? "readiness" : "metric_trends"
-        } else if !words.isDisjoint(with: ["sleep", "slept", "sleeping", "nights"]) {
-            tool = "sleep_history"
-        } else if !words.isDisjoint(with: ["ready", "readiness"]) {
-            tool = "readiness"
-        } else {
-            tool = "current_day"
         }
         return .read(tool: tool, days: days)
+    }
+
+    private static func toolName(text: String, words: Set<String>) -> String {
+        if text.contains("how much history") || text.contains("data coverage") || text.contains("data freshness") {
+            return "data_freshness"
+        } else if text.contains("daily outlook") || text.contains("daily brief") || text.contains("plan today") {
+            return "current_day"
+        } else if text.contains("journal association") {
+            // A habit name in the follow-up ("Food after 8pm") must not steer it to another tool.
+            return journalAssociationTool
+        } else if !words.isDisjoint(with: ["nutrition", "macros", "protein", "intake", "eaten", "food"]) {
+            return "nutrition"
+        } else if !words.isDisjoint(with: ["habits", "journal", "associations"]) {
+            return journalAssociationTool
+        } else if text.contains("zones") {
+            return "workout_zones"
+        } else if text.contains("training load") || text.contains("overtraining") {
+            return "training_load"
+        } else if !words.isDisjoint(with: ["workout", "workouts", "training", "train", "trained", "activity", "sessions", "run", "runs", "ran", "lifting"]) {
+            return "workout_history"
+        } else if !words.isDisjoint(with: ["recovery", "hrv", "rhr", "strain", "trend", "trends"]) {
+            return words.contains("ready") || words.contains("readiness") ? "readiness" : "metric_trends"
+        } else if !words.isDisjoint(with: ["sleep", "slept", "sleeping", "nights"]) {
+            return "sleep_history"
+        } else if !words.isDisjoint(with: ["ready", "readiness"]) {
+            return "readiness"
+        }
+        return "current_day"
     }
 
     /// Place explicit civil dates before the filter so the engine's byte cap cannot remove them.
@@ -72,7 +90,7 @@ enum CoachEvidencePolicy {
         if lower.contains("yesterday") && !lower.contains("today") {
             end = calendar.date(byAdding: .day, value: -1, to: end) ?? end
         }
-        var start = calendar.date(byAdding: .day, value: 1 - min(maximumDays, max(1, days)), to: end) ?? end
+        var start = calendar.date(byAdding: .day, value: 1 - min(journalAssociationMaximumDays, max(1, days)), to: end) ?? end
         if let period = relativeCalendarWindow(in: lower, now: now, calendar: calendar) {
             start = period.lowerBound
             end = period.upperBound
@@ -87,7 +105,7 @@ enum CoachEvidencePolicy {
     }
 
     /// Explicit ranges are checked before a store query. A large or invalid range never quietly becomes "recent".
-    private static func requestedWindow(in rawText: String, now: Date, calendar: Calendar) -> Int? {
+    private static func requestedWindow(in rawText: String, now: Date, calendar: Calendar, maximum: Int) -> Int? {
         // An age ("I'm 40 years old") is a personal detail, not a read window.
         let agePattern = #"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*-?\s*(?:years?|yrs?)\s*-?\s*(?:old|of age|young)\b"#
         let text = rawText.replacingOccurrences(of: agePattern, with: " ", options: .regularExpression)
@@ -105,8 +123,8 @@ enum CoachEvidencePolicy {
             }
             guard dates.count == dateStrings.count, let first = dates.first, let last = dates.last,
                   first <= last, last <= calendar.startOfDay(for: now) else { return nil }
-            let count = (calendar.dateComponents([.day], from: first, to: last).day ?? maximumDays) + 1
-            return (1...maximumDays).contains(count) ? count : nil
+            let count = (calendar.dateComponents([.day], from: first, to: last).day ?? maximum) + 1
+            return (1...maximum).contains(count) ? count : nil
         }
         let durationPattern = #"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*(days?|weeks?|months?|years?)\b"#
         let numberWords = ["one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -116,25 +134,25 @@ enum CoachEvidencePolicy {
             var windows: [Int] = []
             for groups in durations {
                 guard groups.count == 3, let number = Int(groups[1]) ?? numberWords[groups[1]],
-                      (1...maximumDays).contains(number) else { return nil }
+                      (1...maximum).contains(number) else { return nil }
                 let multiplier = groups[2].hasPrefix("week") ? 7 : groups[2].hasPrefix("month") ? 31 : groups[2].hasPrefix("year") ? 365 : 1
                 let days = number * multiplier
-                guard days <= maximumDays else { return nil }
+                guard days <= maximum else { return nil }
                 windows.append(days)
             }
             let comparesPrior = (text.contains("compar") || text.contains("versus"))
                 && (text.contains("previous") || text.contains("prior"))
             let count = comparesPrior ? (windows.count > 1 ? windows.reduce(0, +) : (windows.first ?? 1) * 2)
                 : windows.max() ?? 1
-            return count <= maximumDays ? count : nil
+            return count <= maximum ? count : nil
         }
         if text.contains("year") || text.contains("all time") || text.contains("all my history")
             || text.contains("months") || text.contains("quarter") { return nil }
         if let period = relativeCalendarWindow(in: text, now: now, calendar: calendar) {
-            let count = (calendar.dateComponents([.day], from: period.lowerBound, to: period.upperBound).day ?? maximumDays) + 1
-            return (1...maximumDays).contains(count) ? count : nil
+            let count = (calendar.dateComponents([.day], from: period.lowerBound, to: period.upperBound).day ?? maximum) + 1
+            return (1...maximum).contains(count) ? count : nil
         }
-        if text.contains("month") { return 31 }
+        if text.contains("month") { return min(31, maximum) }
         if text.contains("week") { return text.contains("compar") || text.contains("versus") ? 14 : 7 }
         if text.contains("today") && text.contains("yesterday") { return 2 }
         if text.contains("today") || text.contains("yesterday") || text.contains("last night") { return 1 }

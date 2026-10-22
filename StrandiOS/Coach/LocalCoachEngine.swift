@@ -722,7 +722,8 @@ final class LocalCoachEngine: ObservableObject {
         guard let data, data.toolDescriptors.contains(where: { $0.id == name }) else { throw LocalCoachFailure.unknownTool }
         guard readCount < 3 else { throw LocalCoachFailure.toolBudget }
         readCount += 1
-        publishProgress(.reading(tool: name, days: min(31, max(1, days))), token: token)
+        let boundedDays = min(CoachEvidencePolicy.maximumDays(for: name), max(1, days))
+        publishProgress(.reading(tool: name, days: boundedDays), token: token)
         runningTools[name, default: 0] += 1
         activeTools = runningTools.keys.sorted()
         if let index = messages.firstIndex(where: { $0.id == assistantID }), !messages[index].toolNames.contains(name) {
@@ -735,7 +736,7 @@ final class LocalCoachEngine: ObservableObject {
                 activeTools = runningTools.keys.sorted()
             }
         }
-        let result = try await data.query(name, query: LocalCoachText.bounded(query, bytes: 240), days: min(31, max(1, days)))
+        let result = try await data.query(name, query: LocalCoachText.bounded(query, bytes: 240), days: boundedDays)
         try requireCurrent(token, scope: captured, personal: personal)
         let evidence = Array(result.evidence.prefix(24)).map { value in
             var value = value

@@ -648,7 +648,7 @@ struct LocalCoachView: View {
         }
     }
 
-    private func askAboutJournal(_ question: String = "What associations do my journal entries have with recovery over the last 90 days?") {
+    private func askAboutJournal(_ question: String = CoachEvidencePolicy.journalPatternsPrompt) {
         guard !coach.isPreview else { return }
         guard coach.preferences.enabled, coach.preferences.usePersonalData else { showSettings = true; return }
         submit(question)
