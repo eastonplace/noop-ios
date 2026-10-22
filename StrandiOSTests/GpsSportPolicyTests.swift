@@ -69,6 +69,34 @@ final class GpsSportPolicyTests: XCTestCase {
         }
     }
 
+    func testSnowAllowsFastDescentThatExceedsCyclingCeiling() throws {
+        let (snow, snowManager) = try recorder(policy: "snow")
+        let (cycling, cyclingManager) = try recorder(policy: "cycling")
+        defer { snow.stop(); cycling.stop() }
+        let fixes = [location(meters: 0, second: 0), location(meters: 35, second: 1)]
+        deliver(snow, snowManager, fixes)
+        deliver(cycling, cyclingManager, fixes)
+        XCTAssertEqual(snow.distanceM, 35, accuracy: 0.01)
+        XCTAssertEqual(cycling.distanceM, 0)
+    }
+
+    func testAbruptPreciseAccelerationIsRejectedBelowSpeedCeiling() throws {
+        let (recorder, manager) = try recorder(policy: "standard")
+        defer { recorder.stop() }
+        deliver(recorder, manager, [location(meters: 0, second: 0, accuracy: 0.1),
+                                    location(meters: 2, second: 1, accuracy: 0.1),
+                                    location(meters: 13, second: 2, accuracy: 0.1),
+                                    location(meters: 6, second: 3, accuracy: 0.1)])
+        XCTAssertEqual(recorder.pointCount, 3)
+        XCTAssertEqual(recorder.distanceM, 6, accuracy: 0.01)
+    }
+
+    func testNonFiniteAccuracyCannotSeedFilter() {
+        let filter = TrackFilter()
+        XCTAssertNil(filter.accept(RawFix(lat: 0, lon: 0, accuracyM: .nan, tMs: startMs)))
+        XCTAssertNil(filter.accept(RawFix(lat: 0, lon: 0, accuracyM: .infinity, tMs: startMs)))
+    }
+
     func testStandardPolicyStillRejectsFifteenMetersPerSecond() throws {
         let (recorder, manager) = try recorder(policy: "standard")
         defer { recorder.stop() }
