@@ -81,15 +81,27 @@ final class ReadSpineActiveDeviceTests: XCTestCase {
         XCTAssertTrue(samples.contains { $0.bpm == 50 }, "the canonical history must NOT be orphaned by the re-add")
     }
 
-    /// Adopting an EMPTY or UNCHANGED id is a no-op (single-device install: active id stays "my-whoop"),
-    /// so the default path is byte-identical to the pre-#814 behaviour (the union collapses to one id).
+    /// Empty ids cannot activate a live source. Once the canonical source is explicitly active, adopting
+    /// its unchanged id is a no-op and the single-device read union stays on "my-whoop".
     @MainActor
     func testAdoptIsNoOpForEmptyOrUnchangedId() async throws {
+        let store = try await WhoopStore.inMemory()
         let repo = Repository(deviceId: canonicalId)
+        repo.setStoreForTesting(store)
+        // A seeded read namespace is distinct from an admitted live owner. The first explicit adoption
+        // establishes that owner even when its id equals the canonical read namespace.
+        XCTAssertEqual(repo.liveSourceState, .none)
+        XCTAssertFalse(repo.adoptActiveDeviceId(""), "empty id must not activate a live source")
+        XCTAssertFalse(repo.adoptActiveDeviceId("   "), "whitespace must not activate a live source")
+        XCTAssertEqual(repo.liveSourceState, .none)
+        XCTAssertTrue(repo.adoptActiveDeviceId(canonicalId), "first adoption must establish live ownership")
+        XCTAssertEqual(repo.liveSourceState.id, canonicalId)
+        let activatedState = repo.liveSourceState
         XCTAssertFalse(repo.adoptActiveDeviceId(canonicalId), "same id must not move")
         XCTAssertFalse(repo.adoptActiveDeviceId(""), "empty id must not move")
         XCTAssertFalse(repo.adoptActiveDeviceId("   "), "whitespace-only id must not move")
         XCTAssertEqual(repo.deviceId, canonicalId)
+        XCTAssertEqual(repo.liveSourceState, activatedState, "no-op adoption must preserve the source fence")
     }
 
     /// The computed ("-noop") sibling: the union reads BOTH the active strap's computed sibling AND the

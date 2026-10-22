@@ -1087,7 +1087,8 @@
       "destination": "StrandiOSTests/LiveStateDomainTagTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP; preserve existing assertions.",
+        "Preserve all four exact tag/redaction/untagged strings; publish the accepted pending log lines before inspecting the batched LiveState.log."
       ]
     },
     {
@@ -1177,7 +1178,8 @@
       "destination": "StrandiOSTests/ReadSpineActiveDeviceTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP; preserve existing assertions.",
+        "The constructor now seeds only a read namespace while liveSourceState remains none. Make initial canonical ownership activation explicit with an isolated in-memory store, then retain all unchanged/empty/whitespace no-op assertions. Also prove invalid ids cannot activate none and later no-ops preserve the admitted source fence."
       ]
     },
     {

@@ -9,6 +9,7 @@ final class LiveStateDomainTagTests: XCTestCase {
     func testNilDomainLeavesLineUntagged() {
         let live = LiveState()
         live.append(log: "connected ok")
+        live.publishPendingLog() // Tagging/redaction precede the batched publication boundary.
         XCTAssertEqual(live.log.last, "connected ok")
     }
 
@@ -16,6 +17,7 @@ final class LiveStateDomainTagTests: XCTestCase {
     func testDomainPrefixesCompactMarker() {
         let live = LiveState()
         live.append(log: "gate run kept", domain: .sleep)
+        live.publishPendingLog() // Tagging/redaction precede the batched publication boundary.
         XCTAssertEqual(live.log.last, "[sleep] gate run kept")
     }
 
@@ -23,6 +25,7 @@ final class LiveStateDomainTagTests: XCTestCase {
     func testDataImportUsesWireId() {
         let live = LiveState()
         live.append(log: "parsed 10 rows", domain: .dataImport)
+        live.publishPendingLog() // Tagging/redaction precede the batched publication boundary.
         XCTAssertEqual(live.log.last, "[import] parsed 10 rows")
     }
 
@@ -31,6 +34,7 @@ final class LiveStateDomainTagTests: XCTestCase {
     func testRedactionRunsAfterTagging() {
         let live = LiveState()
         live.append(log: "saw WHOOP 4C1594026 advertise", domain: .connection)
+        live.publishPendingLog() // Tagging/redaction precede the batched publication boundary.
         XCTAssertEqual(live.log.last, "[connection] saw WHOOP <serial> advertise")
     }
 }
