@@ -39,6 +39,22 @@ final class WearableImportPersistenceTests: XCTestCase {
         }
     }
 
+    func testFitbitMalformedEventCannotReplaceBankedStepsWithAPartialTotal() async throws {
+        for invalid in ["1e300", "false"] {
+            let store = try await WhoopStore.inMemory()
+            let rhr = "[{\"dateTime\":\"2026-06-01\",\"value\":{\"value\":48}}]"
+            try await importNamedFiles([
+                "steps-2026.json": "[{\"dateTime\":\"2026-06-01\",\"value\":8421}]",
+                "resting_heart_rate-2026.json": rhr
+            ], into: store)
+            try await importNamedFiles([
+                "steps-2026.json": "[{\"dateTime\":\"2026-06-01\",\"value\":10},{\"dateTime\":\"2026-06-01\",\"value\":\(invalid)}]",
+                "resting_heart_rate-2026.json": rhr
+            ], into: store)
+            try await assertStepProjections(store, source: "fitbit-import", expected: 8421)
+        }
+    }
+
     func testGarminObservedZeroReplacesStepsWhileAbsentOrInvalidCountsPreservePriorProjections() async throws {
         let store = try await WhoopStore.inMemory()
         for field in [",\"steps\":8421", "", ",\"steps\":-1", ",\"steps\":\"nan\"", ",\"steps\":\"inf\"", ",\"steps\":\"1e300\"", ",\"steps\":0"] {
