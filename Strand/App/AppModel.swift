@@ -3168,6 +3168,10 @@ final class AppModel: ObservableObject {
     /// (the SourceCoordinator reacts to the active-device change and connects). No-op if the registry
     /// hasn't been wired yet (pre store-open) , the wizard is only reachable once it has.
     func registerDevice(_ device: PairedDevice, makeActive: Bool) {
+        guard LiveDeviceEnrollmentPolicy.permits(device) else {
+            live.append(log: "Device registration rejected: only WHOOP enrollment is supported.")
+            return
+        }
         guard deviceRegistry != nil else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }

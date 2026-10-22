@@ -5,19 +5,16 @@ import OuraProtocol
 
 // MARK: - Add a device — guided, branching wizard
 //
-// Different bands pair COMPLETELY differently, so this wizard asks the device TYPE first, then gives
-// type-specific prep guidance and runs the RIGHT scan/connect for that type:
+// New live enrollment offers WHOOP 4.0 and WHOOP 5.0/MG. The retained non-WHOOP cases and helpers keep
+// existing source compatibility separate from this enrollment boundary.
 //
 //   • WHOOP 4.0 / WHOOP 5.0 (MG)  → BLEManager's present-scan (`scanForWhoops`), targeted at the
 //     chosen WHOOP family via `model.presentWhoopScan(model:)`. Lists nearby straps from
 //     `ble.discoveredWhoops` (a present-only mode that never auto-connects).
-//   • Heart-rate strap (Polar / Wahoo / Coospo / Garmin HRM / Amazfit Helio broadcast) → its OWN
-//     isolated `StandardHRSource` scanning the standard 0x180D HR service. Lists from `discovered`.
-//
 // Registration goes through `model.registerDevice(_:makeActive:)` → DeviceRegistry; the
 // SourceCoordinator reacts to the active-device change and connects. The wizard never touches
 // BLEManager directly — only the AppModel pass-throughs. WHOOP-FIRST: WHOOP is the primary band; the
-// type list shows it first and a footer reiterates it. Renders cleanly with nothing nearby (the type
+// type list offers the two WHOOP families and a footer reiterates it. Renders cleanly with nothing nearby (the type
 // picker, every prep step, and the searching/empty pick state all need no hardware).
 
 struct AddDeviceWizard: View {
@@ -126,13 +123,13 @@ struct AddDeviceWizard: View {
     @StateObject private var ouraScanner: OuraLiveSource
 
     /// - Parameter startAt: DEBUG-only deep-link into a specific (type, step) so a seeded simulator build
-    ///   can screenshot one wizard step deterministically (e.g. the Oura onboarding gate) without tapping
+    ///   can screenshot one WHOOP wizard step deterministically without tapping
     ///   through. nil in production: the wizard starts on the type list. Pre-seeds the `@State` so the first
     ///   render is already on that step.
     init(live: LiveState, onClose: @escaping () -> Void,
          startAt: (type: DeviceType, step: Step)? = nil) {
         self.onClose = onClose
-        if let startAt {
+        if let startAt, startAt.type.isWhoop {
             _type = State(initialValue: startAt.type)
             _step = State(initialValue: startAt.step)
         }
@@ -283,32 +280,7 @@ struct AddDeviceWizard: View {
             typeRow(.whoop4, icon: "applewatch.side.right",
                     title: "WHOOP 4.0",
                     subtitle: String(localized: "NOOP's primary, fully-supported band"))
-            typeRow(.hrStrap, icon: "heart.circle",
-                    title: String(localized: "Heart-rate strap"),
-                    subtitle: String(localized: "Polar, Wahoo, Coospo, Garmin HRM, Amazfit Helio broadcast"))
-            typeRow(.gymEquipment, icon: "figure.run.treadmill",
-                    title: String(localized: "Gym equipment"),
-                    subtitle: String(localized: "Treadmill, indoor bike, rower or cross-trainer (Bluetooth FTMS)"))
-
-            // EXPERIMENTAL tier — clearly labelled, opt-in, best-effort. Each is honest about what it can
-            // actually read; none fabricates data.
-            Text("Experimental").strandOverline().padding(.top, 8)
-            experimentalTierNote
-            typeRow(.oura, icon: "circle.circle",
-                    title: String(localized: "Oura ring"),
-                    subtitle: String(localized: "Take over your ring locally. Beta. This replaces the Oura app."))
-            typeRow(.amazfit, icon: "waveform.path.ecg.rectangle",
-                    title: "Amazfit / Zepp",
-                    subtitle: String(localized: "Incl. Helio. Live heart rate where the band exposes it. Help us test."))
-            typeRow(.miBand, icon: "waveform.path.ecg",
-                    title: "Xiaomi Mi Band",
-                    subtitle: String(localized: "Live heart rate on bands that don't need pairing. Help us test."))
-            typeRow(.garmin, icon: "applewatch",
-                    title: String(localized: "Garmin watch"),
-                    subtitle: String(localized: "Uses the watch's Broadcast Heart Rate. We'll show you how."))
-
             whoopFirstNote
-            NoteCard("Some integrations are in beta. Features may change.", style: .info)
         }
     }
 
@@ -1370,7 +1342,7 @@ struct AddDeviceWizard: View {
             Image(systemName: "info.circle")
                 .foregroundStyle(StrandPalette.textTertiary)
                 .accessibilityHidden(true)
-            Text("WHOOP is NOOP's primary, fully-supported band. Other heart-rate straps stream live heart rate and HRV, but not WHOOP's deeper sleep and recovery data.")
+            Text(verbatim: "WHOOP 4.0 · WHOOP 5.0 · WHOOP MG")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
