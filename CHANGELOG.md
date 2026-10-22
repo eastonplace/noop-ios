@@ -35,6 +35,8 @@ Staged combined release. Phone installation and publication remain on hold until
 
 CI work in PR76 removes duplicate package testing and selects checks by change type. It changes developer validation, not app behavior. Prior 1.8.x release history remains below.
 
+- **Strap alarm confirmation (#69):** ordered WHOOP 4 writes and current-request readback confirm the wake time; missing confirmation ends with an explicit status.
+
 ## 1.8.1
 
 October 2026: Steadier readings and scores.
