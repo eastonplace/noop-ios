@@ -49,22 +49,31 @@ The unchanged production baseline compiled with Xcode 27.1 (27A9275).
 - WHOOP protocol: 520 tests passed, including nine new Broadcast and ordered-loss
   cases. Legacy framing output, fragment isolation, and existing diagnostics
   remain covered.
-- First focused app run: 46 cases executed. HR, source transition, Collector,
-  and historical receipt suites passed. The malformed-preference case exposed
-  Foundation's numeric-to-Bool bridging for 0, 1, and 1.0. The candidate requires
-  a real persisted Boolean instead.
-- Independent review identified the physical-clock ownership gap and numeric
-  preference issue. Both now have dedicated regressions and fixes. The final
-  source re-review found no blocking issues.
+- Affected native app suites: 51 tests passed on an isolated iOS Simulator.
+  These cover historical receipts (28), Collector ownership and partial retries
+  (10), incoming heart rate (4), source transitions and rollback (4), explicit
+  persisted Boolean preferences (4), and physical clock ownership policy (1).
+  Numeric preferences such as 0, 1, and 1.0 cannot become a device-write choice.
+- Independent source re-review found no blocking issues, including physical
+  clock fencing, strict Boolean replay, COMPLETE after loss, and retries after
+  an earlier owner has already committed.
 - WHOOP persistence: 635 tests passed. The default Swift build engine could not
   sign generated bundles with iCloud Finder metadata. The same package passed
   using the native SwiftPM engine with its scratch directory outside iCloud.
 - Final source audits and extracted-SQL checks passed. Isolated capture and QA
   pytest: 161 passed, one real-database integration case excluded.
-- The full app compiles. Its native unit run has passed the Collector ownership
-  and history receipt suites, but existing background-grant cancellation cases
-  have timed out. Full native qualification remains open while those failures
-  are diagnosed on an isolated Simulator. This is not a green full-suite claim.
+- All eight hosted Swift package checks and hosted source audits passed for
+  the initial draft head. Its native workflow was cancelled to prioritize the
+  requested PR #66/#67 merge checks; it must run again on the integrated base.
+- The full app compiles. The broad local native run ended with 493 passing
+  entries and six failure entries: four existing background-grant cancellation
+  cases, a killed test, and a test-host error. It did not finish the full suite.
+  A sample placed cancelled tasks inside XCTest's Swift error observer; that
+  does not establish a product root cause. The isolated cancellation suite
+  passed 18 of 20 cases; the two cancelled-sleep cases still timed out. Both
+  source and tests are byte-identical to main. A separate test host is being
+  used to distinguish framework behavior from full-app startup effects.
+  No full-suite pass is claimed.
 
 ## Remaining qualification
 
