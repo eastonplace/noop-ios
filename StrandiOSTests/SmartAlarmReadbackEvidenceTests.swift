@@ -390,6 +390,71 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
         }
     }
 
+    func testSameSourceEndpointRearmPreservesAttemptWithoutInheritingFailedReadback() throws {
+        try withEvidence {
+            SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
+            report(epoch: 0)
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+            let endpoint = wakeAt.addingTimeInterval(60)
+            let request = SmartAlarmReadbackRequest(id: UUID(), sourceID: "strap-A",
+                targetEpoch: Int(endpoint.timeIntervalSince1970), sentAt: sentAt.addingTimeInterval(3))
+            SmartAlarmEvidenceStore.beginReadback(request)
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .endpointArmed,
+                evaluatedAt: request.sentAt, endpoint: endpoint))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(4))
+            let evidence = SmartAlarmEvidenceStore.latest
+            XCTAssertEqual(try persistedEarlyWakeAttempted(), true)
+            XCTAssertEqual(evidence?.armRequestID, request.id.uuidString)
+            XCTAssertEqual(evidence?.armSourceID, "strap-A")
+            XCTAssertEqual(evidence?.armSentAt, request.sentAt)
+            XCTAssertEqual(evidence?.requestedWakeAt, endpoint)
+            XCTAssertEqual(evidence?.actuation, .endpointArmed)
+            XCTAssertEqual(evidence?.readbackStatus, .pending)
+            XCTAssertNil(evidence?.strapReportedArmedAt)
+        }
+    }
+
+    func testSameSourceEndpointRearmDoesNotInheritEarlierConfirmation() throws {
+        try withEvidence {
+            SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
+            report(epoch: 1_792_666_800)
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+            let endpoint = wakeAt.addingTimeInterval(60)
+            let request = SmartAlarmReadbackRequest(id: UUID(), sourceID: "strap-A",
+                targetEpoch: Int(endpoint.timeIntervalSince1970), sentAt: sentAt.addingTimeInterval(3))
+            SmartAlarmEvidenceStore.beginReadback(request)
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .endpointArmed,
+                evaluatedAt: request.sentAt, endpoint: endpoint))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(4))
+            XCTAssertEqual(try persistedEarlyWakeAttempted(), true)
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.armRequestID, request.id.uuidString)
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.readbackStatus, .pending)
+            XCTAssertNil(SmartAlarmEvidenceStore.latest?.strapReportedArmedAt)
+        }
+    }
+
+    func testNewSourceEndpointRearmDoesNotInheritEarlierWakeAttempt() throws {
+        try withEvidence {
+            SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
+            report(epoch: 0)
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+            let endpoint = wakeAt.addingTimeInterval(60)
+            let request = SmartAlarmReadbackRequest(id: UUID(), sourceID: "strap-B",
+                targetEpoch: Int(endpoint.timeIntervalSince1970), sentAt: sentAt.addingTimeInterval(3))
+            SmartAlarmEvidenceStore.beginReadback(request)
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .endpointArmed,
+                evaluatedAt: request.sentAt, endpoint: endpoint))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(4))
+            XCTAssertNotEqual(try persistedEarlyWakeAttempted(), true)
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.armRequestID, request.id.uuidString)
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.armSourceID, "strap-B")
+            XCTAssertNil(SmartAlarmEvidenceStore.latest?.strapReportedArmedAt)
+        }
+    }
+
     #if os(iOS)
     private func nativeReadbackFrame(origin: UInt8, epoch: UInt32) -> [UInt8] {
         let payload: [UInt8] = [0x01, epoch == 0 ? 0 : 1, UInt8(truncatingIfNeeded: epoch),
