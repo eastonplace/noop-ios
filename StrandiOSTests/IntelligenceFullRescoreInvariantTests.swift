@@ -1376,6 +1376,134 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    func testIdleTimeFillDoesNotTurnEverySameHourTickIntoAnotherPass() async throws {
+        let harness = try await makeHarness(days: 8, whoop4: true)
+        let offWristStart = firstDayStart + 7 * 86_400 + 18 * 3_600
+        try await harness.store.registryWriter.write { db in
+            try db.execute(sql: "DELETE FROM hrSample WHERE ts >= ?", arguments: [offWristStart])
+            try db.execute(sql: "DELETE FROM gravitySample WHERE ts >= ?", arguments: [offWristStart])
+        }
+        for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+        func tick(_ seconds: TimeInterval) async -> Bool {
+            await harness.engine.analyzeRecent(
+                maxDays: 3, force: false, refreshRepository: false,
+                analysisReference: harness.reference.addingTimeInterval(seconds), analysisCalendar: utcCalendar)
+        }
+        let stable = await tick(0)
+        XCTAssertFalse(stable, "the real scored fixture must first reach an unchanged idle state")
+        let nextHour = await tick(3_601)
+        let firstSameHourTick = await tick(3_661)
+        let secondSameHourTick = await tick(3_721)
+        XCTAssertTrue(nextHour)
+        XCTAssertFalse(firstSameHourTick, "own hourly fill output must not wake the next same-hour idle tick")
+        XCTAssertFalse(secondSameHourTick, "own time-fill writes must not create a perpetual idle loop")
+    }
+
+    func testConcurrentFallbackWritesBeforeBetweenAndAfterOwnedOutputsWakeTheNextIdlePass() async throws {
+        for table in ["dailyMetric", "metricSeries"] {
+            for boundary in ["beforeDaily", "afterDaily", "afterFill"] {
+                let harness = try await makeHarness(days: 8)
+                let offWristStart = firstDayStart + 7 * 86_400 + 18 * 3_600
+                try await harness.store.registryWriter.write { db in
+                    try db.execute(sql: "DELETE FROM hrSample WHERE ts>=?", arguments: [offWristStart])
+                    try db.execute(sql: "DELETE FROM gravitySample WHERE ts>=?", arguments: [offWristStart])
+                }
+                for _ in 0..<3 { _ = await pass(harness, maxDays: 8) }
+                for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+                let unchanged = await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: harness.reference, analysisCalendar: utcCalendar)
+                XCTAssertFalse(unchanged, "the concurrent-output control must first reach stable idle")
+                let start = harness.reference.addingTimeInterval(3_601)
+                let fallbackDay = harness.dayKeys[1]
+                let nightlySkinKey = IntelligenceEngine.nightlySkinMetricKey
+                var mutationCount = 0
+                harness.engine.analysisOutputBoundaryForTesting = { stage in
+                    guard stage == boundary, mutationCount == 0 else { return }
+                    do {
+                        mutationCount = try await harness.store.registryWriter.write { [computedID = harness.computedId] db in
+                            if table == "dailyMetric" {
+                                try db.execute(sql: "UPDATE dailyMetric SET avgHrv=COALESCE(avgHrv,10)+25 WHERE deviceId=? AND day=?",
+                                               arguments: [computedID, fallbackDay])
+                            } else {
+                                try db.execute(sql: "UPDATE metricSeries SET value=value+1 WHERE deviceId=? AND day=? AND key=?",
+                                               arguments: [computedID, fallbackDay, nightlySkinKey])
+                            }
+                            return db.changesCount
+                        }
+                    } catch { XCTFail("fixture mutation failed: \(error)") }
+                }
+                let completed = await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: start, analysisCalendar: utcCalendar)
+                harness.engine.analysisOutputBoundaryForTesting = nil
+                XCTAssertTrue(completed)
+                XCTAssertEqual(mutationCount, 1, "\(table) at \(boundary) must change a real persisted fallback input")
+                let repaired = await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: start, analysisCalendar: utcCalendar)
+                XCTAssertTrue(repaired, "unowned \(table) at \(boundary) must not be acknowledged by own output receipts")
+                let reusedRows = try await stored(harness)
+                let repository = Repository(deviceId: Repository.whoopSource)
+                repository.setStoreForTesting(harness.store)
+                let fresh = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+                let coldCompleted = await fresh.analyzeRecent(
+                    maxDays: 3, force: true, refreshRepository: false,
+                    analysisReference: start, analysisCalendar: utcCalendar)
+                XCTAssertTrue(coldCompleted)
+                let coldRows = try await stored(harness)
+                XCTAssertEqual(reusedRows, coldRows, "repaired idle pass must agree with a cold engine")
+            }
+        }
+    }
+
+    func testCancelledOwnedOutputReceiptsDoNotSuppressTheRetry() async throws {
+        for boundary in ["afterDaily", "afterFill"] {
+            let harness = try await makeHarness(days: 8, whoop4: true)
+            let offWristStart = firstDayStart + 7 * 86_400 + 18 * 3_600
+            try await harness.store.registryWriter.write { db in
+                try db.execute(sql: "DELETE FROM hrSample WHERE ts>=?", arguments: [offWristStart])
+                try db.execute(sql: "DELETE FROM gravitySample WHERE ts>=?", arguments: [offWristStart])
+            }
+            for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+            final class TaskBox { var task: Task<Bool, Never>? }
+            let box = TaskBox()
+            harness.engine.analysisOutputBoundaryForTesting = { stage in
+                if stage == boundary { box.task?.cancel() }
+            }
+            let reference = harness.reference.addingTimeInterval(3_601)
+            box.task = Task { @MainActor in
+                await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: reference, analysisCalendar: utcCalendar)
+            }
+            let completed = await box.task!.value
+            harness.engine.analysisOutputBoundaryForTesting = nil
+            XCTAssertFalse(completed)
+            XCTAssertTrue(box.task!.isCancelled)
+            let retried = await harness.engine.analyzeRecent(
+                maxDays: 3, force: false, refreshRepository: false,
+                analysisReference: reference, analysisCalendar: utcCalendar)
+            XCTAssertTrue(retried, "a cancelled \(boundary) pass cannot publish its output acknowledgment")
+        }
+    }
+
+    func testChangedBaselineOutputsStillRequireAnIdleSettlingPass() async throws {
+        let harness = try await makeHarness(days: 8)
+        for _ in 0..<3 { _ = await pass(harness, maxDays: 8) }
+        let nightStart = firstDayStart + 7 * 86_400
+        try await harness.store.registryWriter.write { db in
+            try db.execute(sql: "UPDATE skinTempSample SET raw=raw+100 WHERE ts>=? AND ts<?",
+                           arguments: [nightStart, nightStart + 6 * 3_600])
+        }
+        let rescored = await pass(harness, maxDays: 8)
+        XCTAssertTrue(rescored)
+        let settled = await harness.engine.analyzeRecent(
+            maxDays: 8, force: false, refreshRepository: false,
+            analysisReference: harness.reference, analysisCalendar: utcCalendar)
+        XCTAssertTrue(settled, "changed skin/baseline output is an input to the next pass, not terminal calorie fill")
+    }
+
     /// A grant that is cancelled mid-chunk (the app came back to the foreground) stops at the next checkpoint, reports
     /// the chunk as not done and leaves the durable cursor where it was. Replaying the migration afterwards lands on
     /// exactly the rows an uninterrupted run stores.
