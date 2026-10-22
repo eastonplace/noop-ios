@@ -432,6 +432,22 @@ enum AppleDemoSeeder {
                 _ = try await store.insert(Streams(hr: hrs, rr: rrs), deviceId: whoop)
             }
         }
+        // The "Compare to my normal" stress option learns from daytime heart rate, which needs 10-second samples
+        // (the minute-level history above is too sparse to cover an hour). Bank 09:00-17:00 on the five days
+        // before today so the baseline reads as established in screenshots.
+        var priorDaytimeHR: [HRSample] = []
+        for daysBack in 1...5 {
+            guard let day = cal.date(byAdding: .day, value: -daysBack, to: cal.startOfDay(for: Date())) else { continue }
+            let dayStart = Int(cal.startOfDay(for: day).timeIntervalSince1970)
+            var t = dayStart + 9 * 3600
+            while t < dayStart + 17 * 3600 {
+                let hourOfDay = Double(t - dayStart) / 3600.0
+                let arc = 64.0 + 6.0 * sin((hourOfDay - 9.0) / 8.0 * .pi)
+                priorDaytimeHR.append(HRSample(ts: t, bpm: Int((arc + gauss(&rng, 0, 2.5)).clamped(48, 120).rounded())))
+                t += 10
+            }
+        }
+        if !priorDaytimeHR.isEmpty { _ = try await store.insert(Streams(hr: priorDaytimeHR), deviceId: whoop) }
         _ = try await store.upsertDailyMetrics(daily, deviceId: whoop)
         if let scenario = StrainDemoScenario.requested,
            let today = daily.last?.day {
