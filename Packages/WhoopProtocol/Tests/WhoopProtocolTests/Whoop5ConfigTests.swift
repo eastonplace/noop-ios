@@ -82,4 +82,43 @@ final class Whoop5ConfigTests: XCTestCase {
         XCTAssertEqual(body[32], 0x31, "value byte should be ASCII '1'")
         XCTAssertEqual(Whoop5Config.deviceConfigBody(name: "whoop_live_hr_in_adv_ind_pkt", value: 0x30)[32], 0x30)
     }
+
+    func testBroadcastDisableRemainsAllowedAfterPreferenceTurnsOff() {
+        let payload = [UInt8(0x01)] + Whoop5Config.deviceConfigBody(
+            name: "whoop_live_hr_in_adv_ind_pkt", value: 0x30)
+        XCTAssertTrue(Whoop5Config.allowsBroadcastHrWrite(payload: payload, enabledInPreferences: false))
+        XCTAssertTrue(Whoop5Config.allowsBroadcastHrWrite(payload: payload, enabledInPreferences: true))
+    }
+
+    func testBroadcastEnableRequiresPreference() {
+        let payload = [UInt8(0x01)] + Whoop5Config.deviceConfigBody(
+            name: "whoop_live_hr_in_adv_ind_pkt", value: 0x31)
+        XCTAssertFalse(Whoop5Config.allowsBroadcastHrWrite(payload: payload, enabledInPreferences: false))
+        XCTAssertTrue(Whoop5Config.allowsBroadcastHrWrite(payload: payload, enabledInPreferences: true))
+    }
+
+    func testBroadcastAllowanceDoesNotAuthorizeOtherConfigurationKeys() {
+        let payload = [UInt8(0x01)] + Whoop5Config.deviceConfigBody(name: "other_config", value: 0x30)
+        for enabled in [false, true] {
+            XCTAssertFalse(Whoop5Config.allowsBroadcastHrWrite(payload: payload, enabledInPreferences: enabled))
+        }
+    }
+
+    func testBroadcastAllowanceRejectsMalformedOrUnsupportedPayloads() {
+        let disable = [UInt8(0x01)] + Whoop5Config.deviceConfigBody(
+            name: "whoop_live_hr_in_adv_ind_pkt", value: 0x30)
+        var wrongPrefix = disable
+        wrongPrefix[0] = 0
+        var wrongPadding = disable
+        wrongPadding[32] = 1
+        var wrongValue = disable
+        wrongValue[33] = 0x32
+        let malformed: [[UInt8]] = [[], Array(disable.dropLast()), disable + [0],
+                                    wrongPrefix, wrongPadding, wrongValue]
+        for payload in malformed {
+            for enabled in [false, true] {
+                XCTAssertFalse(Whoop5Config.allowsBroadcastHrWrite(payload: payload, enabledInPreferences: enabled))
+            }
+        }
+    }
 }

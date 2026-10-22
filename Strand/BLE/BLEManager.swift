@@ -1169,6 +1169,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// silently un-pause the give-up and re-run the full refusal hammer, forever, one burst per event
     /// (#78 hole-2; Android's onBluetoothRadioOn always had the correct one-attempt-latched shape).
     public func connect(model: WhoopModel = .persisted) {
+        // Only an explicit connection request may undo Disconnect/Forget or a source transition's
+        // stop. A system power-on/reconnect uses connectCore too and must preserve that intent.
+        intentionalDisconnect = false
         // #747/#750: re-arm on the user's explicit retry: clear the give-up streak + pause so this fresh
         // attempt isn't immediately re-paused and the auto-reconnect works again if it bonds.
         if autoReconnectPausedForBondLoop {
@@ -1218,6 +1221,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// app is opened, the user taps Connect, or a link proves healthy. The bond-loop pause is deliberately
     /// not here: a system event gets one bounded attempt with that give-up latched (#78 hole-2).
     private var systemReconnectPauseReason: String? {
+        if !ConnectionIntentPolicy.allowsSystemReconnect(intentionalDisconnect: intentionalDisconnect) {
+            return "WHOOP connection was stopped; waiting for an explicit Connect request"
+        }
         if !Self.shouldAllowWhoop5SystemReconnect(secureRecoveryPaused: autoReconnectPausedForWhoop5SecureFailure) {
             return "WHOOP 5/MG secure recovery is paused; tap Connect to start a fresh bounded series"
         }
@@ -1228,7 +1234,6 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     private func connectCore(model: WhoopModel) {
-        intentionalDisconnect = false
         // Connection test mode: stamp when this connect attempt began so didConnect can report the connect
         // latency. A plain Date() assignment, no behaviour change; only read behind the .connection gate.
         connectAttemptStartedAt = Date()
@@ -1337,6 +1342,7 @@ public final class BLEManager: NSObject, ObservableObject {
 
     public func disconnect() {
         intentionalDisconnect = true
+        cancelPendingReconnect()
         cancelScanFallback()
         // Cancel an unanswered GET_CLOCK recovery before the link begins its asynchronous teardown.
         // `didDisconnect` repeats this reset for non-user disconnects; doing it here prevents a timer
@@ -1377,10 +1383,25 @@ public final class BLEManager: NSObject, ObservableObject {
     /// can't show its blue pairing LEDs). Stop auto-reconnect, drop the live link, and clear the targeting +
     /// restoration references that point at this strap so NOOP lets go for good — until the user deliberately
     /// reconnects (which clears `intentionalDisconnect` again via connect()).
-    public func forgetDevice(_ peripheralId: String?) {
+    public func forgetDevice(_ peripheralId: String?, isActiveDevice: Bool) {
         let target = peripheralId.flatMap { UUID(uuidString: $0) }
+        guard ConnectionIntentPolicy.removalAffectsConnection(
+            removedPeripheralID: target,
+            currentPeripheralID: peripheral?.identifier,
+            preferredPeripheralID: preferredPeripheralUUID,
+            isActiveDevice: isActiveDevice) else {
+            // Removing an unrelated row must not stop the active strap's reconnects or collection.
+            // A row without a peripheral (for example an import source) is not "forget all straps".
+            if let target, let restored = restoredPeripheral, restored.identifier == target {
+                restoredPeripheral = nil
+                central.cancelPeripheralConnection(restored)
+            }
+            log("Inactive device removed — current WHOOP connection and automatic recovery preserved")
+            return
+        }
         let isCurrent = target == nil || peripheral?.identifier == target
         intentionalDisconnect = true            // defuses the disconnect→3s-reconnect loop's guard
+        cancelPendingReconnect()
         cancelScanFallback()
         if isCurrent { state.clearBatterySamples() }   // BLE-12: forgetting the strap drops its history
         readoptingTo = nil                       // abandon any in-flight #52 pin handoff
@@ -1859,10 +1880,10 @@ public final class BLEManager: NSObject, ObservableObject {
                 // data the strap emits) and is what the official app sends. Driven only by
                 // enableWhoop5DeepData(). (#174)
                 || (command == .setConfig && PuffinExperiment.deepDataEnabled)
-                // SET_DEVICE_CONFIG (the Broadcast-HR flag) is allowed ONLY while that opt-in is on —
-                // it writes one persistent device-config value so the strap advertises standard HR.
-                // Reversible; driven only by setBroadcastHr(_:). (#181)
-                || (command == .setDeviceConfig && PuffinExperiment.broadcastHrEnabled) else {
+                // Keep enabling broadcast opt-in, but permit its exact disable payload after the
+                // preference turns off. Unrelated device-config keys remain outside this allowlist.
+                || (command == .setDeviceConfig && Whoop5Config.allowsBroadcastHrWrite(
+                    payload: payload, enabledInPreferences: PuffinExperiment.broadcastHrEnabled)) else {
                 log("send(\(command.label)) skipped — no WHOOP 5/MG framing for this command yet")
                 return
             }
@@ -3887,6 +3908,9 @@ public final class BLEManager: NSObject, ObservableObject {
         guard selectedModel.deviceFamily == .whoop5 else {
             log("Broadcast HR: needs a WHOOP 5.0/MG strap selected — ignored."); return
         }
+        guard !on || PuffinExperiment.broadcastHrEnabled else {
+            log("Broadcast HR: enabling requires the broadcast preference — ignored."); return
+        }
         guard state.connected, whoop5SecureReady else {
             log("Broadcast HR: current WHOOP 5/MG secure session is not ready — ignored."); return
         }
@@ -3894,7 +3918,7 @@ public final class BLEManager: NSObject, ObservableObject {
         send(.setDeviceConfig,
              payload: [0x01] + Whoop5Config.deviceConfigBody(name: "whoop_live_hr_in_adv_ind_pkt", value: value),
              writeType: .withResponse)
-        log("Broadcast HR: wrote whoop_live_hr_in_adv_ind_pkt=\(on ? "1" : "0")")
+        log("Broadcast HR: requested whoop_live_hr_in_adv_ind_pkt=\(on ? "1" : "0")")
     }
 
     /// Read the strap's current BLE advertising name (WHOOP 4.0 / Harvard). The reply lands as a
@@ -3977,7 +4001,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Emits a full debug trail to the strap log so a reboot is diagnosable end to end:
     ///   `reboot: request …`  — family / firmware / link state at send time
     ///   `reboot: sent …`     — opcode, framing (harvard-crc8 vs puffin-crc16), payload, seq
-    ///   `reboot: strap acked result=0x…` — the COMMAND_RESPONSE (FrameRouter), the accept/reject signal
+    ///   `reboot: strap acked result=0x…` — the COMMAND_RESPONSE (FrameRouter), command-specific on 5/MG
     ///                                        that caught 5/MG haptics rejection (result=0x03)
     ///   `reboot: link dropped …` — didDisconnectPeripheral, proves the strap acted
     ///   `reboot: no disconnect within …` — strap ignored it (esp. an unverified 5/MG frame)
@@ -4750,7 +4774,7 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     /// Parse a standard BLE Heart Rate Measurement (0x2A37) via the pure StandardHeartRate parser.
-    private func parseStandardHR(_ data: [UInt8]) {
+    func parseStandardHR(_ data: [UInt8]) {
         guard let m = StandardHeartRate.parse(data, family: selectedModel.deviceFamily) else {
             log("HR notify parse failed: \(hex(data))")
             return
@@ -4772,6 +4796,7 @@ public final class BLEManager: NSObject, ObservableObject {
         if m.hr >= 30 && m.hr <= 220 {
             state.streamingLiveHR = true
             if state.heartRate != m.hr { state.heartRate = m.hr }
+            state.heartRateArrivals.send(m.hr)
         }
         // Record it continuously — independent of the realtime stream or the open screen.
         collector?.ingestStandardHR(
@@ -4999,6 +5024,16 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard ConnectionIntentPolicy.acceptsConnectedPeripheral(
+            callbackPeripheralID: peripheral.identifier,
+            requestedPeripheralID: self.peripheral?.identifier,
+            preferredPeripheralID: preferredPeripheralUUID,
+            intentionalDisconnect: intentionalDisconnect) else {
+            log("Ignored unwanted connection callback for \(peripheral.identifier)")
+            // Cancel only the callback's peripheral, never the newer target held by this manager.
+            central.cancelPeripheralConnection(peripheral)
+            return
+        }
         cancelScanFallback()
         // BLE-9/CC-7: a link is up, so any pending automatic retry is stale. The ladder itself resets only
         // once this link proves healthy (see didDisconnect), not merely because it connected (#414).
@@ -5368,6 +5403,15 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral,
                                error: Error?) {
+        guard ConnectionIntentPolicy.acceptsFailedConnection(
+            callbackPeripheralID: peripheral.identifier,
+            requestedPeripheralID: self.peripheral?.identifier,
+            preferredPeripheralID: preferredPeripheralUUID,
+            intentionalDisconnect: intentionalDisconnect,
+            requestedLinkState: Self.reconnectLinkState(self.peripheral)) else {
+            log("Ignored stale or unwanted connection failure for \(peripheral.identifier)")
+            return
+        }
         log("Failed to connect\(error.map { " — \($0.localizedDescription)" } ?? "")")
         // The strap wiped its bond (a firmware update, or the official WHOOP app re-bonding it). macOS keeps
         // re-presenting the now-stale pairing key, so every reconnect loops on this same error with no
@@ -5430,6 +5474,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     /// background-cap pause was bypassed here because this path called CoreBluetooth directly).
     func handleBluetoothPoweredOn(restored: (identifier: UUID, isConnected: Bool)?,
                                   reconnect: () -> Void, resumeDiscovery: () -> Void) {
+        guard ConnectionIntentPolicy.allowsSystemReconnect(intentionalDisconnect: intentionalDisconnect) else {
+            log("Bluetooth powered on after WHOOP was stopped — waiting for an explicit Connect request")
+            return
+        }
         guard let restored else {
             // #78 hole-2: poweredOn is SYSTEM-initiated (every Bluetooth toggle / bluetoothd restart
             // lands here), so it must not reset a latched bond-loop give-up - it gets ONE bounded
@@ -6451,7 +6499,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             send(.toggleRealtimeHR, payload: [0x01])
         }
         startKeepAlive()
-        if PuffinExperiment.broadcastHrEnabled { setBroadcastHr(true) }
+        // Replay an explicit saved choice after secure proof, including OFF chosen while
+        // disconnected. An untouched default must not change another client's strap setting.
+        if let broadcastChoice = PuffinExperiment.savedBroadcastHrChoice {
+            setBroadcastHr(broadcastChoice)
+        }
         send(.setClock, payload: WhoopCommand.setClockPayload())
         send(.getClock, payload: [])
         log("WHOOP 5/MG: secureReady — proprietary commands and history admitted")

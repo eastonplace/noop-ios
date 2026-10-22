@@ -563,6 +563,7 @@ private struct QADemoLiveHR: ViewModifier {
                 let warmUp: Double = min(78.0, 2.6 * seconds)
                 let wobble: Double = 5.0 * sin(seconds / 3.0)
                 live.heartRate = Int((72.0 + warmUp + wobble).rounded())
+                if let bpm = live.heartRate { live.heartRateArrivals.send(bpm) }
                 tick += 1
                 try? await Task.sleep(for: .seconds(1))
             }

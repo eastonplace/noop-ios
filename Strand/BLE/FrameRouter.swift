@@ -69,13 +69,16 @@ public final class FrameRouter {
             // BLE_REALTIME_HR_ON, so the UI can consume it even though persistence still ignores raw43.
             // live perf: skip the publish when HR is unchanged — the raw flood carries the same HR
             // byte across many frames, so an unguarded write re-renders the whole console for nothing.
-            if let hr = parsed.parsed["heart_rate"]?.intValue, hr >= 30, hr <= 220, state.heartRate != hr {
-                state.heartRate = hr
-                // Sleep & Rest test mode (Group E): bank the live HR sample for the readout's HR-density
-                // figure. Gated on the zero-cost active() Bool, so this is a no-op when the mode is off.
-                if TestCentre.active(.sleep) {
-                    state.recordSleepLiveHr(ts: Int(Date().timeIntervalSince1970), bpm: hr)
+            if let hr = parsed.parsed["heart_rate"]?.intValue, hr >= 30, hr <= 220 {
+                if state.heartRate != hr {
+                    state.heartRate = hr
+                    // Keep the diagnostic display's existing change gate; sample-arrival consumers
+                    // use the separate event below even when this snapshot is unchanged.
+                    if TestCentre.active(.sleep) {
+                        state.recordSleepLiveHr(ts: Int(Date().timeIntervalSince1970), bpm: hr)
+                    }
                 }
+                state.heartRateArrivals.send(hr)
             }
             // The realtime stream usually reports rr_count=0; only update R-R when this frame
             // actually carries intervals, so we don't wipe R-R sourced from the 0x2A37 profile.
@@ -105,16 +108,18 @@ public final class FrameRouter {
             // cmdName carries a "(rawValue)" suffix (Schema.enumName appends it, e.g.
             // "GET_ALARM_TIME(67)"), so match by prefix like every other cmdName consumer in the
             // codebase - never by equality, which is silently dead.
-            // Reboot ack (#166): log the COMMAND_RESPONSE result for a user reboot on BOTH families. This is
-            // the accept/reject signal — the same one that exposed 5/MG haptics rejection (result=0x03) — so
-            // a 5/MG owner's strap log confirms whether the (unverified) puffin reboot frame is accepted
-            // (0x00) or rejected. Log-only. A reboot that's accepted may drop the link before/after this ack.
+            // Reboot ack (#166): log the COMMAND_RESPONSE result using the connected family's layout.
+            // WHOOP 5/MG puts its packet type at byte 8 and result at byte 12; the legacy byte-8 helper
+            // would report every puffin response as a rejection with result 0x24/0x26. Its response byte
+            // is command-specific, so preserve it without claiming a physical reboot from the ACK alone.
             // POWER_CYCLE_STRAP is matched too: it's the 4.0 reboot probe's candidate B (#235), and its
             // result byte is exactly what tells "opcode rejected (recognized, wrong args)" from "ignored".
             if let cmd = parsed.cmdName, cmd.hasPrefix("REBOOT_STRAP") || cmd.hasPrefix("POWER_CYCLE_STRAP") {
-                let r = Self.commandResultByte(in: frame)
+                let r = family == .whoop5 ? parsed.responseResult : Self.commandResultByte(in: frame)
                 let rhex = r.map { String(format: "0x%02x", UInt8(truncatingIfNeeded: $0)) } ?? "none"
-                let verdict = r == nil ? "no result byte" : (r == 0 ? "accepted" : "REJECTED")
+                let verdict = r == nil ? "no result byte"
+                    : (family == .whoop5 ? "command-specific response; physical reboot unconfirmed"
+                        : (r == 0 ? "accepted" : "REJECTED"))
                 state.append(log: "reboot: strap acked result=\(rhex) (\(verdict))")
             }
             if family == .whoop4, let cmd = parsed.cmdName {

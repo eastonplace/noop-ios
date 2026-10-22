@@ -8,8 +8,8 @@ import WhoopStore
 //
 // The transport half of Live Sessions (silent guardian): the pure `LiveSessionEngine` decides WHAT
 // should happen; this object is the only place that touches a clock, the live HR stream, the strap
-// buzz and the store. One 1 Hz timer feeds the engine `LiveState.heartRate` (or nil, so the engine
-// can detect a quiet stream itself — no liveness guessing here), publishes each `Output` for the
+// buzz and the store. Heart-rate arrivals feed the engine new samples, while a 1 Hz timer feeds
+// nil so the engine can detect a quiet stream itself. Each tick publishes an `Output` for the
 // session screen, walks a cue's pulse list out through the EXISTING hardware buzz, and books the
 // session into the `liveSession` table (once at start with endTs nil, once at end with the totals).
 //
@@ -127,12 +127,14 @@ final class LiveSessionRunner: ObservableObject {
 
         // Pocket-the-phone survival: a suspended app stops firing Timers, but CoreBluetooth keeps
         // delivering HR notifies in the background (the same path that feeds the Live Activity), and each
-        // one updates `live.heartRate`. Ticking on sample arrival too means coaching keeps pace with the
+        // one emits a heartRateArrivals event. Ticking on sample arrival too means coaching keeps pace with the
         // stream when only BLE callbacks are waking us; in the foreground the extra tick is a harmless
         // same-second engine update. Staleness still needs the Timer (no samples = no sink fires), which
         // resumes the moment the app does — the engine then reads the gap honestly as stale.
-        hrSink = model.live.$heartRate.sink { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        // A display snapshot suppresses duplicate values and cannot prove liveness. The arrival
+        // channel preserves equal consecutive readings and never replays a cached pre-session value.
+        hrSink = model.live.heartRateArrivals.sink { [weak self] bpm in
+            self?.tick(receivedBPM: bpm)
         }
     }
 
@@ -165,12 +167,11 @@ final class LiveSessionRunner: ObservableObject {
 
     // MARK: - Tick (1 Hz)
 
-    private func tick() {
+    func tick(receivedBPM: Int? = nil, now: Int = Int(Date().timeIntervalSince1970)) {
         guard tickTask != nil else { return }
-        let now = Int(Date().timeIntervalSince1970)
-        // The engine takes the live reading if one is current, or nil as a plain time tick — staleness
-        // is ITS call (never-fabricate: no reading is forwarded as exactly that, not held or guessed).
-        guard let out = engine?.update(now: now, bpm: model?.live.heartRate) else { return }
+        // Only a publisher event carries a fresh reading. Reusing LiveState on a timer tick would
+        // reset lastValidTs forever after the stream stops, preventing stale detection and auto-end.
+        guard let out = engine?.update(now: now, bpm: receivedBPM) else { return }
 
         // Mirror the engine's clamped accrual for the two out-of-band buckets (it only accrues in-band
         // itself). Same rules: dt clamped to maxAccrualDtSec, nothing accrues on a stale tick.

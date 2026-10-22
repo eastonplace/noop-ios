@@ -279,6 +279,10 @@ public final class LiveState: ObservableObject {
     @Published public var rebootInProgress = false
 
     @Published public var heartRate: Int?
+    /// Accepted live readings, including equal consecutive values. Kept separate from the display
+    /// snapshot so liveness consumers do not fabricate samples or force duplicate SwiftUI updates.
+    /// This subject has no replay: opening a session must wait for a new sensor notification.
+    let heartRateArrivals = PassthroughSubject<Int, Never>()
     @Published public var rr: [Int] = []
     @Published public internal(set) var rrRecent: [Int] = []
     @Published public var lastFrameType: String?

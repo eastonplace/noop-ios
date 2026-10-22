@@ -634,6 +634,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 }
                 if feedsLive {
                     live.heartRate = hr.bpm
+                    live.heartRateArrivals.send(hr.bpm)
                     live.connected = true
                 }
                 enqueue([e], ts: now)

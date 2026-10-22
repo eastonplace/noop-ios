@@ -200,6 +200,7 @@ public final class HuamiHRSource: NSObject, ObservableObject {
         }
         if feedsLive {
             live.heartRate = hr
+            live.heartRateArrivals.send(hr)
             live.connected = true
         }
         enqueue(hr: hr)
