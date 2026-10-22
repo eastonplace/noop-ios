@@ -1,4 +1,5 @@
 import XCTest
+import ZIPFoundation
 @testable import NOOP
 
 final class CaptureStreamingExportTests: XCTestCase {
@@ -45,6 +46,30 @@ final class CaptureStreamingExportTests: XCTestCase {
         try oversized.write(to: source)
         XCTAssertThrowsError(try FileExport.stagedSanitizedCapture(at: source, suggestedName: "oversize.jsonl"))
         XCTAssertEqual(try Data(contentsOf: source), oversized)
+    }
+
+    func testZipPreservesEveryEntryByteAndDoesNotCollideWithAnotherExport() throws {
+        let entries = [
+            FileExport.BundleEntry(name: "report.txt", data: Data("safe report\n".utf8)),
+            FileExport.BundleEntry(name: "raw-capture.jsonl", data: Data(repeating: 0x21, count: 131_073)),
+            FileExport.BundleEntry(name: "empty.txt", data: Data()),
+        ]
+        let first = try XCTUnwrap(FileExport.zipData(entries: entries, baseName: "same-name"))
+        let second = try XCTUnwrap(FileExport.zipData(entries: entries, baseName: "same-name"))
+        defer {
+            try? FileManager.default.removeItem(at: first.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: second.deletingLastPathComponent())
+        }
+        XCTAssertNotEqual(first, second)
+        for url in [first, second] {
+            let archive = try Archive(url: url, accessMode: .read)
+            for expected in entries {
+                let entry = try XCTUnwrap(archive[expected.name])
+                var actual = Data()
+                _ = try archive.extract(entry) { actual.append($0) }
+                XCTAssertEqual(actual, expected.data, expected.name)
+            }
+        }
     }
 
 }
