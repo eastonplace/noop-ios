@@ -71,8 +71,12 @@ The unchanged production baseline compiled with Xcode 27.1 (27A9275).
   A sample placed cancelled tasks inside XCTest's Swift error observer; that
   does not establish a product root cause. The isolated cancellation suite
   passed 18 of 20 cases; the two cancelled-sleep cases still timed out. Both
-  source and tests are byte-identical to main. A separate test host is being
-  used to distinguish framework behavior from full-app startup effects.
+  source and tests are byte-identical to main. An empty UIKit scene host with
+  those exact baseline files and the app's Swift 6, complete concurrency, and
+  warnings-as-errors settings passed 15 of 20 tests. Five cancellation cases
+  failed with seven assertions, including both isolated app failures. This
+  reproduces local baseline failures without NOOP startup or these changes;
+  the precise framework or runtime root cause remains unverified.
   No full-suite pass is claimed.
 
 ## Remaining qualification
