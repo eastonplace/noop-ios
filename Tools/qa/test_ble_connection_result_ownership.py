@@ -28,6 +28,13 @@ def main():
     ]
     if "nonisolated static func shouldAcceptConnectionResult(" in source:
         declarations.append("nonisolated static func shouldAcceptConnectionResult(")
+    policy_sources = ""
+    if "ConnectionIntentPolicy.acceptsFailedConnection(" in source:
+        declarations.append("private static func reconnectLinkState(")
+        policy_sources = "\n".join(
+            (ROOT / "Packages/WhoopProtocol/Sources/WhoopProtocol/LinkPolicy" / name).read_text()
+            for name in ["ReconnectPolicy.swift", "ConnectionIntentPolicy.swift"]
+        )
     methods = "\n".join(block(source, marker) for marker in declarations)
     fixture = r'''
 import Foundation
@@ -35,7 +42,7 @@ enum Domain { case connection }
 enum TestCentre { static func active(_ domain: Domain) -> Bool { false } }
 enum Family { case whoop4, whoop5 }
 struct Model { var deviceFamily: Family = .whoop4 }
-enum RadioState { case connected, connecting, disconnected }
+enum RadioState { case connected, connecting, disconnected, disconnecting }
 @MainActor final class CBPeripheral {
     let identifier: UUID
     var state: RadioState
@@ -172,9 +179,15 @@ do {
     h.centralManager(c, didFailToConnect: h.peripheral!, error: CBError(code: .peerRemovedPairingInformation))
     check(h.state.reconnectGuide != nil && h.reconnects == 0, "current pairing failure retains its guide")
 }
-print("BLE connection ownership: 10 scenarios, \(failures) failed assertions")
+do {
+    let h = prepared(b, pin: b, radio: .connecting); let c = CBCentralManager()
+    h.centralManager(c, didFailToConnect: h.peripheral!, error: nil)
+    check(h.reconnects == 0 && h.reconnectPolicy.attempts == 0, "late same-target failure cannot replace a newer connecting attempt")
+}
+print("BLE connection ownership: 11 scenarios, \(failures) failed assertions")
 if failures != 0 { exit(1) }
 '''.replace("__METHODS__", methods)
+    fixture = policy_sources + "\n" + fixture
     with tempfile.TemporaryDirectory(prefix="noop-ble-connection-") as temporary:
         directory = Path(temporary)
         swift = directory / "main.swift"

@@ -1,0 +1,20 @@
+$ /tmp/noop-swift-toolchain/usr/bin/swiftc -module-cache-path /tmp/noop-storage-swift-module-cache -parse-as-library /workspace/scratch/a25c9a323562/review-work/storage-harness/healthkit-coordinator.swift -o /workspace/scratch/a25c9a323562/review-work/storage-harness/healthkit-coordinator-after
+/workspace/scratch/a25c9a323562/review-work/storage-harness/healthkit-coordinator.swift:157:60: warning: main actor-isolated static property 'shared' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+  4 | @MainActor
+  5 | final class HealthKitScoringCoordinator {
+  6 |     static let shared = HealthKitScoringCoordinator()
+    |                `- note: static property declared here
+  7 |     var pending: HealthKitSyncWindow?
+  8 |     func offer(_ window: HealthKitSyncWindow) async throws {
+    :
+155 |     init(
+156 |         persistence: any HealthKitPendingWindowPersisting,
+157 |         scoringCoordinator: HealthKitScoringCoordinator = .shared,
+    |                                                            `- warning: main actor-isolated static property 'shared' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+158 |         scheduleRetry: @escaping ScheduleRetry = {},
+159 |         operation: @escaping Operation
+compile exit: 0
+$ /workspace/scratch/a25c9a323562/review-work/storage-harness/healthkit-coordinator-after
+coalesced waiter cancels while active import remains: PASS
+cancelled import retains full durable union: PASS
+run exit: 0

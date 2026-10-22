@@ -64,6 +64,17 @@ struct LiftMuscleVolumeTests {
     #expect(!LiftMuscleVolume.Row(group: .chest, sets: 20.5).isInsideBand)
   }
 
+  @Test func adjacentWeeksDoNotCountTheSameBoundaryWorkout() {
+    let press = UUID()
+    let boundary = LiftSession(id: UUID(), routineID: nil, title: "Boundary", startedAt: interval.end,
+      endedAt: interval.end.addingTimeInterval(3_600), sets: [set(press)])
+    let previous = LiftMuscleVolume.make(sessions: [boundary], in: interval) { _ in ("pectorals", []) }
+    let next = LiftMuscleVolume.make(sessions: [boundary],
+      in: DateInterval(start: interval.end, duration: 7 * 86_400)) { _ in ("pectorals", []) }
+    #expect(sets(previous, .chest) == 0)
+    #expect(sets(next, .chest) == 1)
+  }
+
   @Test func topMusclesFollowPlannedSets() {
     let a = UUID(), b = UUID(), c = UUID()
     let tokens: [UUID: String] = [a: "pectorals", b: "delts", c: "triceps"]

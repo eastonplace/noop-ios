@@ -165,6 +165,75 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertFalse(deleted)
     }
 
+    func testExportDeletionFailureRetainsKnownTargetIdentitiesForRetry() async throws {
+        let type = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .heartRate))
+        let sample = HKQuantitySample(
+            type: type,
+            quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 60),
+            start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 160))
+        var identities: [HealthKitObjectIdentity] = []
+        var events: [String] = []
+
+        do {
+            _ = try await HealthKitExportDeletionCommit.commit(
+                sampleType: type,
+                loadSamples: { [sample] },
+                recordIdentities: {
+                    identities.append(contentsOf: $0)
+                    events.append("journal")
+                },
+                delete: {
+                    events.append("delete")
+                    throw PendingWindowMemoryStore.Failure.injected
+                })
+            XCTFail("Expected the HealthKit deletion failure")
+        } catch PendingWindowMemoryStore.Failure.injected { }
+
+        XCTAssertEqual(events, ["journal", "delete"])
+        XCTAssertEqual(identities, [HealthKitObjectIdentity(
+            sampleType: type.identifier, objectUUID: sample.uuid.uuidString,
+            startTs: 100, endTs: 160)])
+    }
+
+    func testCancelledExportDeletionRemainsOwnedUntilObserverAnchorCommits() async throws {
+        let type = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .heartRate))
+        let sample = HKQuantitySample(
+            type: type,
+            quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 60),
+            start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 160))
+        var identities: [HealthKitObjectIdentity] = []
+        do {
+            _ = try await HealthKitExportDeletionCommit.commit(
+                sampleType: type,
+                loadSamples: { [sample] },
+                recordIdentities: { identities.append(contentsOf: $0) },
+                delete: { throw CancellationError() })
+            XCTFail("Expected cancellation")
+        } catch is CancellationError { }
+        XCTAssertEqual(identities.map(\.objectUUID), [sample.uuid.uuidString])
+
+        let page = HealthKitAnchorPage(
+            samples: [], deletedObjectUUIDs: [sample.uuid.uuidString], newAnchor: HKQueryAnchor(fromValue: 1))
+        var anchorSaved = false
+        let window = try await HealthKitObserverPageCommit.commit(
+            page: page,
+            exportedObjectUUIDs: Set(identities.map(\.objectUUID)),
+            importedIdentities: [], initialScan: false, now: Date(),
+            earliestLocalDate: {
+                XCTFail("a known NOOP privacy deletion must not request historical Apple Health data")
+                return nil
+            },
+            offer: { _ in XCTFail("a NOOP export deletion must not enqueue an inbound import") },
+            saveAnchor: { _ in anchorSaved = true },
+            retireExports: { uuids in
+                XCTAssertTrue(anchorSaved)
+                identities.removeAll { uuids.contains($0.objectUUID) }
+            })
+
+        XCTAssertNil(window)
+        XCTAssertTrue(identities.isEmpty)
+    }
+
     func testOwnExportDeletionPageAdvancesAnchorWithoutReopeningHistory() async throws {
         var events: [String] = []
         let window = try await HealthKitObserverPageCommit.commit(
@@ -685,6 +754,80 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pending, window)
         XCTAssertEqual(importPersistence.value, window)
         XCTAssertEqual(scoring.pending, window)
+        await scoring.runAndWait(operation: { _ in true })
+    }
+
+    @MainActor
+    func testCancellingCoalescedImportWaiterLeavesActiveImportRunning() async throws {
+        let journal = PendingWindowMemoryStore()
+        let (scoring, barrier) = makeScoring(persistence: PendingWindowMemoryStore())
+        let gate = AsyncGate()
+        let window = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 200))
+        var importCount = 0
+        let coordinator = HealthKitSyncCoordinator(persistence: journal, scoringCoordinator: scoring) { _ in
+            importCount += 1
+            await gate.wait()
+            return true
+        }
+        try coordinator.offer(window)
+        let importing = Task { @MainActor in await coordinator.runAndWait() }
+        while !gate.isWaiting { await Task.yield() }
+
+        var waiterReturned = false
+        let waiter = Task { @MainActor in
+            await coordinator.runAndWait()
+            waiterReturned = true
+        }
+        await Task.yield()
+        waiter.cancel()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while !waiterReturned, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+
+        XCTAssertTrue(waiterReturned, "an expired background caller must stop waiting for an unrelated import")
+        XCTAssertTrue(coordinator.isRunning)
+        XCTAssertTrue(barrier.blocksRefreshes, "the active importer still owns its publication fence")
+        XCTAssertEqual(journal.value, window)
+        XCTAssertEqual(importCount, 1)
+
+        gate.open()
+        await importing.value
+        await waiter.value
+        XCTAssertNil(journal.value)
+        XCTAssertFalse(barrier.blocksRefreshes)
+        await scoring.runAndWait(operation: { _ in true })
+    }
+
+    @MainActor
+    func testCancelledImportRetainsDurableUnionBeforeClearingJournal() async throws {
+        let journal = PendingWindowMemoryStore()
+        let (scoring, barrier) = makeScoring(persistence: PendingWindowMemoryStore())
+        let gate = AsyncGate()
+        let first = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 200))
+        let followUp = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 300), end: Date(timeIntervalSince1970: 400))
+        var importCount = 0
+        let coordinator = HealthKitSyncCoordinator(persistence: journal, scoringCoordinator: scoring) { _ in
+            importCount += 1
+            await gate.wait()
+            return true
+        }
+        try coordinator.offer(first)
+        let importing = Task { @MainActor in await coordinator.runAndWait() }
+        while !gate.isWaiting { await Task.yield() }
+        try coordinator.offer(followUp)
+        importing.cancel()
+        gate.open()
+        await importing.value
+
+        XCTAssertEqual(importCount, 1)
+        XCTAssertEqual(coordinator.pending, first.union(followUp))
+        XCTAssertEqual(journal.value, first.union(followUp), "cancellation must preserve the replayable import window")
+        XCTAssertFalse(coordinator.isRunning)
+        XCTAssertFalse(barrier.blocksRefreshes)
         await scoring.runAndWait(operation: { _ in true })
     }
 
