@@ -64,6 +64,9 @@ struct JournalEntryComposer: View {
     @State private var operation: Task<Void, Never>?
     @State private var voiceOperation: Task<Void, Never>?
     @State private var presented = true
+    @FocusState private var editorFocused: Bool
+    /// Bumped whenever Review produces something to look at, so the results are brought into view.
+    @State private var resultsTick = 0
 
     private var fields: [JournalEntryParser.Field] {
         catalog.resolvedItems(imported: importedQuestions).map(\.entryParserField)
@@ -95,24 +98,11 @@ struct JournalEntryComposer: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollViewReader { proxy in
-                ScrollView {
+        ScrollViewReader { proxy in
+            ScreenScaffold(title: "Journal note", subtitle: LocalizedStringKey(dayLabel)) {
+                VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                    entryEditor
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Journal note")
-                                .font(StrandFont.title2)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Text(dayLabel)
-                                .font(StrandFont.subhead)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityIdentifier("journal-entry-day")
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityAddTraits(.isHeader)
-                        entryEditor
                         if let message {
                             Text(message)
                                 .font(StrandFont.subhead)
@@ -121,17 +111,27 @@ struct JournalEntryComposer: View {
                                 .accessibilityIdentifier("journal-entry-message")
                         }
                         if let parsed { unmatchedSection(parsed) }
-                        if let review { reviewSection(review).id(Self.reviewAnchor) }
+                        if let review { reviewSection(review) }
                     }
-                    .padding(NoopMetrics.screenPadding)
+                    .id(Self.resultsAnchor)
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: review != nil) { _, hasReview in
-                    if hasReview { withAnimation { proxy.scrollTo(Self.reviewAnchor, anchor: .top) } }
+                .frame(maxWidth: .infinity, minHeight: 520, alignment: .topLeading)
+                // Behind the content, so a tap on empty space puts the keyboard away without stealing the editor's taps.
+                .background {
+                    Color.clear.contentShape(Rectangle()).onTapGesture { editorFocused = false }
                 }
             }
-            footer
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) { footer }
+            .onChange(of: resultsTick) { _, _ in
+                // Let the keyboard finish leaving before measuring, or the results land under it.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    withAnimation { proxy.scrollTo(Self.resultsAnchor, anchor: .top) }
+                }
+            }
         }
+        .sheetScreenScaffoldEnvironment(onClose: { if !saving { dismiss() } })
         .background(StrandPalette.appCanvas.ignoresSafeArea())
         .interactiveDismissDisabled(saving)
         .tint(StrandPalette.accent)
@@ -164,19 +164,7 @@ struct JournalEntryComposer: View {
         }
     }
 
-    private static let reviewAnchor = "journal-entry-review-section"
-
-    /// A plain-text Cancel, not a navigation-bar item: iOS 26 would wrap a toolbar button in glass.
-    private var header: some View {
-        HStack {
-            textAction("Cancel", tint: StrandPalette.textSecondary) { dismiss() }
-                .disabled(saving)
-                .accessibilityIdentifier("journal-entry-cancel")
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, NoopMetrics.screenPadding)
-        .padding(.top, NoopMetrics.space2)
-    }
+    private static let resultsAnchor = "journal-entry-results"
 
     /// The one primary action: Review first, then Save once there are answers to save.
     private var footer: some View {
@@ -224,6 +212,7 @@ struct JournalEntryComposer: View {
                 .foregroundStyle(StrandPalette.textPrimary)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 180)
+                .focused($editorFocused)
                 .overlay(alignment: .topLeading) {
                     if entryText.isEmpty {
                         Text("Write or dictate a note")
@@ -245,9 +234,12 @@ struct JournalEntryComposer: View {
                 Text(error).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Try “I took magnesium” or “I felt stressed”.")
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
+            // The same examples appear in the "Nothing matched" message, so the hint steps aside once Review has run.
+            if parsed == nil && review == nil {
+                Text("Try “I took magnesium” or “I felt stressed”.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
             if entryText.utf8.count > JournalEntryParser.maximumInputBytes {
                 Text("This note is too long. Shorten it before reviewing.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.error)
@@ -368,6 +360,7 @@ struct JournalEntryComposer: View {
 
     private func prepareReview() {
         guard canReview, currentDay == presentation.day else { return }
+        editorFocused = false
         cancelDictation()
         let text = entryText
         let snapshot = fields
@@ -378,10 +371,12 @@ struct JournalEntryComposer: View {
         message = nil
         guard !draft.exceedsLimit else {
             message = String(localized: "Shorten this note or reduce your journal items before reviewing.")
+            resultsTick += 1
             return
         }
         guard !draft.suggestions.isEmpty else {
             message = String(localized: "Nothing matched your journal questions. Try “I took magnesium” or “I felt stressed”.")
+            resultsTick += 1
             return
         }
         operation?.cancel()
@@ -409,12 +404,14 @@ struct JournalEntryComposer: View {
                     }
                 }
                 preparing = false
+                resultsTick += 1
             } catch is CancellationError {
                 if operationID == token { preparing = false }
             } catch {
                 guard isCurrent(token) else { return }
                 preparing = false
                 message = error.localizedDescription
+                resultsTick += 1
             }
         }
     }
