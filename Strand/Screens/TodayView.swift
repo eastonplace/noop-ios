@@ -1854,6 +1854,14 @@ struct TodayView: View {
 
     private static var paperClockFormatter: DateFormatter { AppClock.hourMinuteFormatter() }
 
+    #if DEBUG
+    /// The window `--demo-auto-workout` suggests: a 35-minute walk that ended five minutes ago.
+    private static var demoAutoWorkout: DetectedWorkout {
+        let end = Int(Date().timeIntervalSince1970) - 5 * 60
+        return DetectedWorkout(startSec: end - 35 * 60, endSec: end, avgBpm: 112, peakBpm: 131, durationMin: 35)
+    }
+    #endif
+
     private func paperStressState(_ value: Double?) -> LocalizedStringKey {
         guard let value else { return "Calibrating" }
         switch value {
@@ -2027,7 +2035,13 @@ struct TodayView: View {
                           today: Repository.logicalDay(Date())) { notificationSelectedDayKey = nil; selectedDayOffset = $0 }
                 #endif
                 HealthAlertBanner()
+                #if DEBUG
+                // `--demo-auto-workout`: a synthetic suggestion, so the card can be captured without a strap.
+                AutoWorkoutCard(demoCandidate: ProcessInfo.processInfo.arguments.contains("--demo-auto-workout")
+                    ? Self.demoAutoWorkout : nil)
+                #else
                 AutoWorkoutCard()
+                #endif
                 // Keep the Recovery empty state honest while a historical offload is still writing. The
                 // score can legitimately trail Sleep until the corresponding R-R frames land, so surface
                 // the in-progress sync instead of leaving a bare "Not rated" that looks final.

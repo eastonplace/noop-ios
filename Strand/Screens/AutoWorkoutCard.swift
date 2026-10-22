@@ -18,7 +18,10 @@ struct AutoWorkoutCard: View {
         if let demoCandidate {
             let load = initial.beginLoad()
             initial.receive(AutoWorkoutSuggestion(
-                window: demoCandidate, prediction: .generic, sourceId: "demo",
+                window: demoCandidate,
+                prediction: .init(sport: "Walking", confidence: .likely,
+                                  evidence: [.walkingMovement, .similarConfirmedWorkouts(count: 4)]),
+                sourceId: "demo",
                 context: .init(sourceContext: "demo", sourceLineage: "demo", invalidationEpoch: 0),
                 databaseInstanceId: "demo", sourceOwner: .init(deviceId: "demo", lineage: "demo")), for: load)
         }
@@ -28,8 +31,9 @@ struct AutoWorkoutCard: View {
 
     var body: some View {
         Group {
-            if autoDetectEnabled, !repo.verifiedExternalSurfaceFenced, let suggestion = state.candidate,
-               isDemo || suggestion.context == repo.workoutSuggestionContext {
+            if let suggestion = state.candidate,
+               isDemo || (autoDetectEnabled && !repo.verifiedExternalSurfaceFenced
+                          && suggestion.context == repo.workoutSuggestionContext) {
                 card(for: suggestion)
             }
         }
@@ -75,24 +79,10 @@ struct AutoWorkoutCard: View {
                     ForEach(Array(suggestion.prediction.evidence.enumerated()), id: \.offset) { item in
                         Text(evidenceText(item.element))
                             .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textSecondary)
+                            .foregroundStyle(StrandPalette.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-
-                Menu {
-                    typeChoice("Workout")
-                    ForEach(WorkoutCatalog.all) { sport in typeChoice(sport.name) }
-                    if suggestion.prediction.sport != "Workout",
-                       WorkoutCatalog.sport(named: suggestion.prediction.sport) == nil {
-                        typeChoice(suggestion.prediction.sport)
-                    }
-                } label: {
-                    Label("Change Type", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                .disabled(state.saving)
-                .accessibilityIdentifier("autoWorkout.changeType")
 
                 if state.saveResult == .failed {
                     Text("Couldn’t save this workout. Your choice is still here. Try saving again.")
@@ -102,28 +92,66 @@ struct AutoWorkoutCard: View {
                         .accessibilityIdentifier("autoWorkout.saveError")
                 }
 
-                HStack(spacing: NoopMetrics.space3) {
-                    Button { save(suggestion) } label: {
-                        if state.saving {
-                            Label("Saving…", systemImage: "hourglass")
-                        } else {
-                            Label("Save", systemImage: "checkmark")
-                        }
+                // The one primary action. Everything else is plain text.
+                Button { save(suggestion) } label: {
+                    if state.saving {
+                        HStack(spacing: NoopMetrics.space2) { ProgressView(); Text("Saving…") }
+                    } else {
+                        Text("Save")
                     }
-                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-                    .disabled(state.saving || isDemo)
-                    .accessibilityIdentifier("autoWorkout.save")
+                }
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+                .disabled(state.saving || isDemo)
+                .accessibilityIdentifier("autoWorkout.save")
 
-                    Button("Dismiss") { dismiss(suggestion) }
-                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                        .disabled(state.saving || isDemo)
-                        .accessibilityLabel("Dismiss this workout suggestion")
-                        .accessibilityIdentifier("autoWorkout.dismiss")
+                // Side by side when they fit, stacked when large text would squeeze them.
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        changeTypeMenu(suggestion)
+                        Spacer(minLength: NoopMetrics.space3)
+                        dismissButton(suggestion)
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        changeTypeMenu(suggestion)
+                        dismissButton(suggestion)
+                    }
                 }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("autoWorkout.card")
+    }
+
+    private func changeTypeMenu(_ suggestion: AutoWorkoutSuggestion) -> some View {
+        Menu {
+            typeChoice("Workout")
+            ForEach(WorkoutCatalog.all) { sport in typeChoice(sport.name) }
+            if suggestion.prediction.sport != "Workout",
+               WorkoutCatalog.sport(named: suggestion.prediction.sport) == nil {
+                typeChoice(suggestion.prediction.sport)
+            }
+        } label: {
+            Text("Change type")
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.accent)
+                .frame(minHeight: 44, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .disabled(state.saving)
+        .accessibilityIdentifier("autoWorkout.changeType")
+    }
+
+    private func dismissButton(_ suggestion: AutoWorkoutSuggestion) -> some View {
+        Button { dismiss(suggestion) } label: {
+            Text("Dismiss")
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(minHeight: 44, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .disabled(state.saving || isDemo)
+        .accessibilityLabel("Dismiss this workout suggestion")
+        .accessibilityIdentifier("autoWorkout.dismiss")
     }
 
     private func typeChoice(_ name: String) -> some View {
@@ -150,13 +178,13 @@ struct AutoWorkoutCard: View {
     private func evidenceText(_ evidence: WorkoutTypeSuggestion.Evidence) -> String {
         switch evidence {
         case .walkingMovement:
-            return String(localized: "Sustained movement matches the band’s walking signal.")
+            return String(localized: "Your steady movement looks like walking.")
         case .runningMovement:
-            return String(localized: "Sustained movement matches the band’s running signal.")
+            return String(localized: "Your steady movement looks like running.")
         case let .similarConfirmedWorkouts(count):
-            return String(localized: "Based on \(count) workouts you confirmed at a similar time and duration. This is a context-based suggestion.")
+            return String(localized: "You’ve saved \(count) similar workouts around this time of day.")
         case .insufficientTypeEvidence:
-            return String(localized: "Heart rate suggests activity, but there isn’t enough movement evidence to identify a type.")
+            return String(localized: "Your heart rate shows activity, but not enough to tell what kind.")
         }
     }
 
@@ -175,12 +203,12 @@ struct AutoWorkoutCard: View {
         let start = Self.timeFmt.string(from: date)
         let end = Self.timeFmt.string(from: Date(timeIntervalSince1970: TimeInterval(window.endSec)))
         if Calendar.current.isDateInToday(date) {
-            return String(localized: "Around \(start)-\(end), \(window.durationMin) min, average HR \(window.avgBpm).")
+            return String(localized: "Around \(start)-\(end), \(window.durationMin) min, average heart rate \(window.avgBpm).")
         }
         if Calendar.current.isDateInYesterday(date) {
-            return String(localized: "Yesterday around \(start)-\(end), \(window.durationMin) min, average HR \(window.avgBpm).")
+            return String(localized: "Yesterday around \(start)-\(end), \(window.durationMin) min, average heart rate \(window.avgBpm).")
         }
-        return String(localized: "On \(Self.dateFmt.string(from: date)), around \(start)-\(end), \(window.durationMin) min, average HR \(window.avgBpm).")
+        return String(localized: "On \(Self.dateFmt.string(from: date)), around \(start)-\(end), \(window.durationMin) min, average heart rate \(window.avgBpm).")
     }
 
     private func reload() async {
