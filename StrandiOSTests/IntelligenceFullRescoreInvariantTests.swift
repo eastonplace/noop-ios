@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 import GRDB
 import NoopPhase34Core
 import StrandAnalytics
@@ -1325,6 +1326,53 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertEqual(freshEngine.stepMotionCacheHits, 0)
             let coldAgain = try await stepsEstimates(fresh)
             XCTAssertEqual(coldAgain, changed, "a cold read lands on the cached engine's estimates")
+        }
+    }
+
+    /// Fixture timing is reported, not asserted. The correctness oracle is the real engine's persisted
+    /// output and 59/60 motion hits after an actual one-day ingest, including the ordinary three-day scan.
+    func testNormalActiveInputCostKeepsSixtyDayMotionReuseAndColdParity() async throws {
+        try await withManualStepsCoefficient(0.05) {
+            let harness = try await makeHarness(days: 60, whoop4: true)
+            for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+            let warmCPU = clock(), warmStart = Date()
+            let beforeWarmHits = harness.engine.stepMotionCacheHits
+            let warmCompleted = await pass(harness, maxDays: 3)
+            let warmSeconds = Date().timeIntervalSince(warmStart)
+            let warmCPUSeconds = Double(clock() - warmCPU) / Double(CLOCKS_PER_SEC)
+            XCTAssertTrue(warmCompleted)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits - beforeWarmHits, 60)
+
+            var incoming = Streams()
+            let busyHour = firstDayStart + 59 * 86_400 + 17 * 3_600
+            for index in 0..<120 {
+                let ts = busyHour + index * 2 + 1
+                incoming.hr.append(HRSample(ts: ts, bpm: 130 + index % 11))
+                incoming.rr.append(RRInterval(ts: ts, rrMs: 900 + index % 7))
+                incoming.gravity.append(GravitySample(ts: ts, x: index % 2 == 0 ? 1.4 : -1.4, y: 0, z: 0.2))
+            }
+            let activeCPU = clock(), activeStart = Date()
+            _ = try await harness.store.insert(incoming, deviceId: Repository.whoopSource)
+            let beforeActiveHits = harness.engine.stepMotionCacheHits
+            let activeCompleted = await pass(harness, maxDays: 3)
+            let activeSeconds = Date().timeIntervalSince(activeStart)
+            let activeCPUSeconds = Double(clock() - activeCPU) / Double(CLOCKS_PER_SEC)
+            XCTAssertTrue(activeCompleted)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits - beforeActiveHits, 59)
+            let reusedOutput = try await stored(harness)
+
+            let repository = Repository(deviceId: Repository.whoopSource)
+            repository.setStoreForTesting(harness.store)
+            let freshEngine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+            let fresh = Harness(store: harness.store, engine: freshEngine, computedId: harness.computedId,
+                                reference: harness.reference, dayKeys: harness.dayKeys)
+            let coldCompleted = await pass(fresh, maxDays: 3)
+            let coldOutput = try await stored(fresh)
+            XCTAssertTrue(coldCompleted)
+            XCTAssertEqual(reusedOutput, coldOutput, "active-input reuse must match a cold engine")
+            print("D6_ENGINE_COST warmSeconds=\(warmSeconds) warmCPUSeconds=\(warmCPUSeconds) "
+                + "activeIngestAndAnalysisSeconds=\(activeSeconds) activeIngestAndAnalysisCPUSeconds=\(activeCPUSeconds) "
+                + "days=60 scanDays=3 incomingRows=360 warmMotionHits=60 activeMotionHits=59")
         }
     }
 

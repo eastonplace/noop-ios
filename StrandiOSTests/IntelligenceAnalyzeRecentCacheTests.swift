@@ -242,6 +242,8 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         for physicalChange in [false, true] {
             defaults.removeObject(forKey: key)
             let harness = try await makeHarness()
+            let originalWeight = harness.profile.weightKg
+            defer { harness.profile.weightKg = originalWeight }
             func tick() async -> Bool {
                 await harness.engine.analyzeRecent(
                     maxDays: 3, force: false, refreshRepository: false,
@@ -290,6 +292,136 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         }
         let changed = await tick()
         XCTAssertTrue(changed, "Same-key value repairs must wake the idle gate")
+    }
+
+    func testIdleTickRunsAfterPendingLiftLoadOrControlMutation() async throws {
+        let defaults = UserDefaults.standard
+        let key = "noop.analyzeWatermark"
+        let saved = defaults.object(forKey: key)
+        defer {
+            if let saved { defaults.set(saved, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        for controlMutation in [false, true] {
+            defaults.removeObject(forKey: key)
+            let harness = try await makeHarness()
+            let liftDay = try XCTUnwrap(dayWindows(1).first).day
+            let liftTs = Int(reference.timeIntervalSince1970) - 3_600
+            func tick() async -> Bool {
+                await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: reference, analysisCalendar: utcCalendar)
+            }
+            let first = await tick()
+            let unchanged = await tick()
+            XCTAssertTrue(first)
+            XCTAssertFalse(unchanged)
+            try await harness.store.registryWriter.write { db in
+                if controlMutation {
+                    try db.execute(sql: "INSERT INTO liftStrainControl(scope,disabled,updatedAt) VALUES('global',1,0)")
+                } else {
+                    try db.execute(sql: """
+                        INSERT INTO liftStrain(deviceId,liftSessionId,workoutStartTs,workoutSport,dayKey,
+                            formulaVersion,bodyweightKg,dose,volume,muscularLoad,workingSets,warmupSets,
+                            countedSets,skippedJSON,unmappedSets,computedAt,updatedAt)
+                        VALUES(?, 'late-lift', ?, 'strength', ?, 1,75,10,100,10,1,0,1,'{}',0,0,0)
+                        """, arguments: [Repository.whoopSource, liftTs,
+                                         liftDay])
+                }
+            }
+            let changed = await tick()
+            XCTAssertTrue(changed, "Pending lift load and controls are whole-pass inputs even without target changes")
+            if !controlMutation {
+                let waitingForLoad = await tick()
+                XCTAssertFalse(waitingForLoad)
+                harness.repository.loaded = true
+                let loaded = await tick()
+                XCTAssertTrue(loaded, "a pending settle deferred while the repository was unloaded must retry")
+            }
+        }
+    }
+
+    func testIdleTickRunsAcrossFractionalOffsetMidnightWithinTheSameUTCHour() async throws {
+        let defaults = UserDefaults.standard
+        let key = "noop.analyzeWatermark"
+        let saved = defaults.object(forKey: key)
+        defer {
+            if let saved { defaults.set(saved, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        defaults.removeObject(forKey: key)
+        let harness = try await makeHarness()
+        var calendar = utcCalendar
+        calendar.timeZone = TimeZone(secondsFromGMT: 5 * 3_600 + 45 * 60)!
+        let utcMidnight = Int(reference.timeIntervalSince1970) / 86_400 * 86_400
+        let before = Date(timeIntervalSince1970: TimeInterval(utcMidnight + 18 * 3_600 + 14 * 60))
+        let after = before.addingTimeInterval(120)
+        XCTAssertEqual(Int(before.timeIntervalSince1970) / 3_600, Int(after.timeIntervalSince1970) / 3_600)
+        func tick(_ date: Date) async -> Bool {
+            await harness.engine.analyzeRecent(
+                maxDays: 1, force: false, refreshRepository: false,
+                analysisReference: date, analysisCalendar: calendar)
+        }
+        let first = await tick(before)
+        let unchanged = await tick(before)
+        let nextLocalDay = await tick(after)
+        XCTAssertTrue(first)
+        XCTAssertFalse(unchanged)
+        XCTAssertTrue(nextLocalDay, "a new local day must run even inside the prior UTC hour")
+    }
+
+    func testIdleTickCannotReuseACompletedPassForADifferentRequestWindow() async throws {
+        let defaults = UserDefaults.standard
+        let key = "noop.analyzeWatermark"
+        let saved = defaults.object(forKey: key)
+        defer {
+            if let saved { defaults.set(saved, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        defaults.removeObject(forKey: key)
+        let harness = try await makeHarness()
+        func tick(_ days: Int) async -> Bool {
+            await harness.engine.analyzeRecent(
+                maxDays: days, force: false, refreshRepository: false,
+                analysisReference: reference, analysisCalendar: utcCalendar)
+        }
+        let first = await tick(1)
+        let differentWindow = await tick(3)
+        let unchanged = await tick(3)
+        XCTAssertTrue(first)
+        XCTAssertTrue(differentWindow)
+        XCTAssertFalse(unchanged)
+    }
+
+    func testIdleTickRunsAfterAControlOnlyRecoveredSleepOverrideMutation() async throws {
+        let defaults = UserDefaults.standard
+        let key = "noop.analyzeWatermark"
+        let saved = defaults.object(forKey: key)
+        defer {
+            if let saved { defaults.set(saved, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        defaults.removeObject(forKey: key)
+        let harness = try await makeHarness()
+        let day = try XCTUnwrap(dayWindows(1).first).day
+        let sessionStart = Int(reference.timeIntervalSince1970) - 12 * 3_600
+        func tick() async -> Bool {
+            await harness.engine.analyzeRecent(
+                maxDays: 3, force: false, refreshRepository: false,
+                analysisReference: reference, analysisCalendar: utcCalendar)
+        }
+        let first = await tick()
+        let unchanged = await tick()
+        XCTAssertTrue(first)
+        XCTAssertFalse(unchanged)
+        try await harness.store.registryWriter.write { db in
+            try db.execute(sql: """
+                INSERT INTO sleepRecoveryDailyOverride(deviceId,day,sessionStartTs,recovery,updatedAt)
+                VALUES(?,?,?,75,0)
+                """, arguments: [Repository.whoopSource + "-noop", day, sessionStart])
+        }
+        let changed = await tick()
+        XCTAssertTrue(changed, "protected recovered-sleep controls are input even without any daily/series mutation")
     }
 
     func testColdRunReadsEveryBundleAndWarmRunReadsNone() async throws {
