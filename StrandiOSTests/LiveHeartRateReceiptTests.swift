@@ -1,5 +1,6 @@
 import Combine
 import XCTest
+import WhoopProtocol
 @testable import NOOP
 
 @MainActor
@@ -116,6 +117,29 @@ final class LiveHeartRateReceiptTests: XCTestCase {
 
         XCTAssertEqual(live.latestHeartRateReceipt, last)
         XCTAssertEqual(live.heartRate, 100)
+    }
+
+    func testRouterKeepsWhoop4RawHRFallbackAndEqualValueReceiptDelivery() {
+        let live = LiveState()
+        live.activateHeartRateSource(source)
+        let router = FrameRouter(state: live)
+        var payload = [UInt8](repeating: 0, count: 1917)
+        payload[14] = 100
+        let rawFrame = frameFromPayload(payload, type: 43, seq: 1, cmd: 0)
+        let now = Date()
+        var receipts: [LiveHeartRateReceipt] = []
+        var display: [Int?] = []
+        let a = live.heartRateReceipts.sink { receipts.append($0) }
+        let b = live.$heartRate.dropFirst().sink { display.append($0) }
+
+        router.handle(frame: rawFrame, observedAt: now.addingTimeInterval(-2), source: source)
+        router.handle(frame: rawFrame, observedAt: now, source: source)
+
+        XCTAssertEqual(receipts.map(\.bpm), [100, 100])
+        XCTAssertEqual(receipts.map(\.transport), [.raw, .raw])
+        XCTAssertEqual(receipts.last?.observedAt, now)
+        XCTAssertEqual(display, [100])
+        withExtendedLifetime((a, b)) {}
     }
 }
 
