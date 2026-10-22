@@ -59,6 +59,28 @@ final class ProviderHeartRateReceiptTests: XCTestCase {
         XCTAssertTrue(live.hasActiveHeartRateConnection)
     }
 
+    func testGenericAdoptionDoesNotInheritWhoopProofModeOrConnectionTime() {
+        let live = LiveState()
+        live.activateHeartRateSource(.init(deviceId: "whoop", peripheralID: UUID(), connectionGeneration: 1))
+        live.markConnected(at: 1_000)
+        live.bonded = true
+        live.encryptedBond = true
+        live.standardHRMode = "Live HR only - secure session paused"
+        let before = Date().timeIntervalSince1970
+        let generic = LiveHeartRateProviderSession(live: live, deviceId: "generic")
+
+        let source = generic.begin(peripheralID: UUID())
+        let now = Date()
+        XCTAssertTrue(generic.receive(bpm: 120, observedAt: now, source: source))
+
+        XCTAssertTrue(live.hasActiveHeartRateConnection)
+        XCTAssertFalse(live.bonded)
+        XCTAssertFalse(live.encryptedBond)
+        XCTAssertNil(live.standardHRMode)
+        XCTAssertGreaterThanOrEqual(live.connectedAt ?? 0, before)
+        XCTAssertEqual(live.connectionStatusLabel, "Connected · streaming")
+    }
+
     func testOldProviderStopCannotClearNewProviderOnTheSamePhysicalUUID() {
         let live = LiveState()
         let physical = UUID()
