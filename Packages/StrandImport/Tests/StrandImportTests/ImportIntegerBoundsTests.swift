@@ -76,11 +76,61 @@ final class ImportIntegerBoundsTests: XCTestCase {
         }
     }
 
-    func testFitbitUnparseableIndividualEventsKeepExistingSkipContract() throws {
+    func testFitbitMalformedKnownDayEventsDoNotPublishAPartialTotal() throws {
         let result = WearableExportImporter.parse(brand: .fitbit, files: [
             "steps-a.json": try steps(["-1", "NaN", "1e9999", String(Int.max), "0", "120"]),
         ])
-        XCTAssertEqual(result.days.first?.steps, 120)
+        XCTAssertTrue(result.days.isEmpty)
+    }
+
+    func testFitbitUnknownContributorInvalidatesAllSameDayFragments() throws {
+        let malformed: [Any?] = [nil, NSNull(), "1e300", String(Int.max), "NaN", "inf", -1, -0.5, true, false, "bad", "0.5"]
+        for value in malformed {
+            var event: [String: Any] = ["dateTime": day + "T10:01:00Z"]
+            if let value { event["value"] = value }
+            let bad = try JSONSerialization.data(withJSONObject: [event])
+            let good = try steps(["10"])
+            for badFirst in [false, true] {
+                var files = ["resting_heart_rate-day.json": try restingHR(), "steps-other-day.json": try steps(["25"], day: "2026-06-02")]
+                if badFirst { files["steps-bad.json"] = bad; files["steps-good.json"] = good }
+                else { files["steps-good.json"] = good; files["steps-bad.json"] = bad }
+                let result = WearableExportImporter.parse(brand: .fitbit, files: files)
+                let affected = try XCTUnwrap(result.days.first { $0.day == day })
+                XCTAssertNil(affected.steps, "\(String(describing: value)); badFirst=\(badFirst)")
+                XCTAssertEqual(affected.restingHr, 61)
+                XCTAssertEqual(result.days.first { $0.day == "2026-06-02" }?.steps, 25)
+            }
+        }
+    }
+
+    func testFitbitUnknownEventCannotMakeAMixedIntradayTotalLookComplete() throws {
+        for value: Any in ["1e300", String(Int.max), "NaN", "inf", -1, true, false] {
+            for badFirst in [false, true] {
+                let valid: [String: Any] = ["dateTime": day + "T10:00:00Z", "value": "10"]
+                let invalid: [String: Any] = ["dateTime": day + "T10:01:00Z", "value": value]
+                let data = try JSONSerialization.data(withJSONObject: badFirst ? [invalid, valid] : [valid, invalid])
+                let result = WearableExportImporter.parse(brand: .fitbit, files: ["steps-mixed.json": data])
+                XCTAssertTrue(result.days.isEmpty, "\(value); badFirst=\(badFirst)")
+            }
+        }
+    }
+
+    func testJSONBooleansCannotBecomeNumericStepsForAnyWearableBrand() throws {
+        for value in [false, true] {
+            let fitbit: [String: Data] = ["steps-bool.json": try JSONSerialization.data(withJSONObject: [
+                ["dateTime": day + "T10:00:00Z", "value": value],
+            ])]
+            let garmin: [String: Data] = ["di_connect/daily.json": try JSONSerialization.data(withJSONObject: [
+                ["calendarDate": day, "totalSteps": value],
+            ])]
+            let oura: [String: Data] = ["oura.json": try JSONSerialization.data(withJSONObject: [
+                "daily_activity": [["day": day, "steps": value]],
+            ])]
+            for (brand, files) in [(WearableBrand.fitbit, fitbit), (.garmin, garmin), (.oura, oura)] {
+                let result = WearableExportImporter.parse(brand: brand, files: files)
+                XCTAssertNil(result.days.first?.steps, "\(brand): \(value)")
+            }
+        }
     }
 
     private func liftosaur(_ records: [[String: Any]]) throws -> Data {
