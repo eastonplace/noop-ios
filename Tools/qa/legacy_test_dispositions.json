@@ -1948,8 +1948,16 @@
       "destination": "StrandiOSTests/TrendSummaryPresentationTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
-      ]
+        "Rename app module import from Strand to NOOP.",
+        "Native compiler found missing previousSeries/expectedCount arguments: supply explicit preceding-period fixtures and expected coverage.",
+        "Preserve latest=27 and delta=3 with hand-derived current mean 13.5 versus previous mean 10.5; assert exact source and all ten spark points within the current 30-point bound.",
+        "Preserve positive/negative strain delta magnitudes of 5.1 using reliable three-day period fixtures; neutral tone must come from metric direction, not an insufficient-coverage fallback.",
+        "Retain empty/missing-prior behavior and add explicit sparse-prior reliability regression."
+      ],
+      "added_test_methods": [
+        "testSparsePriorPeriodCannotCreateAConfidentTrendTone"
+      ],
+      "current_test_method_count": 6
     },
     {
       "original_path": "StrandTests/UnitFormatterTests.swift",
