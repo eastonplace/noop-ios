@@ -87,18 +87,18 @@ struct RoutineImportView: View {
                 exportingTemplate = true
             }
             DisclosureGroup("File format") {
-                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                    Text("exercise: required")
-                    Text("routine: groups rows into routines")
-                    Text("sets, reps: a range like 8-12 works")
-                    Text("rest_sec, rpe: rest and effort")
-                    Text("weight_kg or weight_lb: planned load")
-                    Text("notes: anything else")
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    columnRow("exercise", "required")
+                    columnRow("routine", "groups rows into routines")
+                    columnRow("sets, reps", "a range like 8-12 works")
+                    columnRow("rest_sec, rpe", "rest and effort")
+                    columnRow("weight_kg or weight_lb", "planned load")
+                    columnRow("notes", "anything else")
                     Text("Up to 8 MB. In Excel, save calculated cells as values first.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, NoopMetrics.space2)
             }
@@ -107,6 +107,20 @@ struct RoutineImportView: View {
             .tint(StrandPalette.textTertiary)
             .accessibilityIdentifier("routine.import.fileFormat")
         }
+    }
+
+    /// A column name in a plain monospaced weight, with what it holds underneath in the quieter colour.
+    private func columnRow(_ key: String, _ detail: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(verbatim: key)
+                .font(StrandFont.caption.monospaced().weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text(detail)
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder private func review(_ preview: LiftRoutineImportPreview) -> some View {
@@ -159,8 +173,13 @@ struct RoutineImportView: View {
                 LazyVStack(alignment: .leading, spacing: NoopMetrics.space3) {
                     ForEach(routine.exercisePlans ?? []) { plan in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(Self.title(for: plan, in: preview))
+                            Text(verbatim: Self.title(for: plan, in: preview))
                                 .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
+                            if let matched = Self.matchedName(for: plan, in: preview) {
+                                Text("Matched to \(matched)")
+                                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             let facts = [Self.setsFact(plan.sets), Self.repsFact(plan.reps), plan.rest, plan.targetEffort].filter { !$0.isEmpty }
                             if !facts.isEmpty {
                                 Text(facts.joined(separator: " · ")).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
@@ -176,11 +195,15 @@ struct RoutineImportView: View {
         }
     }
 
-    /// "Bench Press → Barbell Bench Press" when the sheet's name was matched to a differently written library exercise.
+    /// The spreadsheet's own name for the row, or the library name when the sheet and library agree.
     private static func title(for plan: LiftRoutineExercisePlan, in preview: LiftRoutineImportPreview) -> String {
-        let name = preview.exercise(plan.exerciseID)?.name ?? String(localized: "Exercise")
-        guard let imported = preview.importedNames[plan.id] else { return name }
-        return "\(imported) → \(name)"
+        preview.importedNames[plan.id] ?? preview.exercise(plan.exerciseID)?.name.liftDisplayName ?? String(localized: "Exercise")
+    }
+
+    /// The library exercise a differently written sheet name was matched to, as Lift shows it elsewhere.
+    private static func matchedName(for plan: LiftRoutineExercisePlan, in preview: LiftRoutineImportPreview) -> String? {
+        guard preview.importedNames[plan.id] != nil else { return nil }
+        return preview.exercise(plan.exerciseID)?.name.liftDisplayName
     }
 
     /// "1 set" and "3 sets"; a range or other text such as "3-4" reads as plural.
