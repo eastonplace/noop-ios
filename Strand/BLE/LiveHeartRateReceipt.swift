@@ -6,11 +6,15 @@ public struct LiveHeartRateSource: Equatable, Hashable, Sendable {
     public let deviceId: String
     public let peripheralID: UUID
     public let connectionGeneration: Int
+    /// Independent provider objects can reconnect with the same generation and physical UUID.
+    /// WHOOP keeps its existing manager-owned generation identity by leaving this nil.
+    public let providerSessionID: UUID?
 
-    public init(deviceId: String, peripheralID: UUID, connectionGeneration: Int) {
+    public init(deviceId: String, peripheralID: UUID, connectionGeneration: Int, providerSessionID: UUID? = nil) {
         self.deviceId = deviceId
         self.peripheralID = peripheralID
         self.connectionGeneration = connectionGeneration
+        self.providerSessionID = providerSessionID
     }
 }
 
@@ -33,7 +37,7 @@ public struct LiveHeartRateReceipt: Equatable, Sendable {
     public var observedSecond: Int { Int(observedAt.timeIntervalSince1970.rounded(.down)) }
 }
 
-/// One accepted observation per second across both WHOOP transports. Raw persistence keeps its own
+/// One accepted observation per second across a source's transports. Raw persistence keeps its own
 /// unmodified provenance; this gate bounds only the live smoothing/workout/coaching cadence.
 struct LiveHeartRateReceiptGate {
     static let maximumReceiptAge: TimeInterval = 5

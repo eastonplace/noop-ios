@@ -29,7 +29,7 @@ struct LiveView: View {
     @AppStorage("selectedWhoopModel") private var selectedModelRaw = WhoopModel.whoop4.rawValue
     private var selectedModel: WhoopModel { WhoopModel(rawValue: selectedModelRaw) ?? .whoop4 }
 
-    private var activeConnection: Bool { live.connected && live.bonded }
+    private var activeConnection: Bool { live.hasActiveHeartRateConnection }
 
     /// The display name of the active device from the registry ("WHOOP", a strap's nickname, …) — what
     /// the user is connected to, or would connect to. Falls back to "WHOOP" before the registry opens or
@@ -794,7 +794,7 @@ private struct PaperLiveHeartCard: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var activeConnection: Bool { live.connected && live.bonded }
+    private var activeConnection: Bool { live.hasActiveHeartRateConnection }
 
     private var rollingRMSSD: Double? {
         let values = Array(live.rrRecent.suffix(12)).map(Double.init)
@@ -947,7 +947,7 @@ private struct LiveHeartReadout: View {
 
     /// Smoothed, spike-filtered live HR from AppModel (median over a short window).
     private var displayHR: Int? { model.bpm }
-    private var activeConnection: Bool { live.connected && live.bonded }
+    private var activeConnection: Bool { live.hasActiveHeartRateConnection }
 
     /// The live HR zone for the focal readout's colour world (presentation only). 0 = below Zone 1.
     private var liveZone: Int {
@@ -1041,7 +1041,7 @@ private struct LiveHeartReadout: View {
 private struct LivePhysiology: View {
     @EnvironmentObject private var live: LiveState
 
-    private var activeConnection: Bool { live.connected && live.bonded }
+    private var activeConnection: Bool { live.hasActiveHeartRateConnection }
 
     /// The live-heart red (matches PaperSparkline's default + the live heart-rate ring).
     private let heartTrace = StrandPalette.liveRed

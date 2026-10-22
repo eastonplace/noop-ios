@@ -64,6 +64,7 @@ public final class FTMSSource: NSObject, ObservableObject {
     // MARK: - Dependencies (injected — no BLEManager reference)
 
     private let live: LiveState
+    private let receiptSession: LiveHeartRateProviderSession
     private let log: (String) -> Void
     private let onBattery: (Int) -> Void
     /// Whether to push the machine's HR into the shared `LiveState` (true for the active machine; false
@@ -87,10 +88,12 @@ public final class FTMSSource: NSObject, ObservableObject {
     ///   - onBattery: fired with the machine's battery percent (0–100) when read off 0x2A19.
     ///   - feedsLive: when false (the wizard's discovery-only scanner) the source never writes `LiveState`.
     public init(live: LiveState,
+                deviceId: String = "ftms",
                 log: @escaping (String) -> Void = { _ in },
                 onBattery: @escaping (Int) -> Void = { _ in },
                 feedsLive: Bool = true) {
         self.live = live
+        self.receiptSession = LiveHeartRateProviderSession(live: live, deviceId: deviceId)
         self.log = log
         self.onBattery = onBattery
         self.feedsLive = feedsLive
@@ -124,6 +127,7 @@ public final class FTMSSource: NSObject, ObservableObject {
 
     /// Connect to the chosen machine and start streaming its machine data.
     public func connect(_ id: UUID) {
+        if feedsLive, peripheral?.identifier != id || peripheral?.state != .connected { receiptSession.end() }
         stopScan()
         let p = seenPeripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first
         guard let p else {
@@ -146,6 +150,7 @@ public final class FTMSSource: NSObject, ObservableObject {
 
     /// Tear down: cancel the connection and stop scanning. Idempotent.
     public func stop() {
+        if feedsLive { receiptSession.end() }
         stopScan()
         pendingConnectID = nil
         if let p = peripheral {
@@ -155,7 +160,6 @@ public final class FTMSSource: NSObject, ObservableObject {
         loggedFirstReading = false
         latest = nil
         batteryPct = nil
-        if feedsLive { live.connected = false }
     }
 
     // MARK: - Reading handling
@@ -163,13 +167,13 @@ public final class FTMSSource: NSObject, ObservableObject {
     /// Fold a decoded reading into the live state + published snapshot. HR (when present) rides the SAME
     /// `LiveState.heartRate` channel the WHOOP / standard-HR sources use, so the existing live-workout
     /// recorder scores it — no new scoring loop.
-    private func ingest(_ reading: FTMSReading) {
+    private func ingest(_ reading: FTMSReading, observedAt: Date, source: LiveHeartRateSource?) {
         latest = reading
         guard feedsLive else { return }
         if let hr = reading.heartRate, hr >= 30, hr <= 220 {
-            live.heartRate = hr
+            guard let source else { return }
+            receiptSession.receive(bpm: hr, observedAt: observedAt, source: source)
         }
-        live.connected = true
     }
 }
 
@@ -187,7 +191,7 @@ extension FTMSSource: @preconcurrency CBCentralManagerDelegate {
                                            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
             }
         default:
-            if feedsLive { live.connected = false }
+            if feedsLive { receiptSession.end() }
         }
     }
 
@@ -214,6 +218,8 @@ extension FTMSSource: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        if feedsLive { receiptSession.begin(peripheralID: peripheral.identifier) }
         log("FTMS: connected — discovering services")
         peripheral.delegate = self
         peripheral.discoverServices([Self.fitnessMachineService, Self.batteryService])
@@ -221,12 +227,15 @@ extension FTMSSource: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state != .connected else { return }
         log("FTMS: WARNING failed to connect — \(error?.localizedDescription ?? "unknown error")")
-        if feedsLive { live.connected = false }
+        if feedsLive { receiptSession.end() }
     }
 
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state != .connected else { return }
+        if feedsLive { receiptSession.end() }
         if let error = error {
             log("FTMS: disconnected — \(error.localizedDescription)")
         } else {
@@ -235,7 +244,6 @@ extension FTMSSource: @preconcurrency CBCentralManagerDelegate {
         loggedFirstReading = false
         latest = nil
         batteryPct = nil
-        if feedsLive { live.connected = false }
         if self.peripheral?.identifier == peripheral.identifier { self.peripheral = nil }
     }
 }
@@ -266,6 +274,8 @@ extension FTMSSource: @preconcurrency CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral,
                            didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state == .connected,
+              peripheral.services?.contains(where: { $0 === service }) == true else { return }
         if let error = error {
             log("FTMS: WARNING characteristic discovery failed — \(error.localizedDescription)")
             return
@@ -274,6 +284,7 @@ extension FTMSSource: @preconcurrency CBPeripheralDelegate {
         // Subscribe to whichever machine-data characteristic this machine exposes (notify-only).
         for ch in chars {
             guard let kind = Self.machineKind(for: ch.uuid) else { continue }
+            if feedsLive { receiptSession.bind(ch) }
             log("FTMS: \(kind.displayName) data characteristic found — enabling notifications")
             peripheral.setNotifyValue(true, for: ch)
         }
@@ -287,6 +298,8 @@ extension FTMSSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value else { return }
+        guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        let observedAt = Date()
         // Battery Level.
         if characteristic.uuid == Self.batteryLevel {
             if let pct = StandardBattery.parse([UInt8](value)) {
@@ -304,6 +317,8 @@ extension FTMSSource: @preconcurrency CBPeripheralDelegate {
             loggedFirstReading = true
             log("FTMS: receiving \(reading.kind.displayName) data — first reading\(reading.heartRate.map { " HR \($0) bpm" } ?? "")")
         }
-        ingest(reading)
+        let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier)
+        if feedsLive, source == nil { return }
+        ingest(reading, observedAt: observedAt, source: source)
     }
 }

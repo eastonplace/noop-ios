@@ -74,6 +74,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
     /// BLE-6: ordered writes with bounded retry.
     private let sink: BatchedRetryingSink<Streams>
     private let deviceId: String
+    private let receiptSession: LiveHeartRateProviderSession
     /// Optional hook fired with the strap's battery percent (0–100) whenever it's read off 0x2A19.
     /// Wired (via `SourceCoordinator`) into `LiveState.setBattery` so a generic strap surfaces its
     /// charge the same place the WHOOP strap does. Default no-op keeps the discovery-only scanner and
@@ -123,6 +124,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
                 onBattery: @escaping (Int) -> Void = { _ in }) {
         self.live = live
         self.deviceId = deviceId
+        self.receiptSession = LiveHeartRateProviderSession(live: live, deviceId: deviceId)
         self.persist = persist
         self.sink = BatchedRetryingSink(insert: persist)
         self.log = log
@@ -158,6 +160,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
     /// Connect to the chosen discovered strap and start streaming its HR.
     public func connect(_ id: UUID) {
+        if peripheral?.identifier != id || peripheral?.state != .connected { receiptSession.end() }
         stopScan()
         // Reach the peripheral directly: use the freshly-discovered handle if we have it, else ask
         // CoreBluetooth for the cached peripheral by identifier (a strap we've connected before). This is
@@ -185,6 +188,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
     /// Tear down: cancel the peripheral connection and stop scanning. Idempotent.
     public func stop() {
+        receiptSession.end()
         stopScan()
         pendingConnectID = nil
         if let p = peripheral {
@@ -197,13 +201,12 @@ public final class StandardHRSource: NSObject, ObservableObject {
         flush()                       // persist anything still buffered
         live.clearSensorMetrics()     // a stale speed/cadence/power panel must not outlive the link
         rateComputer.reset()          // next CSC/CPS packet is a first packet again (no carry-over)
-        live.connected = false
     }
 
     // MARK: - Buffer / persistence
 
-    private func enqueue(hr: Int, rr: [Int]) {
-        buffer.append((hr: hr, rr: rr, ts: Int(Date().timeIntervalSince1970)))
+    private func enqueue(hr: Int, rr: [Int], observedAt: Date) {
+        buffer.append((hr: hr, rr: rr, ts: Int(observedAt.timeIntervalSince1970)))
         if buffer.count >= flushCount || Date().timeIntervalSince(lastFlush) >= flushInterval {
             flush()
         }
@@ -266,7 +269,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
             }
         default:
             // Radio off / unauthorized / resetting → the link is not live.
-            live.connected = false
+            receiptSession.end()
         }
     }
 
@@ -295,6 +298,8 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        receiptSession.begin(peripheralID: peripheral.identifier)
         log("HR-strap: connected — discovering services")
         peripheral.delegate = self
         // Discover the HR service (unchanged) AND, additively, the standard Battery Service + the three
@@ -307,12 +312,15 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state != .connected else { return }
         log("HR-strap: WARNING failed to connect — \(error?.localizedDescription ?? "unknown error")")
-        live.connected = false
+        receiptSession.end()
     }
 
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state != .connected else { return }
+        receiptSession.end()
         if let error = error {
             log("HR-strap: disconnected — \(error.localizedDescription)")
         } else {
@@ -324,7 +332,6 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
         flush()
         live.clearSensorMetrics()
         rateComputer.reset()
-        live.connected = false
         if self.peripheral?.identifier == peripheral.identifier {
             self.peripheral = nil
         }
@@ -375,6 +382,8 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral,
                            didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state == .connected,
+              peripheral.services?.contains(where: { $0 === service }) == true else { return }
         if let error = error {
             log("HR-strap: WARNING characteristic discovery failed — \(error.localizedDescription)")
             return
@@ -395,6 +404,7 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
             log("HR-strap: 0x2A37 measurement characteristic NOT FOUND — cannot read HR from this strap")
         }
         for ch in chars where ch.uuid == Self.heartRateMeasurement {
+            receiptSession.bind(ch)
             peripheral.setNotifyValue(true, for: ch)
         }
         // Additively subscribe to any fitness-sensor measurement characteristic (RSC/CSC/CPS) this device
@@ -419,6 +429,7 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value else { return }
+        let observedAt = Date()
         // Battery Level (0x2A19): a single u8 percent. Surface it and notify the wired hook.
         if characteristic.uuid == Self.batteryLevel {
             if let pct = StandardBattery.parse([UInt8](value)) {
@@ -435,15 +446,16 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
             return
         }
         guard characteristic.uuid == Self.heartRateMeasurement else { return }
+        guard self.peripheral === peripheral, peripheral.state == .connected,
+              let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier) else { return }
         guard let parsed = StandardHeartRate.parse([UInt8](value)) else { return }
         // Log the FIRST sample of a connection only — proof that data is flowing — never every sample.
         if !loggedFirstHR {
             loggedFirstHR = true
             log("HR-strap: receiving data — first sample \(parsed.hr) bpm (rr beats: \(parsed.rr.count))")
         }
-        live.heartRate = parsed.hr
-        live.setRRIntervals(parsed.rr)
-        live.connected = true
-        enqueue(hr: parsed.hr, rr: parsed.rr)
+        receiptSession.receive(bpm: parsed.hr, observedAt: observedAt, source: source)
+        live.setRRIntervals(parsed.rr, observedAt: observedAt, source: source)
+        enqueue(hr: parsed.hr, rr: parsed.rr, observedAt: observedAt)
     }
 }

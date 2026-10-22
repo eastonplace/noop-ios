@@ -2104,7 +2104,8 @@ public final class BLEManager: NSObject, ObservableObject {
         _ sessionID: Whoop5SecureSessionID,
         reason: String,
         linkIsConnected: Bool,
-        cancelConnectedLinkForRetry: Bool
+        cancelConnectedLinkForRetry: Bool,
+        publishesSharedState: Bool = true
     ) -> Whoop5SecureRecoveryDecision? {
         guard let decision = whoop5SecureRecovery.recordFailure(sessionID: sessionID) else {
             log("WHOOP 5/MG: ignored duplicate terminal failure for secure attempt \(sessionID.attemptEpoch)")
@@ -2115,7 +2116,9 @@ public final class BLEManager: NSObject, ObservableObject {
             pendingWhoop5ReconnectDelaySeconds = delay
             autoReconnectPausedForWhoop5SecureFailure = false
             whoop5FallbackMode = .securing
-            state.lastSyncError = "Secure WHOOP session failed: \(reason). Retrying \(attempt)/\(maximum) in \(delay)s."
+            if publishesSharedState {
+                state.lastSyncError = "Secure WHOOP session failed: \(reason). Retrying \(attempt)/\(maximum) in \(delay)s."
+            }
             if linkIsConnected,
                cancelConnectedLinkForRetry,
                let peripheral,
@@ -2127,17 +2130,21 @@ public final class BLEManager: NSObject, ObservableObject {
             autoReconnectPausedForWhoop5SecureFailure = true
             whoop5FallbackMode = .terminalPause(
                 linkIsConnected: linkIsConnected,
-                standardHRConfirmed: state.streamingLiveHR)
+                standardHRConfirmed: publishesSharedState && state.streamingLiveHR)
             if whoop5FallbackMode == .standardOnlyConfirmed {
                 requestWhoop5StandardHeartRateOnly(reason: "secure recovery paused")
                 disableWhoop5ProtectedNotificationsForSecurePause()
-                state.standardHRMode = "Live HR only - secure session paused after \(failures) failures. Tap Connect to retry."
-                state.lastSyncError = "Secure WHOOP session is paused after \(failures) failures. Current standard heart rate remains active; tap Connect to retry secure features."
+                if publishesSharedState {
+                    state.standardHRMode = "Live HR only - secure session paused after \(failures) failures. Tap Connect to retry."
+                    state.lastSyncError = "Secure WHOOP session is paused after \(failures) failures. Current standard heart rate remains active; tap Connect to retry secure features."
+                }
                 log("WHOOP 5/MG: secure recovery paused after \(failures) failures; disabling protected notifications and keeping confirmed standard HR")
             } else {
                 whoop5FallbackMode = .securePausedNoHR
-                state.standardHRMode = nil
-                state.lastSyncError = "Secure connection paused after \(failures) failures. Tap Connect to retry."
+                if publishesSharedState {
+                    state.standardHRMode = nil
+                    state.lastSyncError = "Secure connection paused after \(failures) failures. Tap Connect to retry."
+                }
                 log("WHOOP 5/MG: secure recovery paused after \(failures) failures without confirmed standard HR")
                 if linkIsConnected,
                    let peripheral,
@@ -5327,6 +5334,9 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             log("Ignored stale disconnect callback for \(peripheral.identifier)")
             return
         }
+        let disconnectingHeartRateSource = liveHeartRateSource
+        let ownsSharedLiveState = state.currentHeartRateSource == nil
+            || state.currentHeartRateSource == disconnectingHeartRateSource
         let endedReason: String
         if intentionalDisconnect {
             endedReason = "intentional"
@@ -5354,7 +5364,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 disconnectedSecureSessionID,
                 reason: "physical link disconnected before secure proof",
                 linkIsConnected: false,
-                cancelConnectedLinkForRetry: false)
+                cancelConnectedLinkForRetry: false,
+                publishesSharedState: ownsSharedLiveState)
         }
         let secureRetryDelay = pendingWhoop5ReconnectDelaySeconds
         pendingWhoop5ReconnectDelaySeconds = nil
@@ -5417,7 +5428,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             if TestCentre.active(.connection) {
                 state.append(log: "reconnect paused=bondLoop (#617: \(postBondLoop.consecutiveBondTimeouts) bond-then-timeout cycles)", domain: .connection)
             }
-            if state.reconnectGuide == nil {
+            if ownsSharedLiveState, state.reconnectGuide == nil {
                 state.reconnectGuide = """
                 Your strap keeps connecting and then dropping a second later. This is almost always a stale Bluetooth pairing - usually after a WHOOP firmware update, or the official WHOOP app holding the strap. NOOP works fine once it's re-paired:
 
@@ -5434,7 +5445,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         linkUpAt = nil
         linkAcknowledgedHistory = false
         reassemblers.reset()   // BLE-1: a dead link's half-received frames must not survive the disconnect
-        state.markDisconnected()
+        state.disconnectHeartRateSource(ifOwnedBy: disconnectingHeartRateSource)
         whoop5SecureSession.disconnect()
         whoop5R22Attempt = nil
         pendingWhoop5HapticResponses.removeAll()
@@ -5449,11 +5460,6 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         whoop5Discovery.reset()
         whoop5NotifyRearmOffPending.removeAll()
         whoop5PausedNotifyOffPending.removeAll()
-        state.encryptedBond = false   // cleared with didBond; next session must re-prove the bond (#69)
-        state.charging = nil          // a stale charging flag must not outlive the link
-        state.strapFirmware = nil     // a stale firmware version must not outlive the link
-        state.clearBiometrics()       // and a stale HR / R-R must not outlive the link either
-        state.liveFeedActive = false  // a drop while Live is open must not leave a stale "Stop live feed"
         didBond = false
         whoop5RealtimeArmed = false
         // The strap forgets the realtime-HR toggle across a disconnect; the post-bond branch re-arms it
@@ -5557,7 +5563,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             }
         } else if autoReconnectPausedForWhoop5SecureFailure {
             whoop5FallbackMode = .securePausedNoHR
-            state.standardHRMode = nil
+            if ownsSharedLiveState { state.standardHRMode = nil }
             log("Disconnected\(error.map { ": \($0.localizedDescription)" } ?? ""); secure recovery paused until Connect is tapped")
             if TestCentre.active(.connection) {
                 state.append(log: "connect down (uptime ends)", domain: .connection)

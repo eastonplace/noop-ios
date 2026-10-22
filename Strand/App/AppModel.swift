@@ -685,6 +685,9 @@ final class AppModel: ObservableObject {
             }
         }.store(in: &hrCancellables)
         // Smooth HR centrally so it's solid everywhere it's shown.
+        live.heartRateSourceChanges.sink { [weak self] _ in
+            self?.reconcileRealtimeHRDemand()
+        }.store(in: &hrCancellables)
         live.heartRateReceipts.sink { [weak self] receipt in
             guard let self, self.live.isCurrentHeartRateReceipt(receipt) else { return }
             self.ingestInstantaneousHR(Double(receipt.bpm), observedAt: receipt.observedAt)
@@ -2213,7 +2216,7 @@ final class AppModel: ObservableObject {
     /// packet from re-running HR smoothing/workout capture and prevents a direct-HR tick from appending
     /// the same R-R packet to the stress window a second time.
     private func ingestDirectHR(_ incomingHR: Int?) {
-        // WHOOP receipt delivery owns sample semantics; the presentation write must not ingest it twice.
+        // Receipt delivery owns sample semantics; the presentation write must not ingest it twice.
         guard !live.isReceivingHeartRateReceipt else { return }
         // @Published emits in willSet. The argument is fresh; live.heartRate still holds the prior sample.
         guard let hr = incomingHR, hr >= 30, hr <= 220 else {
@@ -3285,7 +3288,18 @@ final class AppModel: ObservableObject {
 
     private func reconcileRealtimeHRDemand(rearm: Bool = false, allowRawRetry: Bool = false) {
         let demand = realtimeHRLeases.demand(applicationIsActive: applicationIsActive)
-        ble.setRealtimeDemand(visible: demand.visible, recording: demand.recording,
+        let whoopOwnsDemand: Bool
+        if live.currentHeartRateSource?.providerSessionID != nil {
+            whoopOwnsDemand = false
+        } else if let registry = deviceRegistry {
+            whoopOwnsDemand = registry.devices.first(where: { $0.id == registry.activeDeviceId })
+                .map { $0.sourceKind == .liveBLE && SourceCoordinator.isWhoop($0) } ?? false
+        } else {
+            // Before registry hydration, preserve the existing default WHOOP startup demand.
+            whoopOwnsDemand = true
+        }
+        ble.setRealtimeDemand(visible: whoopOwnsDemand && demand.visible,
+                              recording: whoopOwnsDemand && demand.recording,
                               rearm: rearm, allowRawRetry: allowRawRetry)
     }
 

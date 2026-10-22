@@ -348,6 +348,7 @@ final class SourceCoordinator: ObservableObject {
     private func makeFTMSSource(id: String) -> any LiveHRSource {
         FTMSSource(
             live: live,
+            deviceId: id,
             log: straplog,
             onBattery: { [live] pct in live.setBattery(Double(pct)) })
     }

@@ -280,14 +280,18 @@ public final class LiveState: ObservableObject {
 
     @Published public var heartRate: Int?
     private let heartRateReceiptSubject = PassthroughSubject<LiveHeartRateReceipt, Never>()
+    private let heartRateSourceSubject = PassthroughSubject<LiveHeartRateSource?, Never>()
     private var heartRateReceiptGate = LiveHeartRateReceiptGate()
     /// Packet arrivals are separate from the deduplicated display property and never replay on subscribe.
     public var heartRateReceipts: AnyPublisher<LiveHeartRateReceipt, Never> {
         heartRateReceiptSubject.eraseToAnyPublisher()
     }
+    public var heartRateSourceChanges: AnyPublisher<LiveHeartRateSource?, Never> {
+        heartRateSourceSubject.eraseToAnyPublisher()
+    }
     public var currentHeartRateSource: LiveHeartRateSource? { heartRateReceiptGate.source }
     public var latestHeartRateReceipt: LiveHeartRateReceipt? { heartRateReceiptGate.latest }
-    /// Other device sources still publish directly; their existing Combine path remains independent.
+    /// Direct presentation writes must not double-ingest a receipt into AppModel.
     private(set) var isReceivingHeartRateReceipt = false
 
     public func activateHeartRateSource(_ source: LiveHeartRateSource?) {
@@ -296,10 +300,37 @@ public final class LiveState: ObservableObject {
         heartRate = nil
         rr.removeAll(keepingCapacity: true)
         rrRecent.removeAll(keepingCapacity: true)
+        heartRateSourceSubject.send(source)
     }
 
     public func isCurrentHeartRateReceipt(_ receipt: LiveHeartRateReceipt) -> Bool {
         receipt.source == heartRateReceiptGate.source
+    }
+
+    /// Provider sessions have their own connection admission; they do not claim WHOOP bond proof.
+    public var hasActiveHeartRateConnection: Bool {
+        connected && (currentHeartRateSource?.providerSessionID != nil || bonded)
+    }
+
+    @discardableResult
+    public func deactivateHeartRateSource(ifCurrent source: LiveHeartRateSource) -> Bool {
+        guard currentHeartRateSource == source else { return false }
+        activateHeartRateSource(nil)
+        return true
+    }
+
+    /// Shared connection/biometric cleanup for BLEManager's disconnect path. WHOOP transport and
+    /// history teardown still run independently when a different provider already owns this state.
+    @discardableResult
+    public func disconnectHeartRateSource(ifOwnedBy source: LiveHeartRateSource?) -> Bool {
+        guard currentHeartRateSource == nil || currentHeartRateSource == source else { return false }
+        markDisconnected()
+        encryptedBond = false
+        charging = nil
+        strapFirmware = nil
+        clearBiometrics()
+        liveFeedActive = false
+        return true
     }
 
     @discardableResult
