@@ -113,7 +113,7 @@ struct NoopSplashView: View {
 
 /// Accumulates rendered animation time, capping each frame's step so a long main-thread stall at launch
 /// cannot skip the animation.
-private final class SplashClock {
+final class SplashClock {
     private var last: Date?
     private var elapsed = 0.0
 
