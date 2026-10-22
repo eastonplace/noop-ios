@@ -129,6 +129,43 @@ final class ProviderHeartRateReceiptTests: XCTestCase {
         XCTAssertEqual(live.heartRate, 120)
     }
 
+    func testLateWhoopDisconnectCannotClearGenericSessionOnTheSamePhysicalUUID() {
+        let live = LiveState()
+        let physical = UUID()
+        let whoop = LiveHeartRateSource(deviceId: "same-logical-row", peripheralID: physical, connectionGeneration: 1)
+        live.activateHeartRateSource(whoop)
+        let generic = LiveHeartRateProviderSession(live: live, deviceId: whoop.deviceId)
+        let current = generic.begin(peripheralID: physical)
+        let now = Date()
+        XCTAssertTrue(generic.receive(bpm: 120, observedAt: now, source: current))
+
+        XCTAssertFalse(live.disconnectHeartRateSource(ifOwnedBy: whoop))
+
+        XCTAssertEqual(live.currentHeartRateSource, current)
+        XCTAssertEqual(live.latestHeartRateReceipt?.source, current)
+        XCTAssertEqual(live.heartRate, 120)
+        XCTAssertTrue(live.hasActiveHeartRateConnection)
+        XCTAssertTrue(live.streamingLiveHR)
+    }
+
+    func testMatchingWhoopDisconnectStillClearsItsOwnBiometricsAndConnection() {
+        let live = LiveState()
+        let source = LiveHeartRateSource(deviceId: "whoop", peripheralID: UUID(), connectionGeneration: 1)
+        live.activateHeartRateSource(source)
+        live.connected = true
+        live.bonded = true
+        live.streamingLiveHR = true
+        let now = Date()
+        live.receiveHeartRate(bpm: 100, observedAt: now, source: source, transport: .standard)
+
+        XCTAssertTrue(live.disconnectHeartRateSource(ifOwnedBy: source))
+
+        XCTAssertNil(live.heartRate)
+        XCTAssertNil(live.latestHeartRateReceipt)
+        XCTAssertFalse(live.connected)
+        XCTAssertFalse(live.streamingLiveHR)
+    }
+
     #if targetEnvironment(simulator)
     func testAdoptingGenericSessionReleasesWhoopDemandWithoutLosingTheViewsLease() {
         let model = AppModel(startRuntimeTasks: false)
