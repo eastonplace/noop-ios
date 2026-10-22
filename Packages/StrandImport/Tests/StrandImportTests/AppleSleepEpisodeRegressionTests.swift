@@ -74,4 +74,68 @@ final class AppleSleepEpisodeRegressionTests: XCTestCase {
         ])["2024-03-10"])
         XCTAssertEqual(night.asleep, 480)
     }
+
+    func testThirtyMinuteStageGapKeepsEpisodeButLongerGapSeparatesIt() throws {
+        let first = interval(.asleepCore, "2024-03-09T23:00:00Z", "2024-03-09T23:30:00Z")
+        let continuous = AppleHealthAggregator.sleepDaily([first,
+            interval(.asleepCore, "2024-03-10T00:00:00Z", "2024-03-10T00:30:00Z")])
+        XCTAssertNil(continuous["2024-03-09"])
+        XCTAssertEqual(continuous["2024-03-10"]?.asleep, 60)
+        let separate = AppleHealthAggregator.sleepDaily([first,
+            interval(.asleepCore, "2024-03-10T00:01:00Z", "2024-03-10T00:30:00Z")])
+        XCTAssertEqual(separate["2024-03-09"]?.asleep, 30)
+        XCTAssertEqual(separate["2024-03-10"]?.asleep, 29)
+    }
+
+    func testDetailedSourcePriorityIsCoverageThenStableSourceIdentity() throws {
+        let a = interval(.asleepCore, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z", source: "A")
+        let b = interval(.asleepDeep, "2024-03-10T02:00:00Z", "2024-03-10T04:00:00Z", source: "B")
+        let tied = interval(.asleepDeep, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z", source: "B")
+        for input in [[a, b], [b, a], [a, tied], [tied, a]] {
+            let night = try XCTUnwrap(AppleHealthAggregator.sleepDaily(input)["2024-03-10"])
+            XCTAssertEqual(night.core, 480)
+            XCTAssertEqual(night.deep, 0)
+        }
+    }
+
+    func testBoundaryCarryMatchesBatchReductionAndDoesNotEmitStageTwice() throws {
+        let first = interval(.asleepCore, "2024-03-09T22:00:00Z", "2024-03-09T23:00:00Z")
+        let crossing = interval(.asleepDeep, "2024-03-09T23:00:00Z", "2024-03-10T01:00:00Z")
+        let last = interval(.asleepCore, "2024-03-10T01:00:00Z", "2024-03-10T07:00:00Z")
+        var reducer = AppleSleepEpisodeReducer.Accumulator()
+        let parser = ISO8601DateFormatter()
+        XCTAssertTrue(reducer.ingest([first, crossing], through: parser.date(from: "2024-03-10T00:00:00Z")!).isEmpty)
+        let episodes = reducer.ingest([crossing, last], through: parser.date(from: "2024-03-11T00:00:00Z")!)
+        XCTAssertEqual(episodes.count, 1)
+        XCTAssertEqual(episodes.first?.wakeDay, "2024-03-10")
+        XCTAssertEqual(episodes.first?.asleep, 540)
+        XCTAssertEqual(episodes.first?.core, 420)
+        XCTAssertEqual(episodes, AppleSleepEpisodeReducer.reduce([first, crossing, last]))
+        XCTAssertTrue(reducer.finish().isEmpty)
+    }
+
+    func testWakeOffsetUsesFinalEpisodeEvidenceAfterTravelAndFallDST() throws {
+        let travel = AppleHealthAggregator.sleepDaily([
+            interval(.asleepCore, "2024-03-09T21:00:00Z", "2024-03-09T23:30:00Z", offset: 120),
+            interval(.asleepDeep, "2024-03-09T23:30:00Z", "2024-03-10T00:30:00Z", offset: -120)
+        ])
+        XCTAssertNil(travel["2024-03-10"])
+        XCTAssertEqual(travel["2024-03-09"]?.asleep, 210)
+        let fall = AppleHealthAggregator.sleepDaily([
+            interval(.asleepCore, "2024-11-03T02:00:00Z", "2024-11-03T05:30:00Z", offset: -240),
+            interval(.asleepDeep, "2024-11-03T05:30:00Z", "2024-11-03T12:00:00Z", offset: -300)
+        ])
+        XCTAssertNil(fall["2024-11-02"])
+        XCTAssertEqual(fall["2024-11-03"]?.asleep, 600)
+    }
+
+    func testInBedEnvelopesAreUnionedSeparatelyFromAsleep() throws {
+        let night = try XCTUnwrap(AppleHealthAggregator.sleepDaily([
+            interval(.asleepCore, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z"),
+            interval(.inBed, "2024-03-09T23:00:00Z", "2024-03-10T08:30:00Z", source: "A"),
+            interval(.inBed, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z", source: "B")
+        ])["2024-03-10"])
+        XCTAssertEqual(night.asleep, 480)
+        XCTAssertEqual(night.inBed, 570)
+    }
 }
