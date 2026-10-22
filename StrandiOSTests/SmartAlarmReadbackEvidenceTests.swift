@@ -249,6 +249,147 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
         }
     }
 
+    private func persistedEarlyWakeAttempted() throws -> Bool? {
+        let data = try XCTUnwrap(UserDefaults.standard.data(forKey: "smartAlarm.lastEvidence.v1"))
+        let record = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return record["earlyWakeAttempted"] as? Bool
+    }
+
+    func testMissingReadbackPreservesEarlyWakeAttemptWithoutClaimingArmed() throws {
+        try withEvidence {
+            SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(10))
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.actuation, .failed)
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.readbackStatus, .unconfirmed)
+            XCTAssertNil(SmartAlarmEvidenceStore.latest?.strapReportedArmedAt)
+            XCTAssertEqual(try persistedEarlyWakeAttempted(), true,
+                           "A missing readback must not permit another early buzz for this endpoint")
+        }
+    }
+
+    func testNegativeReadbackPreservesLegacyEarlyWakeAttempt() throws {
+        try withEvidence {
+            SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
+            let defaults = UserDefaults.standard
+            let data = try XCTUnwrap(defaults.data(forKey: "smartAlarm.lastEvidence.v1"))
+            var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            legacy.removeValue(forKey: "earlyWakeAttempted")
+            defaults.set(try JSONSerialization.data(withJSONObject: legacy),
+                         forKey: "smartAlarm.lastEvidence.v1")
+            report(epoch: 0)
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.actuation, .failed)
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.readbackStatus, .noAlarm)
+            XCTAssertNil(SmartAlarmEvidenceStore.latest?.strapReportedArmedAt)
+            XCTAssertEqual(try persistedEarlyWakeAttempted(), true)
+        }
+    }
+
+    private func endpointEvaluation(mode: SmartAlarmEvaluator.Mode,
+                                    decision: SmartAlarmEvaluator.Decision,
+                                    actuation: SmartAlarmEvidence.Actuation,
+                                    evaluatedAt: Date,
+                                    endpoint: Date? = nil) -> SmartAlarmEvidence {
+        let endpoint = endpoint ?? wakeAt
+        return .init(mode: mode, trigger: .dataRefresh, decision: decision,
+                     reason: "currentEvaluation", evaluatedAt: evaluatedAt,
+                     inputObservedAt: nil, sleepSource: nil, sleepModelVersion: nil,
+                     forecastSource: nil, forecastModelVersion: nil,
+                     requestedWakeAt: endpoint, windowEndpoint: endpoint,
+                     strapReportedArmedAt: nil, observedStrapWakeAt: nil,
+                     actuation: actuation, evaluatorModelVersion: "test")
+    }
+
+    func testWaitEvaluationRetainsCurrentConfirmedEndpointDelivery() {
+        withEvidence {
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .endpointArmed, evaluatedAt: sentAt))
+            report(epoch: 1_792_666_800)
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .notRequested,
+                evaluatedAt: sentAt.addingTimeInterval(3)))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(4))
+            let evidence = SmartAlarmEvidenceStore.latest
+            XCTAssertEqual(evidence?.evaluatedAt, sentAt.addingTimeInterval(3))
+            XCTAssertEqual(evidence?.decision, .wait)
+            XCTAssertEqual(evidence?.armRequestID, "request-A")
+            XCTAssertEqual(evidence?.armSourceID, "strap-A")
+            XCTAssertEqual(evidence?.actuation, .endpointArmed)
+            XCTAssertEqual(evidence?.readbackStatus, .confirmed)
+            XCTAssertEqual(evidence?.strapReportedArmedAt, wakeAt)
+        }
+    }
+
+    func testUnavailableEvaluationRetainsCurrentPendingEndpointDelivery() {
+        withEvidence {
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .inTheGreen, decision: .wait, actuation: .endpointArmed, evaluatedAt: sentAt))
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .inTheGreen, decision: .unavailable, actuation: .notRequested,
+                evaluatedAt: sentAt.addingTimeInterval(1)))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+            let evidence = SmartAlarmEvidenceStore.latest
+            XCTAssertEqual(evidence?.decision, .unavailable)
+            XCTAssertEqual(evidence?.armRequestID, "request-A")
+            XCTAssertEqual(evidence?.armSourceID, "strap-A")
+            XCTAssertEqual(evidence?.actuation, .endpointArmed)
+            XCTAssertEqual(evidence?.readbackStatus, .pending)
+            XCTAssertNil(evidence?.strapReportedArmedAt)
+        }
+    }
+
+    func testWaitEvaluationRetainsFailedEarlyWakeAttemptAndItsActualTarget() throws {
+        try withEvidence {
+            SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
+            report(epoch: 0)
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .notRequested,
+                evaluatedAt: sentAt.addingTimeInterval(3), endpoint: wakeAt.addingTimeInterval(60)))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(4))
+            let evidence = SmartAlarmEvidenceStore.latest
+            XCTAssertEqual(evidence?.decision, .wait)
+            XCTAssertEqual(evidence?.requestedWakeAt, wakeAt)
+            XCTAssertEqual(evidence?.actuation, .failed)
+            XCTAssertEqual(evidence?.readbackStatus, .noAlarm)
+            XCTAssertEqual(evidence?.armRequestID, "request-A")
+            XCTAssertNil(evidence?.strapReportedArmedAt)
+            XCTAssertEqual(try persistedEarlyWakeAttempted(), true)
+        }
+    }
+
+    func testWaitEvaluationDoesNotInheritSupersededOwnerConfirmation() {
+        withEvidence {
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .endpointArmed, evaluatedAt: sentAt))
+            report(epoch: 1_792_666_800)
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+            UserDefaults.standard.set("request-B", forKey: "alarm.lastArmRequestID")
+            UserDefaults.standard.set("strap-B", forKey: "alarm.lastArmDeviceID")
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .notRequested,
+                evaluatedAt: sentAt.addingTimeInterval(3)))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(4))
+            let evidence = SmartAlarmEvidenceStore.latest
+            XCTAssertEqual(evidence?.actuation, .notRequested)
+            XCTAssertNil(evidence?.armRequestID)
+            XCTAssertNil(evidence?.armSourceID)
+            XCTAssertNil(evidence?.strapReportedArmedAt)
+        }
+    }
+
+    func testNextEndpointDoesNotInheritEarlierWakeAttempt() throws {
+        try withEvidence {
+            SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .notRequested,
+                evaluatedAt: sentAt.addingTimeInterval(3), endpoint: wakeAt.addingTimeInterval(86_400)))
+            XCTAssertNil(SmartAlarmEvidenceStore.latest?.armRequestID)
+            XCTAssertNotEqual(try persistedEarlyWakeAttempted(), true)
+        }
+    }
+
     #if os(iOS)
     private func nativeReadbackFrame(origin: UInt8, epoch: UInt32) -> [UInt8] {
         let payload: [UInt8] = [0x01, epoch == 0 ? 0 : 1, UInt8(truncatingIfNeeded: epoch),
