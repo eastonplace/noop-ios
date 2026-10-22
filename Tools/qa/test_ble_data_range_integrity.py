@@ -114,6 +114,9 @@ do {
 var corrupt = valid
 corrupt[corrupt.count - 1] ^= 1
 check(parseFrame(corrupt, family: .whoop4).payloadCRCOK == false, "corrupt trailer fails payload integrity")
+var reassembler = Reassembler(family: .whoop4)
+check(reassembler.feed(corrupt) == [corrupt],
+      "real reassembler emits CRC-invalid payload, so the BLE range seam must reject it")
 assertRejected(corrupt, "payload CRC mismatch")
 var header = valid
 header[3] ^= 1

@@ -43,6 +43,13 @@ final class FrameRouter {
         __BRANCH__
     }
 }
+func bytes(_ hex: String) -> [UInt8] {
+    stride(from: 0, to: hex.count, by: 2).map {
+        let a = hex.index(hex.startIndex, offsetBy: $0)
+        let b = hex.index(a, offsetBy: 2)
+        return UInt8(hex[a..<b], radix: 16)!
+    }
+}
 var failures = 0
 @MainActor
 func check(_ ok: Bool, _ message: String) {
@@ -66,8 +73,14 @@ response(.whoop5, puffinCommandFrame(cmd: 29, seq: 1, payload: [], type: 36),
          result: "none", label: "short WHOOP 5 response")
 do {
     let r = FrameRouter(); r.family = .whoop5
-    r.receive(puffinCommandFrame(cmd: 26, seq: 1, payload: [7, 1, 47], type: 36))
-    check(r.state.logs.isEmpty, "other command responses cannot become reboot diagnostics")
+    // Token-free real battery reply from Whoop5CommandResponseTests. A captured
+    // other-command response must retain its own meaning and never log a reboot.
+    let battery = bytes("aa0110000100208124931a02012f000000000000f1c132cb")
+    let parsed = parseFrame(battery, family: .whoop5)
+    check(parsed.payloadCRCOK == true && parsed.cmdName?.hasPrefix("GET_BATTERY_LEVEL") == true,
+          "captured battery fixture retains valid command matching")
+    r.receive(battery)
+    check(r.state.logs.isEmpty, "captured other-command response cannot become reboot diagnostic")
 }
 do {
     let r = FrameRouter(); r.family = .whoop5
