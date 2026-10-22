@@ -31,3 +31,32 @@ enum WorkoutRealtimeLeasePolicy {
         max(workoutOwnsLease ? 1 : 0, count - 1)
     }
 }
+
+/// The Lift provider's paired async begin/end calls share this owner. Every begin owns one token;
+/// cancellation or provider teardown can release only the tokens acquired by this provider.
+@MainActor
+final class RealtimeHRLeaseOwner {
+    private weak var model: AppModel?
+    private let consumer: RealtimeHRConsumer
+    private var tokens: [RealtimeHRLeaseToken] = []
+
+    init(model: AppModel, consumer: RealtimeHRConsumer) {
+        self.model = model
+        self.consumer = consumer
+    }
+
+    func begin() {
+        if let token = model?.acquireRealtimeHR(for: consumer) { tokens.append(token) }
+    }
+
+    func end() {
+        if let token = tokens.popLast() { model?.releaseRealtimeHR(token) }
+    }
+
+    deinit {
+        let heldTokens = tokens
+        Task { @MainActor [weak model] in
+            for token in heldTokens { model?.releaseRealtimeHR(token) }
+        }
+    }
+}

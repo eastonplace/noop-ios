@@ -204,12 +204,13 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         #if DEBUG
         if let demo = DemoLiftStrainProvider.requested() { return demo }
         #endif
+        let heartRateOwner = RealtimeHRLeaseOwner(model: model, consumer: .lift)
         return AppLiftStrainProvider(
             store: store,
             deviceId: { [weak model] in model?.repo.deviceId ?? "" },
             bpm: { [weak model] in model?.bpm },
-            startHR: { [weak model] in model?.startRealtimeHR() },
-            stopHR: { [weak model] in model?.stopRealtimeHR() },
+            startHR: { heartRateOwner.begin() },
+            stopHR: { heartRateOwner.end() },
             maxHR: { [weak model] in Double(model?.profile.hrMax ?? 190) },
             restingHR: { [weak model] in
                 let today = Repository.logicalDayKey(Date())

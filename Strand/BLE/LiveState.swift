@@ -279,6 +279,40 @@ public final class LiveState: ObservableObject {
     @Published public var rebootInProgress = false
 
     @Published public var heartRate: Int?
+    private let heartRateReceiptSubject = PassthroughSubject<LiveHeartRateReceipt, Never>()
+    private var heartRateReceiptGate = LiveHeartRateReceiptGate()
+    /// Packet arrivals are separate from the deduplicated display property and never replay on subscribe.
+    public var heartRateReceipts: AnyPublisher<LiveHeartRateReceipt, Never> {
+        heartRateReceiptSubject.eraseToAnyPublisher()
+    }
+    public var currentHeartRateSource: LiveHeartRateSource? { heartRateReceiptGate.source }
+    public var latestHeartRateReceipt: LiveHeartRateReceipt? { heartRateReceiptGate.latest }
+    /// Other device sources still publish directly; their existing Combine path remains independent.
+    private(set) var isReceivingHeartRateReceipt = false
+
+    public func activateHeartRateSource(_ source: LiveHeartRateSource?) {
+        guard source != heartRateReceiptGate.source else { return }
+        heartRateReceiptGate.activate(source)
+        heartRate = nil
+        rr.removeAll(keepingCapacity: true)
+        rrRecent.removeAll(keepingCapacity: true)
+    }
+
+    public func isCurrentHeartRateReceipt(_ receipt: LiveHeartRateReceipt) -> Bool {
+        receipt.source == heartRateReceiptGate.source
+    }
+
+    @discardableResult
+    public func receiveHeartRate(bpm: Int, observedAt: Date, source: LiveHeartRateSource,
+                                transport: LiveHeartRateReceipt.Transport, now: Date = Date()) -> Bool {
+        let receipt = LiveHeartRateReceipt(bpm: bpm, observedAt: observedAt, source: source, transport: transport)
+        guard heartRateReceiptGate.admit(receipt, now: now) else { return false }
+        isReceivingHeartRateReceipt = true
+        defer { isReceivingHeartRateReceipt = false }
+        if heartRate != bpm { heartRate = bpm }
+        heartRateReceiptSubject.send(receipt)
+        return true
+    }
     @Published public var rr: [Int] = []
     @Published public internal(set) var rrRecent: [Int] = []
     @Published public var lastFrameType: String?

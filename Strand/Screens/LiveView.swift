@@ -18,6 +18,7 @@ struct LiveView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var repo: Repository
+    @State private var realtimeHRLease: RealtimeHRLeaseToken?
     /// Cross-screen navigation — drives the "Manage devices" affordance to the first-class Devices
     /// manager (where bands are paired / switched). The shell (sidebar on macOS, a sheet on iOS) routes
     /// the request; LiveView never needs to know which.
@@ -89,12 +90,11 @@ struct LiveView: View {
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .onAppear { refreshLiveSession() }
-        .onDisappear { model.stopRealtimeHR() }
-        // A fresh bond/connection re-arms the BLE stream (Apple must re-send startRealtime on a new
-        // connection) WITHOUT bumping the ref-count — `refreshLiveSession`'s `startRealtimeHR` already
-        // counted this screen once on `.onAppear`, balanced by the single `stopRealtimeHR` above.
-        // Re-counting here (multiple bonded/connected events per appearance, one disappear) would leave
-        // the stream stuck armed after leaving Live (#681 ref-count balance).
+        .onDisappear {
+            if let lease = realtimeHRLease { model.releaseRealtimeHR(lease) }
+            realtimeHRLease = nil
+        }
+        // Reconnect re-arms the owned lease. Multiple bond callbacks never acquire extra ownership.
         .onChangeCompat(of: live.bonded) { _ in reconnectLiveSession() }
         .onChangeCompat(of: live.connected) { _ in reconnectLiveSession() }
     }
@@ -511,19 +511,16 @@ struct LiveView: View {
         .accessibilityIdentifier("live.hr.disconnect")
     }
 
-    /// Live tab appeared: take a ref-count on the realtime stream (arms it on the 0→1 edge) and pull a
-    /// battery reading. Balanced by the single `stopRealtimeHR()` on `.onDisappear`.
+    /// Remember this view's demand even when opened disconnected; release its token on disappearance.
     private func refreshLiveSession() {
+        if realtimeHRLease == nil { realtimeHRLease = model.acquireRealtimeHR(for: .visible) }
         guard activeConnection else { return }
-        model.startRealtimeHR()
         model.getBattery()
     }
 
-    /// A fresh bond/connection landed while the Live tab is up: re-arm the BLE stream (Apple re-sends
-    /// startRealtime on a new connection) and refresh battery — WITHOUT taking another ref-count, since
-    /// these events can fire several times per appearance against the single `.onDisappear` release.
+    /// A fresh connection re-arms the existing demand and refreshes the battery.
     private func reconnectLiveSession() {
-        guard activeConnection else { return }
+        guard realtimeHRLease != nil, activeConnection else { return }
         model.rearmRealtimeIfWanted()
         model.getBattery()
     }
@@ -604,8 +601,7 @@ private struct PaperLiveHeartCard: View {
     let hrMax: Int
     let restingHR: Int?
 
-    /// View-local receipt time, deliberately updated from every raw `@Published`
-    /// heart-rate arrival (including repeated BPM values). A BPM value changing is
+    /// View-local observation time, updated from accepted receipts including equal BPM. A value changing is
     /// not a freshness signal: a steady heart rate can legitimately repeat for minutes.
     @State private var lastHRArrival: Date?
     @State private var freshnessNow = Date()
@@ -642,11 +638,15 @@ private struct PaperLiveHeartCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onReceive(LiveVitalArrivalPolicy.newArrivals(from: live.$heartRate)) { rawBPM in
-            guard activeConnection, let rawBPM, (30...220).contains(rawBPM) else { return }
-            let arrival = Date()
-            lastHRArrival = arrival
-            freshnessNow = arrival
+        .onReceive(live.heartRateReceipts) { receipt in
+            guard activeConnection, live.isCurrentHeartRateReceipt(receipt) else { return }
+            lastHRArrival = receipt.observedAt
+            freshnessNow = Date()
+        }
+        .onAppear {
+            if activeConnection, let receipt = live.latestHeartRateReceipt,
+               live.isCurrentHeartRateReceipt(receipt) { lastHRArrival = receipt.observedAt }
+            freshnessNow = Date()
         }
         .onChangeCompat(of: activeConnection) { connected in
             if !connected { lastHRArrival = nil }

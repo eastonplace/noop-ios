@@ -50,14 +50,15 @@ public final class FrameRouter {
     /// Handle one complete frame (bytes including 0xAA SOF and the crc32 trailer).
     /// Parse-then-forward shim (#47). Kept so existing callers/tests that pass raw bytes are unchanged;
     /// the live BLE seam now parses ONCE and calls `handle(parsed:frame:)` directly.
-    public func handle(frame: [UInt8]) {
-        handle(parsed: parseFrame(frame, family: family), frame: frame)
+    public func handle(frame: [UInt8], observedAt: Date = Date(), source: LiveHeartRateSource? = nil) {
+        handle(parsed: parseFrame(frame, family: family), frame: frame, observedAt: observedAt, source: source)
     }
 
     /// #47: the caller parses the frame ONCE at the BLE seam and threads the result here, so a live
     /// WHOOP4 frame is decoded once instead of 2–3× (router + clock-correlation + collector). `frame` is
     /// still passed for the byte-level sub-decoders below.
-    public func handle(parsed: ParsedFrame, frame: [UInt8]) {
+    public func handle(parsed: ParsedFrame, frame: [UInt8], observedAt: Date = Date(),
+                       source: LiveHeartRateSource? = nil) {
         #if DEBUG
         // Guard the "parse once == parse per consumer" invariant in dev/test builds only (assert is stripped
         // from Release): a threading bug (wrong family / stale frame) trips here, never on a user's wrist.
@@ -94,21 +95,28 @@ public final class FrameRouter {
             // Reject 0 / out-of-range spikes from realtime streams; AppModel medians the rest.
             // Some firmware exposes live BPM only on the R10/R11 raw stream after acknowledging
             // BLE_REALTIME_HR_ON, so the UI can consume it even though persistence still ignores raw43.
-            // live perf: skip the publish when HR is unchanged — the raw flood carries the same HR
-            // byte across many frames, so an unguarded write re-renders the whole console for nothing.
-            if let hr = parsed.parsed["heart_rate"]?.intValue, hr >= 30, hr <= 220, state.heartRate != hr {
-                state.heartRate = hr
+            if let hr = parsed.parsed["heart_rate"]?.intValue, hr >= 30, hr <= 220 {
+                let accepted: Bool
+                if let source {
+                    accepted = state.receiveHeartRate(
+                        bpm: hr, observedAt: observedAt, source: source,
+                        transport: parsed.typeName == "REALTIME_RAW_DATA" ? .raw : .realtime)
+                } else {
+                    // Standalone decode/preview callers have no physical BLE session to label.
+                    accepted = state.heartRate != hr
+                    if accepted { state.heartRate = hr }
+                }
                 // Sleep & Rest test mode (Group E): bank the live HR sample for the readout's HR-density
                 // figure. Gated on the zero-cost active() Bool, so this is a no-op when the mode is off.
-                if TestCentre.active(.sleep) {
-                    state.recordSleepLiveHr(ts: Int(Date().timeIntervalSince1970), bpm: hr)
+                if accepted, TestCentre.active(.sleep) {
+                    state.recordSleepLiveHr(ts: Int(observedAt.timeIntervalSince1970), bpm: hr)
                 }
             }
             // The realtime stream usually reports rr_count=0; only update R-R when this frame
             // actually carries intervals, so we don't wipe R-R sourced from the 0x2A37 profile.
             // setRRIntervals also feeds the Live console's rolling rrRecent buffer.
             if let rr = parsed.parsed["rr_intervals"]?.intArrayValue, !rr.isEmpty {
-                state.setRRIntervals(rr)
+                state.setRRIntervals(rr, observedAt: observedAt, source: source)
             }
 
         case "COMMAND_RESPONSE":
