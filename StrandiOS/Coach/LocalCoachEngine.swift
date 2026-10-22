@@ -301,6 +301,9 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     static func makeModel() -> (any LocalCoachModelDriver)? {
+        #if DEBUG && targetEnvironment(simulator) && os(iOS)
+        if CoachShellFixture.isRequested() { return CoachShellFixtureModelDriver() }
+        #endif
         #if DEBUG
         if CoachJournalDemo.requested { return CoachJournalDemoModelDriver() }
         #endif
