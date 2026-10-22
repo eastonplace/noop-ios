@@ -96,6 +96,18 @@ actor PuffinCaptureFileStore {
     }
 }
 
+#if os(iOS)
+/// The token is immutable. NotificationCenter permits removal from any thread, including deinit.
+/// Keeping disposal with the token avoids touching a non-Sendable token from a MainActor deinit.
+private final class PuffinBackgroundObservation: @unchecked Sendable {
+    private let token: NSObjectProtocol
+
+    init(_ token: NSObjectProtocol) { self.token = token }
+
+    deinit { NotificationCenter.default.removeObserver(token) }
+}
+#endif
+
 /// MainActor only captures cheap session metadata and publishes progress. One drain task owns an IO
 /// batch; later frames append to one pending batch, never replacing accepted content. No task is
 /// created per frame. The opt-in session has no new size cap or record-drop policy.
@@ -115,7 +127,7 @@ final class PuffinFrameRecorder {
     private var completedRevision = 0
     private var barriers: [(revision: Int, continuation: CheckedContinuation<Void, Never>)] = []
     #if os(iOS)
-    private var backgroundObserver: NSObjectProtocol?
+    private var backgroundObserver: PuffinBackgroundObservation?
     private var backgroundFlush = BackgroundFlushOwnership<UIBackgroundTaskIdentifier>()
     #endif
 
@@ -130,15 +142,9 @@ final class PuffinFrameRecorder {
             self.persist = { frames in try? await store.persist(frames) }
         }
         #if os(iOS)
-        backgroundObserver = NotificationCenter.default.addObserver(
+        backgroundObserver = PuffinBackgroundObservation(NotificationCenter.default.addObserver(
             forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in MainActor.assumeIsolated { self?.flushBeforeBackground() } }
-        #endif
-    }
-
-    deinit {
-        #if os(iOS)
-        if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.flushBeforeBackground() } })
         #endif
     }
 
