@@ -212,19 +212,36 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          # PR/push checks keep one large-text smoke test; manual runs cover every size.
+          ui_scope=()
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            ui_scope=(
+              -skip-testing:NOOPCoachUITests/SelectedScreenDirectionTests/testLiveHRAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/SelectedScreenDirectionTests/testBreatheAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/SelectedScreenDirectionTests/testQuickActionSettingsAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/ApprovedDashboardUITests/testTodayAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/ApprovedDashboardUITests/testDashboardSettingsAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/ApprovedDashboardUITests/testWHOOPSettingsAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSettingsRootDoneAlignmentAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/NotificationSettingsUITests/testNotificationsAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/NotificationDestinationUITests/testSettingsQueuedDismissalAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/NotificationDestinationUITests/testWHOOPDeviceAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/NotificationDestinationUITests/testDatedJournalAccessibilityXXXL
+              -skip-testing:NOOPCoachUITests/NotificationDestinationUITests/testDaySleepWeeklyAccessibilityXXXL
+            )
+          fi
           xcodebuild \
             -scheme NOOPCoachUI \
             -configuration Debug \
             -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' \
             -parallel-testing-enabled NO \
             -collect-test-diagnostics never \
+            "${ui_scope[@]}" \
             -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests \
             -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests \
             -only-testing:NOOPCoachUITests/CoachKeyboardLayoutTests \
             -only-testing:NOOPCoachUITests/NotificationSettingsUITests \
             -only-testing:NOOPCoachUITests/NotificationDestinationUITests \
-            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesNormal \
-            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesAccessibilityXXXL \
             -only-testing:NOOPCoachUITests/ApprovedDashboardUITests \
             -resultBundlePath qa-artifacts/selected-ui.xcresult \
             CODE_SIGNING_ALLOWED=NO \
