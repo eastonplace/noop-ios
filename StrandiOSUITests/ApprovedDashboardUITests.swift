@@ -376,7 +376,11 @@ final class ApprovedDashboardUITests: XCTestCase {
         XCTAssertLessThan(strain.frame.midX, recovery.frame.midX, "Today follows the saved summary order")
         capture(app, "today-selected-summary-order")
         for name in changed.health {
-            try reveal(element("today.health.tile.\(name)", in: app), in: app, needsHitTarget: false, viewport: viewport)
+            // This lazy grid starts below the visible Today content. The outer 2% lane
+            // stayed at scroll zero in the captured normal layout; use an interior lane
+            // inside the scaffold's 16pt content margin for this persisted-selection proof.
+            try reveal(element("today.health.tile.\(name)", in: app), in: app,
+                       needsHitTarget: false, viewport: viewport, horizontalGestureFraction: 0.10)
         }
         XCTAssertFalse(element("today.health.tile.sleep", in: app).exists)
         capture(app, "today-three-selected-health-metrics")
@@ -679,7 +683,8 @@ final class ApprovedDashboardUITests: XCTestCase {
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,
                         direction: ScrollDirection = .up, needsHitTarget: Bool = true,
-                        viewport: XCUIElement? = nil) throws {
+                        viewport: XCUIElement? = nil,
+                        horizontalGestureFraction: CGFloat = 0.02) throws {
         if let viewport { try requireExists(viewport, in: app) }
         for attempt in 0..<20 {
             let appFrame = app.frame
@@ -729,7 +734,8 @@ final class ApprovedDashboardUITests: XCTestCase {
                 }
             }
             if surface.elementType == .scrollView || viewport != nil {
-                // Start inside the 2% gutter, outside charts and native row controls.
+                // Default to the gutter outside charts and native row controls. A caller
+                // can select an interior lane when the outer edge does not scroll its content.
                 // Bound both endpoints to the visible intersection, including partially clipped views.
                 let surfaceFrame = surface.frame
                 guard usableScrollFrame(surfaceFrame) else {
@@ -745,7 +751,7 @@ final class ApprovedDashboardUITests: XCTestCase {
                     print("[health-gesture] attempt=\(attempt) explicitViewport=\(viewport != nil) surfaceType=\(surface.elementType.rawValue) surfaceID=\(surface.identifier) gestureFrame=\(gestureFrame)")
                 }
                 let origin = app.coordinate(withNormalizedOffset: .zero)
-                let x = gestureFrame.minX - appFrame.minX + gestureFrame.width * 0.02
+                let x = gestureFrame.minX - appFrame.minX + gestureFrame.width * horizontalGestureFraction
                 let start = origin.withOffset(CGVector(dx: x, dy: gestureFrame.minY - appFrame.minY + gestureFrame.height * (scrollUp ? 0.8 : 0.2)))
                 let end = origin.withOffset(CGVector(dx: x, dy: gestureFrame.minY - appFrame.minY + gestureFrame.height * (scrollUp ? 0.2 : 0.8)))
                 start.press(forDuration: 0.05, thenDragTo: end)

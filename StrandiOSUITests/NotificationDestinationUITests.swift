@@ -116,7 +116,8 @@ final class NotificationDestinationUITests: XCTestCase {
                 try reveal(dateNavigation, in: app, within: host)
                 let headings = host.staticTexts.matching(identifier: "today.health.title")
                 XCTAssertEqual(headings.count, 1, "The foreground dated destination owns one Health Monitor heading")
-                try reveal(headings.firstMatch, in: app, needsHitTarget: false, within: host, viewport: viewport)
+                try reveal(headings.firstMatch, in: app, needsHitTarget: false, within: host,
+                           viewport: viewport, usesInteriorLaneWhenStalled: true)
                 XCTAssertEqual(headings.firstMatch.label, "Health Monitor")
             case "sleep":
                 // Preserve and capture the existing Sleep page; this test makes no Sleep redesign.
@@ -261,9 +262,11 @@ final class NotificationDestinationUITests: XCTestCase {
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication, needsHitTarget: Bool = true,
-                        within scope: XCUIElement? = nil, viewport: XCUIElement? = nil) throws {
+                        within scope: XCUIElement? = nil, viewport: XCUIElement? = nil,
+                        usesInteriorLaneWhenStalled: Bool = false) throws {
         // Native Lists create rows lazily. Keep the full-frame and target hit checks while
         // scrolling only the foreground destination, using its empty horizontal gutter.
+        var previousTargetY: CGFloat?
         for _ in 0..<40 {
             if let viewport, !usableFrame(viewport.frame) { try fail("Invalid raw destination viewport", in: app) }
             var bounds = viewport.map { $0.frame.intersection(app.frame) } ?? app.frame
@@ -286,12 +289,22 @@ final class NotificationDestinationUITests: XCTestCase {
                 try fail("Invalid destination scroll surface frame", in: app)
             }
             let above = element.exists && usableFrame(element.frame) && element.frame.maxY < visible.midY
-            let x = visible.minX + min(8, visible.width * 0.04)
+            let targetY = element.exists && usableFrame(element.frame) ? element.frame.minY : nil
+            let useInteriorLane = usesInteriorLaneWhenStalled && targetY.map { y in
+                previousTargetY.map { abs(y - $0) < 1 } ?? false
+            } == true
+            previousTargetY = targetY
+            // The dated Today capture stalled at the outer x8 lane after four successful
+            // scrolls. Its usual lower start point then aligned with the Stress scrubber.
+            // On a stalled heading only, start inside the content and higher in the viewport.
+            let x = visible.minX + (useInteriorLane ? visible.width * 0.10 : min(8, visible.width * 0.04))
             func point(_ y: CGFloat) -> XCUICoordinate {
                 app.coordinate(withNormalizedOffset: .zero).withOffset(
                     CGVector(dx: x - app.frame.minX, dy: visible.minY + visible.height * y - app.frame.minY))
             }
-            point(above ? 0.42 : 0.78).press(forDuration: 0.05, thenDragTo: point(above ? 0.78 : 0.42))
+            let upper: CGFloat = useInteriorLane ? 0.25 : 0.42
+            let lower: CGFloat = useInteriorLane ? 0.65 : 0.78
+            point(above ? upper : lower).press(forDuration: 0.05, thenDragTo: point(above ? lower : upper))
         }
         try fail("Required destination row was not fully visible after bounded scrolling", in: app)
     }
