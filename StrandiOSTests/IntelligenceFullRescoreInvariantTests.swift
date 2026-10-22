@@ -55,7 +55,8 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     private func makeHarness(days: Int, strapDays: Range<Int>? = nil, lateNights: Set<Int> = [],
                              whoop4: Bool = false, whoop4SwapDay: Int? = nil,
                              whoop4SameIdSwapDay: Int? = nil,
-                             earlierStrapUntil: Int? = nil) async throws -> Harness {
+                             earlierStrapUntil: Int? = nil,
+                             lastNightSkinOffset: Int = 0) async throws -> Harness {
         let store = try await WhoopStore.inMemory()
         if earlierStrapUntil != nil {
             let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
@@ -106,7 +107,8 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                     if let swap = whoop4SwapDay ?? whoop4SameIdSwapDay {
                         raw = (k >= swap ? 1_330 : 1_300) + (ts / 60) % 3
                     } else {
-                        raw = whoop4 ? 1_300 + 2 * k + (ts / 60) % 3 : 3_450 + (k % 5) * 8
+                        raw = whoop4 ? 1_300 + 2 * k + (ts / 60) % 3
+                            : 3_450 + (k % 5) * 8 + (k == days - 1 ? lastNightSkinOffset : 0)
                     }
                     streams.skinTemp.append(SkinTempSample(ts: ts, raw: raw))
                 }
@@ -181,6 +183,56 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             }
         }
         try await body()
+    }
+
+    /// A fresh as-of temperature deviation must feed Charge in the same pass that stores it.
+    /// The two complete fixtures differ only in the final night's temperature; both baseline
+    /// histories, HRV, resting HR, sleep, profile, and analysis time are identical.
+    func testAutomaticChargeUsesCurrentNightSkinDeviation() async throws {
+        try await withRecalibrationEpochsRestored {
+            let regular = try await makeHarness(days: 8)
+            let elevated = try await makeHarness(days: 8, lastNightSkinOffset: 200)
+            let traceKey = "testcentre.active.\(TestDomain.recovery.id)"
+            let oldTrace = UserDefaults.standard.object(forKey: traceKey)
+            defer {
+                if let oldTrace { UserDefaults.standard.set(oldTrace, forKey: traceKey) }
+                else { UserDefaults.standard.removeObject(forKey: traceKey) }
+            }
+            UserDefaults.standard.set(true, forKey: traceKey)
+            var elevatedTrace: [String] = []
+            elevated.engine.diagnosticSink = { line, domain in
+                if domain == .recovery { elevatedTrace.append(line) }
+            }
+            let regularCompleted = await pass(regular, maxDays: 8)
+            let elevatedCompleted = await pass(elevated, maxDays: 8)
+            XCTAssertTrue(regularCompleted)
+            XCTAssertTrue(elevatedCompleted)
+            let regularRows = try await stored(regular)
+            let elevatedRows = try await stored(elevated)
+            let key = try XCTUnwrap(regular.dayKeys.last)
+            let normal = try XCTUnwrap(regularRows[key])
+            let warmer = try XCTUnwrap(elevatedRows[key])
+            XCTAssertEqual(warmer.avgHrv, normal.avgHrv)
+            XCTAssertEqual(warmer.restingHr, normal.restingHr)
+            XCTAssertEqual(warmer.totalSleepMin, normal.totalSleepMin)
+            let normalDeviation = try XCTUnwrap(normal.skinTempDevC)
+            let warmerDeviation = try XCTUnwrap(warmer.skinTempDevC)
+            XCTAssertGreaterThan(warmerDeviation - normalDeviation, 1.9)
+            let normalCharge = try XCTUnwrap(normal.recovery)
+            let warmerCharge = try XCTUnwrap(warmer.recovery)
+            XCTAssertLessThan(warmerCharge, normalCharge,
+                              "Charge must use the same skin deviation persisted for the night")
+            let published = try XCTUnwrap(elevated.engine.results.first { $0.day == key })
+            let skinDriver = try XCTUnwrap(published.drivers.first { $0.term == .skinTemp })
+            XCTAssertEqual(skinDriver.value, warmerDeviation,
+                           "The displayed driver must use the persisted temperature deviation")
+            let driverRows = try await elevated.store.metricSeries(
+                deviceId: elevated.computedId,
+                key: IntelligenceEngine.chargeBreakdownKey(.skinTemp, "value"), from: key, to: key)
+            XCTAssertEqual(driverRows.map(\.value), [warmerDeviation])
+            XCTAssertTrue(elevatedTrace.contains { $0.hasPrefix("charge day=\(key) term skinTempDev ") },
+                          "The Charge trace must include the same final temperature term")
+        }
     }
 
     // MARK: - F3 invariant (with F2 skin and F5 chunk edges)
