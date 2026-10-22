@@ -167,7 +167,14 @@ enum MetricInfo: String, Identifiable {
 
 extension View {
     /// Presents the chosen metric's explainer in the shared sheet. Attach once per screen, outside any tappable card.
-    func metricInfoSheet(_ info: Binding<MetricInfo?>) -> some View {
-        sheet(item: info) { MetricInfoSheet(title: $0.title, sections: $0.sections) }
+    /// `mainSleepReason`, when set, is added as a leading "Why this night" section on the Sleep stages explainer.
+    func metricInfoSheet(_ info: Binding<MetricInfo?>, mainSleepReason: String? = nil) -> some View {
+        sheet(item: info) {
+            var sections = $0.sections
+            if $0 == .sleepStages, let mainSleepReason {
+                sections.insert(.init(heading: String(localized: "Why this night"), body: mainSleepReason), at: 0)
+            }
+            return MetricInfoSheet(title: $0.title, sections: sections)
+        }
     }
 }

@@ -5,13 +5,18 @@ import SwiftUI
 /// it sits in a header row without making the row taller or pushing its neighbours. It is a plain-style button, so
 /// inside a `NavigationLink` card a tap on it opens the explainer and does not follow the link.
 public struct InfoGlyphButton: View {
+    private let systemImage: String
     private let accessibilityLabel: LocalizedStringKey
     private let action: () -> Void
     @ScaledMetric(relativeTo: .footnote) private var glyphSize: CGFloat = 16
 
     private static let hitTarget: CGFloat = 44
 
-    public init(accessibilityLabel: LocalizedStringKey = "More info", action: @escaping () -> Void) {
+    /// `systemImage` defaults to the ⓘ; pass another symbol (e.g. `pencil`) for a sibling bare glyph action.
+    public init(systemImage: String = "info.circle",
+                accessibilityLabel: LocalizedStringKey = "More info",
+                action: @escaping () -> Void) {
+        self.systemImage = systemImage
         self.accessibilityLabel = accessibilityLabel
         self.action = action
     }
@@ -20,7 +25,7 @@ public struct InfoGlyphButton: View {
         let footprint = glyphSize + 4
         let overhang = (Self.hitTarget - footprint) / 2
         Button(action: action) {
-            Image(systemName: "info.circle")
+            Image(systemName: systemImage)
                 .font(.system(size: glyphSize, weight: .regular))
                 .foregroundStyle(StrandPalette.textTertiary)
                 .frame(width: Self.hitTarget, height: Self.hitTarget)

@@ -179,10 +179,10 @@ struct SleepView: View {
     /// its OWN separate session row (`userEdited = 1`) — never folded into the night's main sleep.
     @State private var addNap: AddNapSeed?
 
-    /// True while the hero's "why this is your main sleep" popover is open. The reason text comes
-    /// straight from the foundation `MainNightReason` for the displayed night's blocks — never
-    /// re-derived here — so the explainer says exactly what the selector decided. (spec 2026-06-20 C1)
-    @State private var showMainSleepWhy = false
+    /// The "why this is your main sleep" reason, shown as the first section ("Why this night") of the Sleep stages
+    /// explainer; set when its ⓘ is tapped. The text comes straight from the foundation `MainNightReason` for the
+    /// displayed night's blocks, never re-derived here. (spec 2026-06-20 C1)
+    @State private var stagesMainSleepReason: String?
     /// The stable detected key of the nap whose "why this is a nap" popover is open, or nil. Keyed by
     /// the nap's own `startTs` so one popover shows at a time even with several nap rows. (C1)
     @State private var napWhyStartTs: Int?
@@ -380,7 +380,7 @@ struct SleepView: View {
                 modelKey = dataKey
                 model = buildModel()
             }
-            .metricInfoSheet($metricInfo)
+            .metricInfoSheet($metricInfo, mainSleepReason: stagesMainSleepReason)
             .sheet(item: $wakeEdit) { edit in
                 // The night's RECORDED coverage for the #940 guards: from the immutable detected
                 // onset (where the strap actually saw the night; an earlier hand-set onset widens
@@ -658,7 +658,10 @@ struct SleepView: View {
 
         return FlatSection("Sleep stages", systemImage: "bed.double.fill", tint: .sleep,
                             trailing: .custom(AnyView(windowChips(night))),
-                            infoAction: { metricInfo = .sleepStages },
+                            infoAction: {
+                                stagesMainSleepReason = mainSleepReasonText(night)
+                                metricInfo = .sleepStages
+                            },
                             infoAccessibilityLabel: MetricInfo.sleepStages.accessibilityLabel) {
             Text("\(night.onsetText) → \(night.wakeText) · \(presentation.inBedDuration) in bed")
                 .font(StrandFont.subhead)
@@ -681,28 +684,18 @@ struct SleepView: View {
         .strandHaptic(.selection, trigger: selectedStage)
     }
 
-    /// The stage section's header chips: why this is the main sleep (the foundation's own reason, in a popover) and
-    /// the wake-time editor. Both were quiet icons beside the old window strip; as chips they are findable.
+    /// The stage section's header action: the wake-time editor as a bare pencil glyph, beside the section's ⓘ.
+    /// The main-sleep reason lives in the Sleep stages explainer, not a second ⓘ here.
     @ViewBuilder
     private func windowChips(_ night: Night) -> some View {
-        HStack(spacing: NoopMetrics.space2) {
-            if let reason = mainSleepReasonText(night) {
-                InfoGlyphButton(accessibilityLabel: "Why this is your main sleep") {
-                    showMainSleepWhy.toggle()
-                }
-                .popover(isPresented: $showMainSleepWhy, arrowEdge: .bottom) {
-                    whyPopover(text: reason, napSuffix: false)
-                }
-            }
-            if let target = night.editTarget {
-                WidgetChipButton(systemImage: "pencil",
-                                accessibilityLabel: target.userEdited ? "Edit sleep times (edited)" : "Edit sleep times") {
-                    wakeEdit = WakeEdit(detectedStartTs: target.startTs,
-                                        bedTs: target.effectiveStartTs,
-                                        wakeTs: target.endTs,
-                                        stagesJSON: target.stagesJSON,
-                                        userEdited: target.userEdited)
-                }
+        if let target = night.editTarget {
+            InfoGlyphButton(systemImage: "pencil",
+                            accessibilityLabel: target.userEdited ? "Edit sleep times (edited)" : "Edit sleep times") {
+                wakeEdit = WakeEdit(detectedStartTs: target.startTs,
+                                    bedTs: target.effectiveStartTs,
+                                    wakeTs: target.endTs,
+                                    stagesJSON: target.stagesJSON,
+                                    userEdited: target.userEdited)
             }
         }
     }
@@ -1606,7 +1599,6 @@ struct SleepView: View {
 
         navNight = nextOffset == 0 ? nil : decodedNight(at: nextOffset)
         selectedStage = nil
-        showMainSleepWhy = false
         nightOffset = nextOffset
     }
 
