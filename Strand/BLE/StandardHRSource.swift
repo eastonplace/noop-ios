@@ -188,7 +188,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
     /// Tear down: cancel the peripheral connection and stop scanning. Idempotent.
     public func stop() {
-        receiptSession.end()
+        let ownedLiveState = receiptSession.end()
         stopScan()
         pendingConnectID = nil
         if let p = peripheral {
@@ -199,7 +199,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
         loggedFirstSensor = false
         batteryPct = nil              // a stale charge must not outlive the link
         flush()                       // persist anything still buffered
-        live.clearSensorMetrics()     // a stale speed/cadence/power panel must not outlive the link
+        if ownedLiveState { live.clearSensorMetrics() }
         rateComputer.reset()          // next CSC/CPS packet is a first packet again (no carry-over)
     }
 
@@ -320,7 +320,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         guard self.peripheral === peripheral, peripheral.state != .connected else { return }
-        receiptSession.end()
+        let ownedLiveState = receiptSession.end()
         if let error = error {
             log("HR-strap: disconnected — \(error.localizedDescription)")
         } else {
@@ -330,7 +330,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
         loggedFirstSensor = false
         batteryPct = nil        // a stale charge must not outlive the link
         flush()
-        live.clearSensorMetrics()
+        if ownedLiveState { live.clearSensorMetrics() }
         rateComputer.reset()
         if self.peripheral?.identifier == peripheral.identifier {
             self.peripheral = nil
@@ -395,6 +395,7 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
         // Battery Level (0x2A19): read it once and, if it supports notifications, subscribe so the card
         // updates as the strap drains. Kept entirely separate from the HR enablement below.
         for ch in chars where ch.uuid == Self.batteryLevel {
+            receiptSession.bind(ch)
             peripheral.readValue(for: ch)
             if ch.properties.contains(.notify) { peripheral.setNotifyValue(true, for: ch) }
         }
@@ -410,6 +411,7 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
         // Additively subscribe to any fitness-sensor measurement characteristic (RSC/CSC/CPS) this device
         // exposes. Notify-only, entirely separate from the HR enablement above.
         for ch in chars where Self.fitnessSensorUUID16(for: ch.uuid) != nil {
+            receiptSession.bind(ch)
             log("HR-strap: fitness-sensor characteristic \(ch.uuid) found — enabling notifications")
             peripheral.setNotifyValue(true, for: ch)
         }
@@ -429,6 +431,8 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value else { return }
+        guard self.peripheral === peripheral, peripheral.state == .connected,
+              let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier) else { return }
         let observedAt = Date()
         // Battery Level (0x2A19): a single u8 percent. Surface it and notify the wired hook.
         if characteristic.uuid == Self.batteryLevel {
@@ -446,8 +450,6 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
             return
         }
         guard characteristic.uuid == Self.heartRateMeasurement else { return }
-        guard self.peripheral === peripheral, peripheral.state == .connected,
-              let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier) else { return }
         guard let parsed = StandardHeartRate.parse([UInt8](value)) else { return }
         // Log the FIRST sample of a connection only — proof that data is flowing — never every sample.
         if !loggedFirstHR {

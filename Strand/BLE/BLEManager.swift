@@ -939,10 +939,20 @@ public final class BLEManager: NSObject, ObservableObject {
         // crash and no behaviour change. registryWriter is nonisolated/Sendable (the Pool manages
         // its own concurrency). CC-4: the read runs off the main actor.
         let registryWriter = store.registryWriter
+        let registryReadDeviceId = deviceId
+        let registryReadSource = state.currentHeartRateSource
+        let registryReadStoreGeneration = historicalMaterializationStoreGeneration
         let activeId = await Task.detached(priority: .userInitiated) {
             try? DeviceRegistryStore(dbQueue: registryWriter).activeDeviceId()
         }.value
-        if let activeId, !activeId.isEmpty {
+        guard !restoreInProgress, collector == nil,
+              historicalMaterializationStoreGeneration == registryReadStoreGeneration else { return }
+        // A source selection can finish during the read. Keep initializing the collector for the current
+        // explicit owner, but do not let this older registry snapshot reparent it or clear provider HR.
+        if let activeId, !activeId.isEmpty,
+           deviceId == registryReadDeviceId,
+           state.currentHeartRateSource == registryReadSource,
+           state.currentHeartRateSource?.providerSessionID == nil {
             self.deviceId = activeId
             if let source = state.currentHeartRateSource, source.deviceId != activeId {
                 state.activateHeartRateSource(nil)
@@ -1359,6 +1369,14 @@ public final class BLEManager: NSObject, ObservableObject {
     public func disconnect() {
         intentionalDisconnect = true
         cancelScanFallback()
+        // CoreBluetooth disconnect is asynchronous. Retire secure work now so a queued deadline cannot
+        // revoke a replacement provider that connects before didDisconnect arrives.
+        finishWhoop5DiscoveryDeadline()
+        whoop5Discovery.reset()
+        whoop5SecureStageTimeout?.cancel()
+        whoop5SecureStageTimeout = nil
+        whoop5SecureStageDeadlineID = nil
+        whoop5SecureSession.disconnect()
         // Cancel an unanswered GET_CLOCK recovery before the link begins its asynchronous teardown.
         // `didDisconnect` repeats this reset for non-user disconnects; doing it here prevents a timer
         // from issuing a stale retry while CoreBluetooth still reports the old link as connected.

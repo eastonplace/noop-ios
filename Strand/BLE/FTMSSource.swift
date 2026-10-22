@@ -290,6 +290,7 @@ extension FTMSSource: @preconcurrency CBPeripheralDelegate {
         }
         // Battery (0x2A19): read once, subscribe if it notifies.
         for ch in chars where ch.uuid == Self.batteryLevel {
+            if feedsLive { receiptSession.bind(ch) }
             peripheral.readValue(for: ch)
             if ch.properties.contains(.notify) { peripheral.setNotifyValue(true, for: ch) }
         }
@@ -299,6 +300,8 @@ extension FTMSSource: @preconcurrency CBPeripheralDelegate {
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value else { return }
         guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier)
+        if feedsLive, source == nil { return }
         let observedAt = Date()
         // Battery Level.
         if characteristic.uuid == Self.batteryLevel {
@@ -317,8 +320,6 @@ extension FTMSSource: @preconcurrency CBPeripheralDelegate {
             loggedFirstReading = true
             log("FTMS: receiving \(reading.kind.displayName) data — first reading\(reading.heartRate.map { " HR \($0) bpm" } ?? "")")
         }
-        let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier)
-        if feedsLive, source == nil { return }
         ingest(reading, observedAt: observedAt, source: source)
     }
 }

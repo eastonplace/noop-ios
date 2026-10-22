@@ -321,6 +321,7 @@ extension HuamiHRSource: @preconcurrency CBPeripheralDelegate {
         }
         guard let chars = service.characteristics else { return }
         for ch in chars where ch.uuid == Self.batteryLevel {
+            if feedsLive { receiptSession.bind(ch) }
             peripheral.readValue(for: ch)
             if ch.properties.contains(.notify) { peripheral.setNotifyValue(true, for: ch) }
         }
@@ -363,6 +364,8 @@ extension HuamiHRSource: @preconcurrency CBPeripheralDelegate {
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value else { return }
         guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier)
+        if feedsLive, source == nil { return }
         let observedAt = Date()
         if characteristic.uuid == Self.batteryLevel {
             if let pct = StandardBattery.parse([UInt8](value)) {
@@ -382,8 +385,6 @@ extension HuamiHRSource: @preconcurrency CBPeripheralDelegate {
             return
         }
         guard let hr else { return }   // no usable reading → stay at "—", never fabricate
-        let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier)
-        if feedsLive, source == nil { return }
         ingest(hr: hr, observedAt: observedAt, source: source)
     }
 
