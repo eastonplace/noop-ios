@@ -1396,6 +1396,78 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    private func assertTrustedAppendWindow(
+        _ name: String, lateNights: Set<Int> = [], secondOfLastDay: Int,
+        removeExistingHR: Bool = false, includeGravity: Bool = false, expectedMisses: Int
+    ) async throws {
+        let warm = try await makeHarness(days: 8, lateNights: lateNights, whoop4: true)
+        let cold = try await makeHarness(days: 8, lateNights: lateNights, whoop4: true)
+        let timestamp = firstDayStart + 7 * 86_400 + secondOfLastDay
+        if removeExistingHR {
+            for fixture in [warm, cold] {
+                try await fixture.store.registryWriter.write { db in
+                    try db.execute(sql: "DELETE FROM hrSample WHERE ts=?", arguments: [timestamp])
+                }
+            }
+        }
+        let probe = DerivedInputBundleProbe()
+        warm.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
+            fingerprintLoader: { store, owner, from, to in
+                try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+            },
+            bundleLoader: { store, owner, from, to, limit in
+                await probe.record()
+                return try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
+            }))
+        for _ in 0..<3 {
+            _ = await pass(warm, maxDays: 8)
+            _ = await pass(cold, maxDays: 8)
+        }
+        await probe.reset()
+        let unchanged = await pass(warm, maxDays: 8)
+        _ = await pass(cold, maxDays: 8)
+        let unchangedReads = await probe.count
+        XCTAssertTrue(unchanged)
+        XCTAssertEqual(unchangedReads, 0, "\(name): control must reach actual warm reuse")
+        let priorWarmRows = try await stored(warm)
+        let priorColdRows = try await stored(cold)
+        XCTAssertEqual(priorWarmRows, priorColdRows, "\(name): the independent stores must start alike")
+        var incoming = Streams(hr: [HRSample(ts: timestamp, bpm: 210)])
+        if includeGravity { incoming.gravity = [GravitySample(ts: timestamp, x: 2, y: 1, z: 0)] }
+        _ = try await warm.store.insert(incoming, deviceId: Repository.whoopSource)
+        _ = try await cold.store.insert(incoming, deviceId: Repository.whoopSource)
+        await probe.reset()
+        let completed = await pass(warm, maxDays: 8)
+        let reads = await probe.count
+        XCTAssertTrue(completed)
+        XCTAssertEqual(reads, expectedMisses, "\(name): every actual read interval must participate in precision")
+        let warmRows = try await stored(warm)
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(cold.store)
+        let engine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+        let fresh = Harness(store: cold.store, engine: engine, computedId: cold.computedId,
+                            reference: cold.reference, dayKeys: cold.dayKeys)
+        let coldCompleted = await pass(fresh, maxDays: 8)
+        let coldRows = try await stored(fresh)
+        XCTAssertTrue(coldCompleted)
+        XCTAssertEqual(warmRows, coldRows, "\(name): precise reuse must match a cold engine over identical inputs")
+    }
+
+    func testTrustedAppendAtInclusiveMidnightInvalidatesBothNightWindows() async throws {
+        try await assertTrustedAppendWindow("inclusive midnight", secondOfLastDay: 0,
+                                           removeExistingHR: true, expectedMisses: 2)
+    }
+
+    func testTrustedAppendInTheCycleTailInvalidatesThePriorDay() async throws {
+        try await assertTrustedAppendWindow("cycle tail", lateNights: [7],
+                                           secondOfLastDay: 75 * 60 + 1, expectedMisses: 2)
+    }
+
+    func testTrustedAppendOutsideTheNightReadStillInvalidatesFullDayFallback() async throws {
+        try await assertTrustedAppendWindow("calendar-day fallback", secondOfLastDay: 23 * 3_600 + 1_801,
+                                           includeGravity: true, expectedMisses: 1)
+    }
+
     func testOwnerChangeAlsoInvalidatesThePriorDayWhenItsCycleBoundaryChanges() async throws {
         let harness = try await makeHarness(days: 8, whoop4SwapDay: 7)
         let coldFixture = try await makeHarness(days: 8, whoop4SwapDay: 7)
