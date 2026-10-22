@@ -5,30 +5,27 @@ import StrandDesign
 struct DailyTrainingTargetPreview: View {
     @ObservedObject var model: DailyTrainingTargetViewModel
     @EnvironmentObject private var repo: Repository
-    @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .title) private var valueSize: CGFloat = 36
     @State private var plannedStrain = 10.0
     @State private var plannedSleep = 8.0
     @State private var planOwner: String?
 
     var body: some View {
-        NavigationStack {
-            TimelineView(.periodic(from: .now, by: 60)) { timeline in
-                ScreenScaffold(title: "Training preview", lazy: true) {
-                    if let data = model.data,
-                       let result = repo.dailyTrainingTargetEvaluation(data, now: timeline.date),
-                       let target = result.target {
-                        content(result, target: target)
-                            .task(id: data.key) { initializePlan(result, data: data) }
-                    } else {
-                        Text("Current records are being updated. Close this preview and reopen it after the sync finishes.")
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        // The scaffold's own header carries the title and the sheet's one close button, so there is no
+        // navigation bar (and no second header) above it.
+        TimelineView(.periodic(from: .now, by: 60)) { timeline in
+            ScreenScaffold(title: "Training preview", lazy: true) {
+                if let data = model.data,
+                   let result = repo.dailyTrainingTargetEvaluation(data, now: timeline.date),
+                   let target = result.target {
+                    content(result, target: target)
+                        .task(id: data.key) { initializePlan(result, data: data) }
+                } else {
+                    Text("Your data is updating. Close this and reopen it after the sync.")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
         .accessibilityIdentifier("trainingTarget.preview")
@@ -51,7 +48,8 @@ struct DailyTrainingTargetPreview: View {
                     Text("Suggested daily total")
                         .font(StrandFont.headline)
                     Text(verbatim: DailyTrainingTargetCopy.range(target))
-                        .font(.largeTitle.weight(.bold)).monospacedDigit()
+                        .font(StrandFont.number(valueSize, weight: .bold))
+                        .foregroundStyle(StrandPalette.textPrimary)
                     DailyTrainingTargetRangeBar(target: target, current: result.currentStrainStored)
                     Text(verbatim: DailyTrainingTargetCopy.progress(target, current: result.currentStrainStored))
                         .font(StrandFont.footnote)
@@ -66,7 +64,7 @@ struct DailyTrainingTargetPreview: View {
                     forecast(preview)
                 }
             } else {
-                Text("Sync recent Strain to try a plan. The preview starts at your recorded daily total.")
+                Text("Sync your latest Strain to try a plan.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
             }
@@ -91,10 +89,10 @@ struct DailyTrainingTargetPreview: View {
                         .accessibilityValue(total.formatted(.number.precision(.fractionLength(1))))
                         .accessibilityIdentifier("trainingTarget.strainSlider")
                 }
-                Text("This includes activity already recorded today. Workout Strain does not add directly to daily Strain.")
+                Text("Includes what you’ve already recorded today.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
-                LabeledContent("Sleep tonight", value: String(localized: "\(plannedSleep.formatted(.number.precision(.fractionLength(2)))) h"))
+                LabeledContent("Sleep tonight", value: String(localized: "\(plannedSleep.formatted(.number.precision(.fractionLength(0...2)))) h"))
                     .font(StrandFont.bodyNumber)
                 Slider(value: $plannedSleep, in: 3...12, step: 0.25)
                     .tint(DomainTint.sleep.accent)
@@ -117,24 +115,24 @@ struct DailyTrainingTargetPreview: View {
                 if let recovery = preview.recovery {
                     LabeledContent("Tomorrow's Recovery", value: "\(Int(recovery.low.rounded()))–\(Int(recovery.high.rounded()))%")
                         .font(StrandFont.bodyNumber)
-                    Text("Based on \(recovery.nights) recorded recoveries. Your next sleep measurements will determine the actual score.")
+                    Text("An estimate. Your next sleep sets the real score.")
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textTertiary)
                 } else {
-                    Text("A Recovery preview needs at least 5 recent scores from the current Recovery source.")
+                    Text("A Recovery estimate needs a few more days of scores.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
                 if let ratio = preview.loadRatio {
-                    LabeledContent("Recent load / base after today",
-                                   value: "\(ratio.formatted(.number.precision(.fractionLength(2))))×")
+                    LabeledContent("Training load after today",
+                                   value: String(localized: "\(ratio.formatted(.number.precision(.fractionLength(2))))× your usual"))
                         .font(StrandFont.bodyNumber)
                 } else {
-                    Text("The load preview needs 14 usable daily Strain records and a nonzero base.")
+                    Text("The load preview needs about two weeks of Strain history.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
-                Text("Changing this preview leaves your recorded metrics unchanged.")
+                Text("Just a preview. Nothing is saved.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
             }
@@ -151,16 +149,16 @@ struct DailyTrainingTargetPreview: View {
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
-                Text("Usual daily Strain: \(StrainScale.formatted(target.usualStrainStored)), from \(target.observedDays) recorded days in the past 14 days.")
+                Text("Your usual day is Strain \(StrainScale.formatted(target.usualStrainStored)).")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                 if let needDay = result.sleepNeedDay, needDay != result.day {
-                    Text("Sleep Need last calculated: \(needDay)")
+                    Text("Sleep Need last updated: \(FriendlyDayLabel.label(forDayKey: needDay, today: result.day))")
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
                 DisclosureGroup("How this is calculated") {
-                    Text("This planning estimate starts from the median of your recent daily Strain. Low, moderate, and high Recovery apply factors of 0.60, 0.85, and 1.05. Short sleep can lower that result by up to 30%. Recent load above 1.2 times your base can lower it by up to another 30%. The range spans 85% to 110% of that adjusted value. Missing days stay missing.")
+                    Text("Your target starts from your usual Strain on recent days, then adjusts for today’s Recovery, last night’s sleep, and how hard you’ve trained lately. It’s an estimate to help you plan.")
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .padding(.top, 6)

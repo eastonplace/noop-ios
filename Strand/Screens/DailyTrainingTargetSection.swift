@@ -25,11 +25,11 @@ final class DailyTrainingTargetViewModel: ObservableObject {
             guard !Task.isCancelled, token == request else { return }
             isLoading = false
             if error as? DailyTrainingTargetReadError == .snapshotUnavailable {
-                failure = String(localized: "Sync your current daily metrics to build a training target.")
+                failure = String(localized: "Sync your latest data to see today’s target.")
             } else if error as? DailyTrainingTargetReadError == .sourceChanged {
-                failure = String(localized: "Your data source changed. Load the current records to continue.")
+                failure = String(localized: "Your data source changed. Try again to load today’s target.")
             } else {
-                failure = String(localized: "Training records could not be read. Try again.")
+                failure = String(localized: "Couldn’t read your training records.")
             }
         }
     }
@@ -57,32 +57,28 @@ struct DailyTrainingTargetSection: View {
         }
         .sheet(isPresented: $showingPreview) {
             DailyTrainingTargetPreview(model: model)
-                .sheetScreenScaffoldEnvironment()
+                .sheetScreenScaffoldEnvironment(onClose: { showingPreview = false })
         }
         .accessibilityIdentifier("today.trainingTarget")
+    }
+
+    private var previewButton: some View {
+        Button { showingPreview = true } label: {
+            Label("Preview", systemImage: "slider.horizontal.3")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Preview training and sleep")
+        .accessibilityIdentifier("today.trainingTarget.preview")
     }
 
     private func content(now: Date) -> some View {
         let result = model.data.flatMap { repo.dailyTrainingTargetEvaluation($0, now: now) }
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Training target")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 4)
-                if result?.target != nil {
-                    Button { showingPreview = true } label: {
-                        Label("Preview", systemImage: "slider.horizontal.3")
-                            .font(StrandFont.caption)
-                            .frame(minHeight: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .accessibilityLabel("Preview training and sleep")
-                    .accessibilityIdentifier("today.trainingTarget.preview")
-                }
-            }
+            SectionEyebrow("Training target", systemImage: "flame.fill", tint: .strain,
+                           trailing: result?.target == nil ? .none : .custom(AnyView(previewButton)))
             if let result, let target = result.target {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: DailyTrainingTargetCopy.range(target))
@@ -111,8 +107,14 @@ struct DailyTrainingTargetSection: View {
                 Text(verbatim: failure)
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
-                Button("Try again") { retry = UUID() }
-                    .buttonStyle(NoopButtonStyle(.secondary))
+                Button { retry = UUID() } label: {
+                    Text("Try again")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.accent)
+                        .frame(minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("today.trainingTarget.retry")
             } else {
                 ProgressView("Reading training history")
                     .font(StrandFont.footnote)
@@ -168,23 +170,22 @@ enum DailyTrainingTargetCopy {
     static func driver(_ driver: DailyTrainingTargetEngine.Driver) -> String {
         switch driver {
         case .recoveryLow: return String(localized: "Low Recovery lowers today's range.")
-        case .recoveryModerate: return String(localized: "Moderate Recovery keeps the range below your usual day.")
+        case .recoveryModerate: return String(localized: "Moderate Recovery keeps the range a bit below your usual day.")
         case .recoveryHigh: return String(localized: "High Recovery allows a small increase from your usual day.")
-        case .sleepShort: return String(localized: "Recorded sleep was below 90% of your sleep need.")
-        case .sleepMet: return String(localized: "Recorded sleep was close to or above your sleep need.")
-        case .recentLoadHigh: return String(localized: "Recent load is above your longer-term base, which lowers the target.")
-        case .loadBuilding: return String(localized: "Load history is still building. The range uses recent recorded days.")
+        case .sleepShort: return String(localized: "You slept less than you need, which lowers the target.")
+        case .sleepMet: return String(localized: "You got about the sleep you need.")
+        case .recentLoadHigh: return String(localized: "Your recent training is heavier than usual, which lowers the target.")
+        case .loadBuilding: return String(localized: "Your training history is still building, so the range uses your recent days.")
         }
     }
 
     static func unavailable(_ result: DailyTrainingTargetEngine.Result) -> String {
         switch result.unavailableReason {
-        case .needsRecovery: return String(localized: "Today's Recovery is not ready. Sync after your main sleep to build a target.")
-        case .needsSleep: return String(localized: "Today's sleep duration is not ready. Review your latest sleep before planning.")
-        case .needsSleepNeed: return String(localized: "A recent Sleep Need is required. Sync your sleep records to continue.")
-        case .needsRecentHistory:
-            return String(localized: "A target needs 7 recorded Strain days in the past 14 days, including yesterday. Available: \(result.observedDays).")
-        case .invalidHistory, .invalidDay, nil: return String(localized: "The current records cannot produce a valid target. Review your data in Trends.")
+        case .needsRecovery: return String(localized: "Your target appears once today’s Recovery is ready.")
+        case .needsSleep: return String(localized: "Your target appears once last night’s sleep is in.")
+        case .needsSleepNeed: return String(localized: "Sync your sleep and today’s target will appear.")
+        case .needsRecentHistory: return String(localized: "Your target needs about a week of recent Strain days.")
+        case .invalidHistory, .invalidDay, nil: return String(localized: "Today’s target is paused because some records look off.")
         }
     }
 }
