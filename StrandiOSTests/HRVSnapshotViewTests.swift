@@ -6,6 +6,7 @@ import Foundation
 /// read-out: the mean-HR derivation from the mean NN interval and the null-safe formatter. The
 /// capture/analysis maths themselves live in (and are tested by) `HRVAnalyzer`; this only covers
 /// the presentation logic the snapshot view adds on top.
+@MainActor
 final class HRVSnapshotViewTests: XCTestCase {
 
     // MARK: - meanHR (60000 / meanNN)

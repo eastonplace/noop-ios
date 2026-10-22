@@ -177,6 +177,7 @@ final class JournalLogicTests: XCTestCase {
         XCTAssertEqual(item?.kind.unitLabel, "L")
     }
 
+    @MainActor
     func testNumericJournalKeyIsNamespaced() {
         // The InsightsView folds a numeric journal series under a namespaced key that can never
         // collide with a fixed metric outcome ("recovery" / "hrv" / …).
