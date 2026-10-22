@@ -166,6 +166,19 @@ final class ProviderHeartRateReceiptTests: XCTestCase {
         XCTAssertFalse(live.streamingLiveHR)
     }
 
+    func testWhoopDisconnectCanClearLegacyStateWithNoAdoptedOwner() {
+        let live = LiveState()
+        live.connected = true
+        live.bonded = true
+        live.heartRate = 100
+        let disconnecting = LiveHeartRateSource(deviceId: "whoop", peripheralID: UUID(), connectionGeneration: 1)
+
+        XCTAssertTrue(live.disconnectHeartRateSource(ifOwnedBy: disconnecting))
+
+        XCTAssertFalse(live.connected)
+        XCTAssertNil(live.heartRate)
+    }
+
     #if targetEnvironment(simulator)
     func testAdoptingGenericSessionReleasesWhoopDemandWithoutLosingTheViewsLease() {
         let model = AppModel(startRuntimeTasks: false)
