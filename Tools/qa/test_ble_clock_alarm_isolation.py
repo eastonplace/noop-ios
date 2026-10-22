@@ -56,6 +56,8 @@ struct Peripheral { let identifier: UUID; var state: LinkState = .connected }
 final class LiveState {
     var connected = true
     func clearBatterySamples() {}
+    // Receipt delivery has separate native coverage; this fixture tests clock/alarm isolation.
+    func activateHeartRateSource(_ source: UUID?) {}
 }
 final class Sink { var clockRef: ClockRef?; var deviceId = "original" }
 struct Recovery { var resets = 0; mutating func reset() { resets += 1 } }
@@ -83,6 +85,7 @@ final class Harness {
     var whoop4AlarmTransaction: Whoop4AlarmTransaction?
     var whoop4AlarmRequest: Request?
     var router = Router()
+    var liveHeartRateSource: UUID?
 
     __METHODS__
 
