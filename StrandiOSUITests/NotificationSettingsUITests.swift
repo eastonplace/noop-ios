@@ -125,9 +125,7 @@ final class NotificationSettingsUITests: XCTestCase {
 
         try assertHeader("Habits", in: app)
         try assertPicker("Journal check-in", in: app)
-        let checkInTime = app.datePickers["Check-in time"]
-        try reveal(checkInTime, in: app)
-        XCTAssertTrue(checkInTime.isEnabled, "The saved check-in time remains editable")
+        try assertTimePicker("Check-in time", in: app)
         try assertButton("Check-in days", in: app)
         capture(app, "notifications-\(size)-habits")
 
@@ -139,9 +137,7 @@ final class NotificationSettingsUITests: XCTestCase {
         try assertHeader("Reviews", in: app)
         try assertPicker("Weekly review", in: app)
         try assertPicker("Review day", in: app)
-        let reviewTime = app.datePickers["Review time"]
-        try reveal(reviewTime, in: app)
-        XCTAssertTrue(reviewTime.isEnabled, "The saved weekly review time remains editable")
+        try assertTimePicker("Review time", in: app)
         capture(app, "notifications-\(size)-reviews")
 
         try assertHeader("Recovery", in: app)
@@ -258,6 +254,17 @@ final class NotificationSettingsUITests: XCTestCase {
         XCTAssertTrue(app.frame.contains(row.frame), "The complete native Picker row is visible")
         XCTAssertTrue(row.frame.contains(control.frame), "The measured row owns this exact Picker")
         return row
+    }
+
+    private func assertTimePicker(_ title: String, in app: XCUIApplication) throws {
+        // The native compact DatePicker is unlabeled; SwiftUI exposes its title as a sibling text.
+        // Locate its exact labeled row, then require the real enabled DatePicker within that row.
+        let row = app.cells.containing(.staticText, identifier: title).firstMatch
+        try reveal(row, in: app, needsHitTarget: false)
+        let control = row.datePickers.firstMatch
+        try requireExists(control, in: app)
+        try reveal(control, in: app)
+        XCTAssertTrue(control.isEnabled, "The saved \(title.lowercased()) remains editable")
     }
 
     private func assertSwitch(_ label: String, in app: XCUIApplication) throws {
