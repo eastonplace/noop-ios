@@ -280,6 +280,7 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
             let data = try XCTUnwrap(defaults.data(forKey: "smartAlarm.lastEvidence.v1"))
             var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
             legacy.removeValue(forKey: "earlyWakeAttempted")
+            legacy.removeValue(forKey: "earlyWakeSourceID")
             defaults.set(try JSONSerialization.data(withJSONObject: legacy),
                          forKey: "smartAlarm.lastEvidence.v1")
             report(epoch: 0)
@@ -467,6 +468,7 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
         let data = try XCTUnwrap(defaults.data(forKey: "smartAlarm.lastEvidence.v1"))
         var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         legacy.removeValue(forKey: "earlyWakeAttempted")
+        legacy.removeValue(forKey: "earlyWakeSourceID")
         legacy["actuation"] = "failed"
         legacy["readbackStatus"] = "unconfirmed"
         defaults.set(try JSONSerialization.data(withJSONObject: legacy),
@@ -581,6 +583,36 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
                 XCTAssertEqual(reconnected.actuation, .endpointArmed)
                 XCTAssertEqual(reconnected.readbackStatus, .pending)
                 XCTAssertNil(reconnected.strapReportedArmedAt)
+            }
+        }
+    }
+
+    func testOfflineWaitAfterQueuedEvaluationRetainsAttemptWithoutOldDelivery() throws {
+        try withEvidence {
+            try saveDisconnectedQueuedEvaluation(decision: .wakeNow)
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .notRequested,
+                evaluatedAt: sentAt.addingTimeInterval(4), endpoint: wakeAt.addingTimeInterval(60)))
+            let waiting = try XCTUnwrap(SmartAlarmEvidenceStore.latest)
+            XCTAssertTrue(waiting.hasAttemptedEarlyWake)
+            XCTAssertEqual(try persistedEarlyWakeSourceID(), "strap-A")
+            XCTAssertEqual(waiting.actuation, .notRequested)
+            XCTAssertNil(waiting.armRequestID)
+            XCTAssertNil(waiting.armSourceID)
+            XCTAssertNil(waiting.strapReportedArmedAt)
+        }
+    }
+
+    func testOfflineDifferentWindowOrModeClearsEarlierAttempt() throws {
+        for (mode, endpoint) in [(SmartAlarmEvaluator.Mode.sleepGoal, wakeAt.addingTimeInterval(86_400)),
+                                 (.inTheGreen, wakeAt.addingTimeInterval(60))] {
+            try withEvidence {
+                try saveDisconnectedQueuedEvaluation(decision: .wakeNow)
+                SmartAlarmEvidenceStore.save(endpointEvaluation(
+                    mode: mode, decision: .wait, actuation: .queuedForReconnect,
+                    evaluatedAt: sentAt.addingTimeInterval(4), endpoint: endpoint))
+                XCTAssertFalse(try XCTUnwrap(SmartAlarmEvidenceStore.latest).hasAttemptedEarlyWake)
+                XCTAssertNil(try persistedEarlyWakeSourceID())
             }
         }
     }
