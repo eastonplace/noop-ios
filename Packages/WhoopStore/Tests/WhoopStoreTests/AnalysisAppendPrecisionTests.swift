@@ -74,9 +74,22 @@ final class AnalysisAppendPrecisionTests: XCTestCase {
                 try await store.close()
             }
         }
+        for table in tables {
+            let store = try await WhoopStore.inMemory()
+            let before = try await store.analysisInputWitness()
+            try await append(store, table: table, ts: 0)
+            let outside = try await store.analysisInputWitness()
+            XCTAssertEqual(key(before, from: -3_600, to: -1), key(outside, from: -3_600, to: -1),
+                           "negative timestamps must floor to the prior UTC hour")
+            try await append(store, table: table, ts: -1)
+            let inside = try await store.analysisInputWitness()
+            XCTAssertNotEqual(key(outside, from: -3_600, to: -1), key(inside, from: -3_600, to: -1))
+            try await store.close()
+        }
     }
 
     func testRepairsDeletesUnknownSQLAndOtherFamiliesRemainGlobal() async throws {
+        let midnight = self.midnight
         let updates = ["hrSample": "bpm=75", "rrInterval": "tsSuspect=1", "gravitySample": "x=2"]
         for table in tables {
             let store = try await WhoopStore.inMemory()
@@ -148,18 +161,28 @@ final class AnalysisAppendPrecisionTests: XCTestCase {
 
         let retained = try await WhoopStore.inMemory()
         for batch in 0..<4 {
-            let rows = (0..<1_024).map { HRSample(ts: future + (batch * 1_024 + $0) * 3_600, bpm: 130) }
+            let count = batch == 3 ? 1_023 : 1_024
+            let rows = (0..<count).map { HRSample(ts: future + (batch * 1_024 + $0) * 3_600, bpm: 130) }
             _ = try await retained.insert(Streams(hr: rows), deviceId: "raw")
         }
         let full = try await retained.analysisInputWitness()
-        try await append(retained, table: "hrSample", ts: future + 4_096 * 3_600)
+        XCTAssertEqual(full.appendRevisions.count, 4_095)
+        // One new gravity hour PLUS its motion-day bucket exceeds the combined budget, although
+        // each dictionary on its own would still fit. Clearing motion must advance its own fence.
+        try await append(retained, table: "gravitySample", ts: future + 4_095 * 3_600)
         let over = try await retained.analysisInputWitness()
+        XCTAssertLessThanOrEqual(over.appendRevisions.count + over.gravityRevisions.count, 4_096,
+                                 "hour and motion precision share one fixed state budget")
         XCTAssertNotEqual(key(full, from: midnight - 3_600, to: midnight),
                           key(over, from: midnight - 3_600, to: midnight), "retained-hour overflow must not drop the new mutation")
+        XCTAssertNotEqual(full.motionSignature(deviceId: "append-a", from: midnight, to: midnight + 86_399),
+                          over.motionSignature(deviceId: "append-a", from: midnight, to: midnight + 86_399),
+                          "clearing the shared motion state must advance its global fence")
         try await retained.close()
     }
 
     func testUnsafeAppendSchemasAndImplicitReplacementFallBackGlobally() async throws {
+        let midnight = self.midnight
         for variant in ["unique", "generated-rowid", "foreign-key", "trigger", "temp-trigger", "temp-shadow"] {
             let store = try await WhoopStore.inMemory()
             try await store.registryWriter.write { db in
@@ -193,12 +216,13 @@ final class AnalysisAppendPrecisionTests: XCTestCase {
     }
 
     func testForeignWriterAndRollbackKeepTheirGlobalFences() async throws {
+        let midnight = self.midnight
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("noop-append-\(UUID()).sqlite").path
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: path + suffix) } }
         let store = try await WhoopStore(path: path)
         let before = try await store.analysisInputWitness()
         let foreign = try DatabaseQueue(path: path)
-        try foreign.write { db in
+        try await foreign.write { [midnight = midnight] db in
             try db.execute(sql: "INSERT INTO hrSample(deviceId,ts,bpm) VALUES('foreign',?,55)",
                            arguments: [midnight + 17 * 3_600])
         }
@@ -206,10 +230,13 @@ final class AnalysisAppendPrecisionTests: XCTestCase {
         XCTAssertNotEqual(key(before, from: midnight - 3_600, to: midnight),
                           key(external, from: midnight - 3_600, to: midnight))
         enum Stop: Error { case expected }
-        XCTAssertThrowsError(try store.registryWriter.write { db in
-            try db.execute(sql: "UPDATE hrSample SET bpm=75")
-            throw Stop.expected
-        })
+        do {
+            try await store.registryWriter.write { db in
+                try db.execute(sql: "UPDATE hrSample SET bpm=75")
+                throw Stop.expected
+            }
+            XCTFail("expected fixture rollback")
+        } catch Stop.expected {}
         let rolledBack = try await store.analysisInputWitness()
         XCTAssertEqual(key(external, from: midnight - 3_600, to: midnight),
                        key(rolledBack, from: midnight - 3_600, to: midnight))
