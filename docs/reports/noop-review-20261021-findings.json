@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-10-22T04:56:27.618925+00:00",
-  "branch_head": "683287ff778535cd1cb2b36951abdb6f631c1271",
+  "updated_at": "2026-10-22T05:36:43.609382+00:00",
+  "branch_head": "0c7472791a588eb8c68427c95c7dc31f2c07f408",
   "draft_pr": 68,
   "goal_status": "active",
   "active_subagent_cap": 4,
@@ -105,8 +105,8 @@
       "id": "APP-02",
       "title": "Equal BPM suppression drops sample-arrival semantics",
       "disposition": "source_fixed",
-      "implementation": "Observed receipts include retained generic provider sessions, matched cleanup and stale-deadline/adoption fences; integrated through rootc1f59cf7.",
-      "verified": "All13 ProviderHeartRateReceiptTests passed in the broad052474b7 native run; isolated81runtime/50source checks and root integration source review clear.",
+      "implementation": "Observed receipts include retained generic provider sessions, matched cleanup and stale-deadline/adoption fences; integrated through root c1f59cf7.",
+      "verified": "All 13 ProviderHeartRateReceiptTests passed in the broad 052474b7 native run; isolated 81 runtime/50 source checks and root integration source review clear.",
       "pending": "Final-source qualification and rendered acceptance as relevant; physical BLE/background behavior remains unverified.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
@@ -122,7 +122,7 @@
       "title": "Live Session timer refreshes cached HR as if newly observed",
       "disposition": "source_fixed",
       "implementation": "Live Session consumes observed receipts without cached timer replay; retained-provider compatibility fixes are integrated.",
-      "verified": "All13 ProviderHeartRateReceiptTests passed in the broad052474b7 native run; isolated81runtime/50source checks and root integration source review clear.",
+      "verified": "All 13 ProviderHeartRateReceiptTests passed in the broad 052474b7 native run; isolated 81 runtime/50 source checks and root integration source review clear.",
       "pending": "Final-source qualification and rendered acceptance as relevant; physical BLE/background behavior remains unverified.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
@@ -151,9 +151,9 @@
       "id": "CI-01",
       "title": "Main UI qualification fails 11 of 33 tests",
       "disposition": "repairs_in_progress",
-      "implementation": "Required source/app/unit/package checks green on66head94c85aa7 and67head88a4de42; neither merged.",
-      "verified": "All8 packages plus source/app/unit checks green on both final heads; units2108/2158,0failures,3skips each.",
-      "pending": "Required66/67hostedUI repair/qualification then authorized merges; publish updated68draft now to start hosted finalD6/native/newUI, then final rebase/exact-headCI after66/67merge. No waiver.",
+      "implementation": "Required source, app, unit and package checks are green on PR #66 head94c85aa7 and PR #67 head88a4de42; neither is merged.",
+      "verified": "PRs #66/#67 package/source/app/full-unit checks green. PR #68 at db06edfa hosted 23 source/runtime commands, app/extensions and all eight packages pass; native fixture compilation failed before semantic execution and UI skipped.",
+      "pending": "Finish 0c747279 native run 39728837111 and required package matrix 39728837184. Repair/qualify #66/#67 exact missing today.health.tile.hrv UI target, merge with no waiver, then rebase/update draft #68 and verify final exact-head CI.",
       "reason_for_unfinished_or_declined_work": "Required hosted UI has not completed; no waiver or admin merge.",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
@@ -180,7 +180,7 @@
       "title": "Automatic Charge omits final skin-temperature deviation",
       "disposition": "source_fixed",
       "implementation": "Final temperature deviation feeds Charge, trace, drivers and persistence.",
-      "verified": "D4 and all selected full-rescore invariants passed in217 native wave; independent source review clear.",
+      "verified": "D4 and all selected full-rescore invariants passed in 217 native wave; independent source review clear.",
       "pending": "Final integrated affected checks.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
@@ -194,7 +194,7 @@
       "title": "Apple sleep stages split nights and overlapping sources inflate totals",
       "disposition": "source_fixed",
       "implementation": "Wake-day sleep interval arbitration and durable read-setup resume; guarded reads preserve absent banked values.",
-      "verified": "Affected native health/sleep integration suites passed in broad052474b7; package and source-review evidence retained.",
+      "verified": "Affected native health/sleep integration suites passed in broad 052474b7; package and source-review evidence retained.",
       "pending": "Real HealthKit read-only/partial/revoked/locked behavior, signed background delivery and final-source qualification.",
       "reason_for_unfinished_or_declined_work": "No guessed deletion reconciliation or automatic ambiguous historical row rewrite; contribution provenance is required.",
       "evidence": {
@@ -209,9 +209,9 @@
       "id": "D6",
       "title": "WHOOP4 analysis cache does not witness all relevant inputs",
       "disposition": "source_fixed_native_pending",
-      "implementation": "Complete RAM witness and terminal-output ownership, followed by bounded all-source UTC-hour trusted append precision through949eec88; unknown/repair/schema/overflow fallbacks remain conservative.",
-      "verified": "Original baseline17cases:14failed/26assertions. Broad57 full-rescore cases passed. Strict active-ingest native red at41325eed:3bundle misses versus1required. Store681cases pass at949eec88.",
-      "pending": "Hosted exact-head final append/cold-parity/cost acceptance after local949compiled/linked but ran zero semantic cases due testmanager prelaunch dyld mapping stall. Source/package evidence does not substitute for native acceptance.",
+      "implementation": "Complete RAM witness and terminal-output ownership, followed by bounded all-source UTC-hour trusted append precision through 949eec88; unknown/repair/schema/overflow fallbacks remain conservative.",
+      "verified": "Original baseline 17 cases:14 failed/26 assertions. Broad 57 full-rescore cases passed. Strict active-ingest native red at 41325eed:3 bundle misses versus one required. Store 681 cases pass at 949eec88.",
+      "pending": "Current-head hosted native append/cold-parity/cost acceptance. The local 949 attempt ran no semantic cases, and hosted db06 stopped at the separate HR reduction fixture compiler gate. No D6 final pass or speed/battery claim.",
       "reason_for_unfinished_or_declined_work": "Final native evidence must show trusted appends retain raw-day precision while repairs and unknown writes still invalidate; bounded mutation bookkeeping has a cost and no phone energy benefit is measured.",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
@@ -227,7 +227,7 @@
       "title": "Read-only grants fail automatic resume after relaunch",
       "disposition": "source_fixed",
       "implementation": "Wake-day sleep interval arbitration and durable read-setup resume; guarded reads preserve absent banked values.",
-      "verified": "Affected native health/sleep integration suites passed in broad052474b7; package and source-review evidence retained.",
+      "verified": "Affected native health/sleep integration suites passed in broad 052474b7; package and source-review evidence retained.",
       "pending": "Real HealthKit read-only/partial/revoked/locked behavior, signed background delivery and final-source qualification.",
       "reason_for_unfinished_or_declined_work": "No guessed deletion reconciliation or automatic ambiguous historical row rewrite; contribution provenance is required.",
       "evidence": {
@@ -242,8 +242,8 @@
       "id": "BLE-02",
       "title": "Background workout lease can keep WHOOP4 raw stream armed",
       "disposition": "source_fixed",
-      "implementation": "Owned realtime demand distinguishes display, recording and continuous capture while retaining WHOOP4 fallback.",
-      "verified": "All13 ProviderHeartRateReceiptTests passed in the broad052474b7 native run; isolated81runtime/50source checks and root integration source review clear.",
+      "implementation": "Owned realtime demand distinguishes display, recording and continuous capture while retaining WHOOP 4 fallback.",
+      "verified": "All 13 ProviderHeartRateReceiptTests passed in the broad 052474b7 native run; isolated 81 runtime/50 source checks and root integration source review clear.",
       "pending": "Final-source qualification and rendered acceptance as relevant; physical BLE/background behavior remains unverified.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
@@ -259,7 +259,7 @@
       "title": "Productive events bypass low-power periodic sync floor",
       "disposition": "source_fixed",
       "implementation": "Productive events respect low-power periodic floor and adaptive empty backoff.",
-      "verified": "Policy source and focused regression evidence reviewed; no unlocated package-worker count is treated as verified.",
+      "verified": "Hosted db06 WhoopProtocol 533 tests passed, zero failures; source/runtime checks pass.",
       "pending": "Final combined source and native qualification.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
@@ -273,7 +273,7 @@
       "title": "Live screen conditionally acquires but unconditionally releases realtime lease",
       "disposition": "source_fixed",
       "implementation": "Release only the caller-owned acquired realtime token.",
-      "verified": "All13 ProviderHeartRateReceiptTests passed in the broad052474b7 native run; isolated81runtime/50source checks and root integration source review clear.",
+      "verified": "All 13 ProviderHeartRateReceiptTests passed in the broad 052474b7 native run; isolated 81 runtime/50 source checks and root integration source review clear.",
       "pending": "Final-source qualification and rendered acceptance as relevant; physical BLE/background behavior remains unverified.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
@@ -289,7 +289,7 @@
       "title": "Deep-data permission OFF does not undo persistent flags",
       "disposition": "partial_protocol_limit",
       "implementation": "Synchronous strict consent; generation-tagged confirmed queue revokes only unsent deep-data writes. UI describes permission accurately.",
-      "verified": "Native strict consent cases passed in broad052474b7;23 canonical queue checks and independent source review clear.",
+      "verified": "Native strict consent cases passed in broad 052474b7; 23 canonical queue checks and independent source review clear.",
       "pending": "Rendered permission wording and qualified hardware restoration semantics.",
       "reason_for_unfinished_or_declined_work": "Already-issued ATT cannot be recalled; prior persistent firmware values/inverse operations lack qualified readback. Guessing inverse bytes risks changing strap settings.",
       "evidence": {
@@ -305,7 +305,7 @@
       "title": "Universal 12m/s GPS cap loses valid faster route segments",
       "disposition": "source_fixed",
       "implementation": "Sport-specific speed/acceleration policy with checkpoint and journal propagation.",
-      "verified": "Ten native cases passed in217 wave;56 exact-source checks and review clear.",
+      "verified": "Ten native cases passed in 217 wave; 56 exact-source checks and review clear.",
       "pending": "Final aggregate checks; real route fidelity unverified.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
@@ -319,7 +319,7 @@
       "title": "Coach persistence performs synchronous IO/JSON on main actor",
       "disposition": "source_fixed",
       "implementation": "Serial Coach persistence, generation-aware hydration and ordered protected writes/flush barriers.",
-      "verified": "Affected native Coach/export/recorder IO suites passed in broad052474b7; exact-source ordering/ownership checks and source review clear.",
+      "verified": "Affected native Coach/export/recorder IO suites passed in broad 052474b7; exact-source ordering/ownership checks and source review clear.",
       "pending": "Final-source qualification, actual OS background behavior and measured phone latency/memory.",
       "reason_for_unfinished_or_declined_work": "Small weekly insight defaults and the existing macOS mutable-PDF copy remain synchronous for their current small/framework-bound contracts; no phone performance claim.",
       "evidence": {
@@ -335,7 +335,7 @@
       "title": "Diagnostic export makes whole-capture copies on main actor",
       "disposition": "source_fixed",
       "implementation": "Bounded redaction, owned staged files, atomic replacement, and serial diagnostic/recorder IO with finite background assertions.",
-      "verified": "Affected native Coach/export/recorder IO suites passed in broad052474b7; exact-source ordering/ownership checks and source review clear.",
+      "verified": "Affected native Coach/export/recorder IO suites passed in broad 052474b7; exact-source ordering/ownership checks and source review clear.",
       "pending": "Final-source qualification, actual OS background behavior and measured phone latency/memory.",
       "reason_for_unfinished_or_declined_work": "Small weekly insight defaults and the existing macOS mutable-PDF copy remain synchronous for their current small/framework-bound contracts; no phone performance claim.",
       "evidence": {
@@ -351,7 +351,7 @@
       "title": "Remove non-WHOOP live enrollment, drivers and protocol edges",
       "disposition": "phase_one_fixed",
       "implementation": "WHOOP-only new enrollment picker, debug route and canonical registration guard. Existing pairs/history remain available.",
-      "verified": "All5 LiveDeviceEnrollmentPolicyTests passed in broad052474b7 plus14 exact-source checks after8 baseline rejection failures.",
+      "verified": "All five LiveDeviceEnrollmentPolicyTests passed in the broad 052474b7 run, plus 14 exact-source checks after 8 baseline rejection failures.",
       "pending": "Rendered picker acceptance; full runtime retirement remains a separate compatibility migration.",
       "reason_for_unfinished_or_declined_work": "Full driver retirement requires historical-only source eligibility and an upgrade/restore migration; removing enums/drivers first can reinterpret or strand existing source ownership.",
       "evidence": {
@@ -381,8 +381,8 @@
       "title": "94 StrandTests files are outside configured test targets",
       "disposition": "ports_native_qualified",
       "implementation": "94 files classified: 88 native ports preserving 749 original methods, one parsed YAML audit port restoring five checks, five retirements removing 16 obsolete methods; blanket exemption removed.",
-      "verified": "All749 original methods in88 restored files have native results across broad052474b7 and the90-case repair retry at0fc10e34:0unexecuted/0remaining failed/1optional real-Xiaomi skip. Five YAML audit checks and per-file retirement reasons retained.",
-      "pending": "Final-source/hosted qualification; recovered-method coverage is a multi-run union, not a new full latest-head native pass.",
+      "verified": "All 749 original methods in 88 restored files have results across broad run052474b7 and the90-case repair retry at0fc10e34: zero unexecuted or remaining failed methods, one optional real-Xiaomi skip. Five YAML checks and per-file retirement reasons remain recorded.",
+      "pending": "Current-head hosted Swift 6.3.3 fixture compilation and semantic acceptance. Two-line WorkoutHrReduceTests repair retains all five tests/assertions; host 5/5 and local Swift 6.4 SDK typecheck pass. Prior 749-method coverage remains a multi-run union.",
       "reason_for_unfinished_or_declined_work": "Five obsolete or tautological files have item-specific reasons in Tools/qa/legacy_test_dispositions.json. Optional real Xiaomi fixture remains external; native compile/run is still required.",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
@@ -398,9 +398,9 @@
       "title": "Cache battery reads without breaking liveness",
       "disposition": "declined",
       "implementation": "Keep current battery cadence coupled to connection liveness.",
-      "verified": "Source: WHOOP4 watchdog120s and polling~60s; WHOOP5/MG watchdog600s.",
+      "verified": "Source: WHOOP 4 watchdog 120s and polling~60s; WHOOP 5/MG watchdog 600s.",
       "pending": "No speculative TTL installed.",
-      "reason_for_unfinished_or_declined_work": "A blanket 2-5 minute TTL can exceed the WHOOP4 120-second watchdog and cause healthy quiet reconnects. Replacement probes may only move traffic; battery-alert latency and savings need hardware measurement.",
+      "reason_for_unfinished_or_declined_work": "A blanket 2-5 minute TTL can exceed the WHOOP 4 120-second watchdog and cause healthy quiet reconnects. Replacement probes may only move traffic; battery-alert latency and savings need hardware measurement.",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
         "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
@@ -427,9 +427,9 @@
       "id": "PR-66-01",
       "title": "Splash gates launch visibility on rendered animation time",
       "disposition": "source_fixed",
-      "implementation": "First-render wall elapsed splash clock; preserve2.25s/.75s animation policy.",
-      "verified": "All5 SplashClockTests passed in broad052474b7; exact-source35 assertions pass after26 baseline failures.",
-      "pending": "Rendered acceptance and required hostedUI before66merge.",
+      "implementation": "First-render wall elapsed splash clock; preserve 2.25s/0.75s animation policy.",
+      "verified": "All five SplashClockTests passed in the broad 052474b7 run; 35 exact-source assertions pass after 26 baseline failures.",
+      "pending": "Rendered acceptance and required hosted UI before #66 merge.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
@@ -442,8 +442,8 @@
       "title": "New release-version check skips comparison on fetch/diff failure",
       "disposition": "source_fixed",
       "implementation": "Exact-base release comparison fails closed on missing fetch/history/diff.",
-      "verified": "14 release audit fixtures pass; source/app/unit/package checks green at67head88a4de42.",
-      "pending": "Required hostedUI and merge.",
+      "verified": "Release-audit fixtures and hosted db06 source/runtime gate pass; PR #67 source/app/unit/package checks green.",
+      "pending": "Required hosted UI and merge.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
@@ -454,29 +454,29 @@
       }
     }
   ],
-  "snapshot_note": "Prepublication683287ff: diagnostic-family repair and UI selector/typecheck repairs integrated. Root diagnostic harness+3affected audits green. Local949native attempt canceled before semantic tests; hosted finalD6/native/UI pending. Updated68draft publication planned, not yet verified; no merges/releases/install.",
+  "snapshot_note": "Draft #68 is published at 0c747279. Completed hosted db06edfa run passed all 23 source/runtime commands, app/extensions and all eight packages. Native tests stopped at a Swift 6.3.3 fixture compiler error before semantic execution; UI skipped. The concrete-capture fixture repair retains all five tests, with host 5/5 and local SDK typechecking green. New hosted runs remain pending; no merges, releases or build 240 install.",
   "planned_release": {
     "version": "1.8.0",
     "build": 240,
     "metadata_alignment": "aligned in project.yml, currentVersion, nine-row showcase and CHANGELOG; rendered acceptance pending",
     "phone_install": "not performed"
   },
-  "draft_pr_published_head": "a5e9c5",
+  "draft_pr_published_head": "0c7472791a588eb8c68427c95c7dc31f2c07f408",
   "pull_requests": {
     "66": {
       "head": "94c85aa7",
-      "required_ci": "All8 packages, source, app build and units green; required UI pending",
+      "required_ci": "All eight packages, source checks, app build and full units green; required UI still gates merge.",
       "merged": false,
       "unit_tests": {
         "tests": 2108,
         "failures": 0,
         "skips": 3
       },
-      "required_ui": "DashboardSelectionPersists later reveal-target failure under investigation after earlier preference readbacks and cleanup; no waiver."
+      "required_ui": "Exact today.health.tile.hrv target missing after Settings selection and relaunch; merge worker awaiting artifacts. No waiver."
     },
     "67": {
       "head": "88a4de42",
-      "required_ci": "All8 packages, source, app build and units green; required UI pending",
+      "required_ci": "All eight packages, source checks, app build and full units green; required UI still gates merge.",
       "merged": false,
       "unit_tests": {
         "tests": 2158,
@@ -486,9 +486,9 @@
     },
     "68": {
       "state": "draft",
-      "published_head": "a5e9c5",
-      "update_pending": true,
-      "publication_status": "Updated draft publication planned to start hosted native/UI qualification; not yet verified at this snapshot."
+      "published_head": "0c7472791a588eb8c68427c95c7dc31f2c07f408",
+      "update_pending": false,
+      "publication_status": "Verified published fixture-repair head; native39728837111 and required package39728837184 active or queued; no new results claimed."
     }
   },
   "verification_gates": {
@@ -501,7 +501,7 @@
       "passed": 217,
       "scope": "Selected suites before latest broad integration; not final union."
     },
-    "current_native": "Local949attempt compiled/linked then blocked before any TestCase. Owned CLI interrupted, owned Simulator shutdown without erase; exit75 and one synthetic framework cancellation error, zero semantic cases. Hosted final acceptance pending.",
+    "current_native": "Current0c747279 hosted native run39728837111 active or queued. Previous db06 run failed fixture compilation on Swift6.3.3 with zero semantic cases; UI skipped. All five fixture tests retained; local host5/5 and Swift6.4 SDK typecheck pass.",
     "worker_packages": {
       "store": 653,
       "analytics": 1512,
@@ -522,8 +522,8 @@
       "evidence": "final-packages/results.json",
       "qualification": "Later Store source949eec88 qualified separately below."
     },
-    "final_native": "Broad052+90-case repair union qualified; hosted final append/cost/native acceptance pending after local prelaunch environment failure.",
-    "hosted_ci": "66/67packages/source/app/units green; requiredUI pending; no merges/releases.",
+    "final_native": "Pending current-head hosted semantic acceptance, including D6 append precision and cost. Historical broad052/repair coverage remains qualified at its own sources.",
+    "hosted_ci": "db06 source/runtime23, app/extensions and all eight packages pass. Native fixture compilation failed before execution; current0c747279 native/package runs pending. PR66/67 required UI still blocks merges.",
     "rendered_ui": "Final selectors/role-independent feature/detail assertions integrated; entire ApprovedDashboardUITests file passes Swift6 SDK typecheck at683287ff. No semantic UI case or screenshot acceptance yet; hosted UI pending.",
     "physical_build240": "pending; no phone install",
     "measured_battery": "unverified",
@@ -826,8 +826,80 @@
       "commands": 23,
       "existing22_green_source_commit": "949eec88",
       "new_harness_and3affected_audits_green_source_commit": "683287ff",
-      "full23_at_prepublication_head": "pending",
+      "full23_at_prepublication_head": "passed at db06edfa hosted run39725278997",
       "failure_gates_preserved": true
+    },
+    "hosted_ci_pr68": {
+      "passed_source_commit": "db06edfac8a50825d7d7d64873d4b5ce9105dd6f",
+      "completed_native_workflow_run": 39725278997,
+      "source_runtime_commands": 23,
+      "source_runtime_exit": "all passed",
+      "app_and_extensions": "passed",
+      "native": "compiler failure only; zero semantic cases",
+      "ui": "skipped after native compile failure",
+      "current_published_head": "0c7472791a588eb8c68427c95c7dc31f2c07f408",
+      "active_or_queued_runs": {
+        "native": 39728837111,
+        "required_packages": 39728837184
+      },
+      "evidence": [
+        "pr68-db06-ci/",
+        "ci-db06-native-compile-failure.json",
+        "pr68-db06-retained-packages.json"
+      ]
+    },
+    "hosted_db06_retained_packages": {
+      "source_commit": "db06edfac8a50825d7d7d64873d4b5ce9105dd6f",
+      "failures": 0,
+      "packages": {
+        "NoopLocalAccess": {
+          "xctest": 9
+        },
+        "NoopPhase34Core": {
+          "xctest": 21,
+          "swift_testing": 111
+        },
+        "OuraProtocol": {
+          "xctest": 78
+        },
+        "StrandAnalytics": {
+          "xctest": 1515
+        },
+        "StrandDesign": {
+          "xctest": 257
+        },
+        "StrandImport": {
+          "xctest": 243,
+          "optional_skips": 1
+        },
+        "WhoopProtocol": {
+          "xctest": 533
+        },
+        "WhoopStore": {
+          "xctest": 681
+        }
+      },
+      "evidence": "pr68-db06-retained-packages.json"
+    },
+    "hosted_db06_native_compile_failure": {
+      "source_commit": "db06edfac8a50825d7d7d64873d4b5ce9105dd6f",
+      "run_id": 39725278997,
+      "file": "StrandiOSTests/WorkoutHrReduceTests.swift",
+      "line": 53,
+      "toolchain": "Xcode26.6 / Swift6.3.3",
+      "error": "Region-based isolation checker cannot check the detached-task capture pattern.",
+      "semantic_cases": 0,
+      "ui": "skipped",
+      "app_production_compiled": true,
+      "repair_commit": "0c7472791a588eb8c68427c95c7dc31f2c07f408",
+      "repair_scope": "Two-line fixture-only concrete type and explicit input capture; all five tests/assertions retained.",
+      "local_host_tests": {
+        "tests": 5,
+        "failures": 0
+      },
+      "local_sdk_typecheck": "passed on Swift6.4",
+      "hosted6_3_3_acceptance": "pending",
+      "evidence": "ci-db06-native-compile-failure.json"
     }
   },
   "beyond_zip": [
@@ -931,6 +1003,6 @@
   "repository_note": "Local artifacts are under the master-workspace outputs/noop-review-20261021 directory; source paths identify repository files. No device acceptance or zero-bug guarantee.",
   "path_conventions": {
     "repository_paths": "Source paths and docs/reports paths are relative to repository root.",
-    "local_artifacts": "Other evidence paths are relative to master-workspace outputs/noop-review-20261021 and are not claimed to ship in the repository."
+    "local_artifacts": "Other evidence paths are relative to master-workspace outputs/noop-review-20261021; they are not claimed to ship in the repository."
   }
 }
