@@ -66,7 +66,7 @@ public enum SleepStagerV2 {
         let rrW = clipToWindow(rr, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
         let key = V2Key(
             start: start, end: end,
-            grav: StreamFingerprint.of(gravW, ts: { $0.ts }, quant: { Int(($0.x + $0.y + $0.z) * 1024) }),
+            grav: StreamFingerprint.gravity(gravW),
             hr: StreamFingerprint.of(hrW, ts: { $0.ts }, quant: { Int($0.bpm) }),
             rr: StreamFingerprint.of(rrW, ts: { $0.ts }, quant: { Int($0.rrMs) }))
         return stageCache.value(key) {
@@ -104,6 +104,12 @@ public enum SleepStagerV2 {
 
     private static func clipToWindow<T>(_ samples: [T], lo: Int, hi: Int, ts: (T) -> Int) -> [T] {
         if samples.isEmpty { return samples }
+        // The public stager accepts unordered streams. Binary bounds are valid only after ordering;
+        // filter unordered input here and let the existing staging sort order the retained window.
+        // Check before the endpoint shortcut too: unordered interior rows may lie outside the window.
+        guard zip(samples, samples.dropFirst()).allSatisfy({ ts($0) <= ts($1) }) else {
+            return samples.filter { ts($0) >= lo && ts($0) < hi }
+        }
         // Already inside the window in full → avoid the copy (the common single-night case).
         if ts(samples[0]) >= lo && ts(samples[samples.count - 1]) < hi { return samples }
         // lowerBound: first index with ts >= lo.

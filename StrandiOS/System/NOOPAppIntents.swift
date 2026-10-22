@@ -2,12 +2,13 @@
 import Foundation
 import AppIntents
 
-/// Queue of actions requested by an App Intent while the app may be suspended. Intents can't reach
-/// into the running `AppModel` directly (BLE only lives in the foreground app), so they enqueue here
-/// and the app drains the queue when it next becomes active.
+/// Queue of actions requested by an App Intent while the app may be suspended. The application target
+/// owns these intents and drains on an append while active, or on its next active mount/scene edge.
+/// Shared defaults retain the request if no foreground consumer exists yet.
 @MainActor
 enum PendingIntents {
     enum Action: String, Sendable { case markMoment, buzz, syncStrap }
+    static let didAppend = Notification.Name("noop.pendingIntents.didAppend")
 
     private static let key = "noop.pendingIntents"
     private static var defaults: UserDefaults? { UserDefaults(suiteName: WidgetSnapshot.suiteName) }
@@ -21,6 +22,9 @@ enum PendingIntents {
         if let date { list.append("\(action.rawValue):\(date.timeIntervalSince1970)") }
         else { list.append(action.rawValue) }
         d.set(list, forKey: key)
+        // App-only producers and the foreground consumer share the main actor. Persist first so a
+        // synchronous drain takes this request once; a background consumer leaves it for activation.
+        NotificationCenter.default.post(name: didAppend, object: nil)
     }
 
     static func drain() -> [(action: Action, date: Date?)] {

@@ -49,10 +49,15 @@ final class Collector {
     /// Concrete store for prune + stats (the StoreWriting seam covers the hot insert/enqueue path;
     /// prune/stats are infrequent so a direct reference is clearer than widening the protocol).
     private let concreteStore: WhoopStore?
-    /// Device id new samples persist under. MUTABLE so a WHOOP↔WHOOP switch (BLEManager.setActiveDeviceId)
-    /// re-attributes the next flush/standard-HR persist immediately, rather than freezing the id captured
-    /// at construction. Single-WHOOP never switches, so this stays "my-whoop" exactly as a `let` would have.
-    var deviceId: String
+    /// A retarget affects only new intake. Buffered samples and suspended writes keep their owner.
+    var deviceId: String {
+        didSet {
+            if deviceId != oldValue {
+                intakeGeneration &+= 1
+                clockRef = nil
+            }
+        }
+    }
     private let policy: CollectorPolicy
     /// Research toggle. When false (DEFAULT) no raw frames are persisted at all — the app is
     /// decoded-only. Injected for tests; backed by UserDefaults in the production init site.
@@ -61,22 +66,59 @@ final class Collector {
     private let monotonic: () -> TimeInterval
 
     /// Set once the GET_CLOCK correlation lands (E1). Until then, frames buffer un-persisted.
-    var clockRef: ClockRef?
+    var clockRef: ClockRef? {
+        didSet {
+            guard let clockRef else {
+                if oldValue != nil { intakeGeneration &+= 1 }
+                return
+            }
+            // A late GET_CLOCK may resolve only samples admitted by this source/session.
+            let owner = intakeOwner
+            for index in buffer.indices
+                where buffer[index].context.owner == owner && buffer[index].context.clockRef == nil {
+                buffer[index].context.clockRef = clockRef
+            }
+        }
+    }
     /// Strap family for the LIVE decode path. WHOOP 4.0 (default) parses the 4.0 envelope; 5/MG
     /// parses the puffin envelope (records sit at +4 offsets). Set by BLEManager.configureCollector‐
     /// Family alongside an identity clockRef — 5/MG live timestamps are already real-unix seconds.
-    var family: DeviceFamily = .whoop4
+    var family: DeviceFamily = .whoop4 {
+        didSet { if family != oldValue { intakeGeneration &+= 1 } }
+    }
+    private var intakeGeneration: UInt64 = 0
+    private struct IntakeOwner: Hashable, Sendable {
+        let deviceId: String
+        let family: DeviceFamily
+        let generation: UInt64
+    }
+    private var intakeOwner: IntakeOwner {
+        IntakeOwner(deviceId: deviceId, family: family, generation: intakeGeneration)
+    }
+    private struct FrameContext: Equatable, Sendable {
+        let owner: IntakeOwner
+        var clockRef: ClockRef?
+    }
+    private struct BufferedFrame {
+        let frame: [UInt8]
+        let parsed: ParsedFrame
+        var context: FrameContext
+    }
+    private struct OwnedSample<Sample: Sendable> {
+        let sample: Sample
+        let owner: IntakeOwner
+    }
     /// On-demand bounded raw-capture window. ORs into the raw-persist gate so a "capture
     /// activity sample" action can persist raw even when `enableRawCapture` is off. The window's
     /// monotonic deadline auto-expires so a missed stop callback can't leak raw forever.
     private var rawCapture = RawCaptureWindow()
     /// #47: buffer the (raw frame, pre-parsed) pair. The raw bytes are still needed for the raw-capture
     /// outbox; the parse is the one the BLE seam already did, so `flush` doesn't re-decode the batch.
-    private var buffer: [(frame: [UInt8], parsed: ParsedFrame)] = []
+    private var buffer: [BufferedFrame] = []
     /// Standard 0x2A37 HR/RR buffer — the reliable, always-on stream, recorded continuously
     /// (independent of the custom realtime stream or which screen is open).
-    private var stdHR: [HRSample] = []
-    private var stdRR: [RRInterval] = []
+    private var stdHR: [OwnedSample<HRSample>] = []
+    private var stdRR: [OwnedSample<RRInterval>] = []
     private var batchStartedAt: TimeInterval
     /// BLE-11 / CC-6: at most one cadence flush per buffer at a time, coalesced follow-ups, failure backoff.
     private var frameFlushScheduler = FlushScheduler()
@@ -153,16 +195,25 @@ final class Collector {
         guard LiveFrameRetention.shouldBuffer(typeName: parsed.typeName,
                                               rawCaptureActive: enableRawCapture
                                                   || rawCapture.isActive(at: monotonic())) else { return }
-        buffer.append((frame, parsed))
+        buffer.append(BufferedFrame(
+            frame: frame, parsed: parsed,
+            context: FrameContext(owner: intakeOwner, clockRef: clockRef)))
         // Pre-clock only: bound memory if GET_CLOCK never lands while data keeps flowing.
         // Drop OLDEST beyond the cap (keep most recent). Post-clock this branch is skipped —
         // the cadence flush below bounds the buffer instead.
-        if clockRef == nil && buffer.count > policy.maxPreClockFrames {
-            buffer.removeFirst(buffer.count - policy.maxPreClockFrames)
+        if clockRef == nil {
+            let uncorrelated = buffer.reduce(0) { $0 + ($1.context.clockRef == nil ? 1 : 0) }
+            var drop = max(0, uncorrelated - policy.maxPreClockFrames)
+            buffer.removeAll { entry in
+                guard drop > 0, entry.context.clockRef == nil else { return false }
+                drop -= 1
+                return true
+            }
         }
-        guard clockRef != nil else { return }   // can't correlate ts yet → keep buffering
         trimFrameBuffer()
-        if buffer.count >= policy.maxFrames || (monotonic() - batchStartedAt) >= policy.maxInterval {
+        guard clockRef != nil || buffer.contains(where: { $0.context.clockRef != nil }) else { return }
+        let readyCount = buffer.reduce(0) { $0 + ($1.context.clockRef == nil ? 0 : 1) }
+        if readyCount >= policy.maxFrames || (monotonic() - batchStartedAt) >= policy.maxInterval {
             requestFrameFlush()
         }
     }
@@ -197,41 +248,50 @@ final class Collector {
     /// One flush pass; false when the decoded insert failed (the batch is re-buffered).
     @discardableResult
     private func flushFrames() async -> Bool {
-        guard let ref = clockRef, !buffer.isEmpty else { return true }
+        let pending = buffer.filter { $0.context.clockRef != nil }
+        guard !pending.isEmpty else { return true }
         // SNAPSHOT + CLEAR before any await: decoded-before-raw ordering AND the
         // buffer-snapshot-before-await invariant are both satisfied here.
-        let batch = buffer
-        buffer.removeAll(keepingCapacity: true)
+        buffer.removeAll { $0.context.clockRef != nil }
         // CC-6: the interval restarts when the batch is taken, not after the insert succeeds; retries
         // after a failure are paced by the FlushScheduler backoff instead of firing on every frame.
         batchStartedAt = monotonic()
 
-        let frames = batch.map(\.frame)         // still needed for the raw-capture outbox
-        let parsed = batch.map(\.parsed)        // #47: the seam already decoded these — don't re-parse
-        let family = self.family
-        // BLE-11: decode off the main actor.
-        let streams = await Task.detached(priority: .utility) {
-            extractStreams(parsed, family: family, deviceClockRef: ref.device, wallClockRef: ref.wall)
-        }.value
-        do {
-            try await store.insert(streams, deviceId: deviceId)   // DECODED FIRST (durable)
-        } catch {
-            // Re-buffer at the front so these frames (and their parses) are retried on the next cadence.
-            buffer.insert(contentsOf: batch, at: 0)
-            trimFrameBuffer()
-            return false
+        let captureRaw = enableRawCapture || rawCapture.isActive(at: monotonic())
+        var start = 0
+        while start < pending.count {
+            let context = pending[start].context
+            var end = start + 1
+            while end < pending.count, pending[end].context == context { end += 1 }
+            let batch = pending[start..<end]
+            guard let ref = context.clockRef else { preconditionFailure("ready batch has no clock") }
+            let frames = batch.map(\.frame)
+            let parsed = batch.map(\.parsed)
+            let family = context.owner.family
+            let streams = await Task.detached(priority: .utility) {
+                extractStreams(parsed, family: family, deviceClockRef: ref.device, wallClockRef: ref.wall)
+            }.value
+            do {
+                try await store.insert(streams, deviceId: context.owner.deviceId)
+            } catch {
+                // Retry only uncommitted batches, retaining each original owner, family and clock.
+                buffer.insert(contentsOf: pending[start...], at: 0)
+                trimFrameBuffer()
+                return false
+            }
+            if captureRaw {
+                let wall = now()
+                let tsValues = streams.hr.map(\.ts) + streams.rr.map(\.ts)
+                    + streams.events.map(\.ts) + streams.battery.map(\.ts)
+                let meta = RawBatchMeta(
+                    batchId: UUID().uuidString, deviceId: context.owner.deviceId,
+                    clockRef: ref, capturedAt: wall,
+                    startTs: tsValues.min() ?? wall, endTs: tsValues.max() ?? wall,
+                    frameCount: frames.count, byteSize: frames.reduce(0) { $0 + $1.count })
+                try? await store.enqueueRawBatch(meta, frames: frames)
+            }
+            start = end
         }
-        // RAW SECOND (transient outbox), only when the research toggle is ON. Default OFF →
-        // decoded-only, no raw is stored. Failure is non-fatal — decoded is already durable.
-        guard enableRawCapture || rawCapture.isActive(at: monotonic()) else { return true }
-        let wall = now()
-        let tsValues = streams.hr.map(\.ts) + streams.rr.map(\.ts)
-            + streams.events.map(\.ts) + streams.battery.map(\.ts)
-        let meta = RawBatchMeta(
-            batchId: UUID().uuidString, deviceId: deviceId, clockRef: ref, capturedAt: wall,
-            startTs: tsValues.min() ?? wall, endTs: tsValues.max() ?? wall,
-            frameCount: frames.count, byteSize: frames.reduce(0) { $0 + $1.count })
-        try? await store.enqueueRawBatch(meta, frames: frames)
         return true
     }
 
@@ -241,9 +301,11 @@ final class Collector {
     /// these carry a wall-clock `ts` directly. Auto-flushes ~every 30 readings (~30s).
     func ingestStandardHR(hr: Int, rr: [Int], at ts: Int,
                           source: RRSource = .standardBLE) {
-        if hr >= 30, hr <= 220 { stdHR.append(HRSample(ts: ts, bpm: hr)) }
+        let owner = intakeOwner
+        if hr >= 30, hr <= 220 { stdHR.append(OwnedSample(sample: HRSample(ts: ts, bpm: hr), owner: owner)) }
         for (ordinal, r) in rr.enumerated() where r >= 250 && r <= 3000 {
-            stdRR.append(RRInterval(ts: ts, rrMs: r, sourceOrdinal: ordinal, source: source))
+            stdRR.append(OwnedSample(
+                sample: RRInterval(ts: ts, rrMs: r, sourceOrdinal: ordinal, source: source), owner: owner))
         }
         trimStandardBuffers()
         if stdHR.count + stdRR.count >= 30, standardFlushScheduler.request(now: monotonic()) {
@@ -269,15 +331,23 @@ final class Collector {
         let hr = stdHR, rr = stdRR
         stdHR.removeAll(keepingCapacity: true)
         stdRR.removeAll(keepingCapacity: true)
-        do {
-            try await store.insert(Streams(hr: hr, rr: rr), deviceId: deviceId)
-            return true
-        } catch {
-            stdHR.insert(contentsOf: hr, at: 0)
-            stdRR.insert(contentsOf: rr, at: 0)
-            trimStandardBuffers()
-            return false
+        let hrByOwner = Dictionary(grouping: hr, by: \.owner)
+        let rrByOwner = Dictionary(grouping: rr, by: \.owner)
+        let owners = Set(hrByOwner.keys).union(rrByOwner.keys).sorted { $0.generation < $1.generation }
+        for (index, owner) in owners.enumerated() {
+            do {
+                try await store.insert(Streams(
+                    hr: hrByOwner[owner, default: []].map(\.sample),
+                    rr: rrByOwner[owner, default: []].map(\.sample)), deviceId: owner.deviceId)
+            } catch {
+                let remaining = Set(owners[index...])
+                stdHR.insert(contentsOf: hr.filter { remaining.contains($0.owner) }, at: 0)
+                stdRR.insert(contentsOf: rr.filter { remaining.contains($0.owner) }, at: 0)
+                trimStandardBuffers()
+                return false
+            }
         }
+        return true
     }
 
     private func trimStandardBuffers() {

@@ -56,6 +56,7 @@ private struct LiveWorkoutLayout: View {
     let pageMemory: WorkoutPageMemory?
     let onMinimize: () -> Void
     @State private var showsDevices = false
+    @State private var realtimeHRLease: RealtimeHRLeaseToken?
 
     var body: some View {
         // Four regions, top to bottom: the header (as tall as it is), the dock (as tall as its circles, never more than a
@@ -82,8 +83,13 @@ private struct LiveWorkoutLayout: View {
         // VoiceOver's two-finger scrub minimizes, as it dismisses a sheet: from wherever focus is on the screen, not only the
         // header. Unavailable while a save runs, like the Minimize button.
         .accessibilityAction(.escape) { if model.workoutFinishState != .saving { onMinimize() } }
-        .onAppear { model.startRealtimeHR() }
-        .onDisappear { model.stopRealtimeHR() }
+        .onAppear {
+            if realtimeHRLease == nil { realtimeHRLease = model.acquireRealtimeHR(for: .visible) }
+        }
+        .onDisappear {
+            if let lease = realtimeHRLease { model.releaseRealtimeHR(lease) }
+            realtimeHRLease = nil
+        }
         // Manage devices, from the heart page: a sheet inside the cover, not a second full-screen surface.
         .sheet(isPresented: $showsDevices) { WorkoutDevicesSheet(onClose: { showsDevices = false }) }
     }

@@ -100,19 +100,22 @@ public enum BackfillPolicy {
                 return elapsed >= resumeFloor
             }
             return elapsed >= eventFloorSeconds
+        // Productive event/foreground syncs still consume radio time. Power saving therefore applies
+        // the same adaptive floor as the timer, while connect recovery and explicit/bounded triggers
+        // above remain eligible without waiting 45 minutes.
         case .foreground:
-            let emptyBackoff = emptyStreak > 0
+            let automaticFloor = powerSaving || emptyStreak > 0
                 ? periodicFloorSeconds(powerSaving: powerSaving, emptyStreak: emptyStreak)
                 : eventFloorSeconds
-            return elapsed >= emptyBackoff
+            return elapsed >= automaticFloor
         // #160: a future-dated-clock strap's recurring automatic offloads are near-useless (#1012 won't
         // trust the range) but each holds the link ~60s and starves the WHOOP4 realtime-HR re-arm, so skip
         // them entirely — not just stretch the floor. The .connect pass above still re-checks the clock.
         case .strap:
-            let emptyBackoff = emptyStreak > 0
+            let automaticFloor = powerSaving || emptyStreak > 0
                 ? periodicFloorSeconds(powerSaving: powerSaving, emptyStreak: emptyStreak)
                 : eventFloorSeconds
-            return !clockUntrusted && elapsed >= emptyBackoff
+            return !clockUntrusted && elapsed >= automaticFloor
         case .periodic:              return !clockUntrusted && elapsed >= periodicFloorSeconds(
             powerSaving: powerSaving,
             emptyStreak: emptyStreak

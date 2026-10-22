@@ -37,15 +37,17 @@ enum LiftTodayMath {
     var lastWeekSets = 0
     var volume = 0.0
     for session in sessions where session.endedAt != nil {
-      if interval.contains(session.startedAt) {
+      // Calendar buckets include their start and exclude the next week's start.
+      // DateInterval.contains includes both endpoints and can count next Monday twice.
+      if session.startedAt >= interval.start && session.startedAt < interval.end {
         workouts += 1
         volume += session.totalVolume
         workingSets += session.workingSets.count
-      } else if lastWeek.contains(session.startedAt) {
+      } else if session.startedAt >= lastWeek.start && session.startedAt < lastWeek.end {
         lastWeekSets += session.workingSets.count
       }
     }
-    let planned = scheduled.filter { interval.contains($0.plannedAt) }.count
+    let planned = scheduled.filter { $0.plannedAt >= interval.start && $0.plannedAt < interval.end }.count
     return LiftWeekSummary(
       interval: interval, workouts: workouts, plannedThisWeek: planned, workingSets: workingSets,
       workingSetsDeltaVsLastWeek: workingSets - lastWeekSets, volume: volume)

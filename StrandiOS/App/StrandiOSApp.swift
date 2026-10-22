@@ -32,7 +32,7 @@ enum WorkoutLifecycleProjection {
         }.switchToLatest().eraseToAnyPublisher()
     }
 
-    /// Run a drive raised by `edges` or `readings` once the assignment behind it has happened. `@Published` sends from
+    /// Run an external-surface drive once the assignment behind it has happened. `@Published` sends from
     /// `willSet` and `onReceive` runs its closure inside that call, so a drive made there still saw the model from before the
     /// edge: the Start drive went out as a heart-rate drive, and the workout's own request waited for a later reading, often
     /// after the phone was locked, where ActivityKit refuses it. On the next main-queue turn the workout is there and the
@@ -680,27 +680,39 @@ struct StrandiOSApp: App {
                     driveLiveActivity(.projection)
                     WidgetSnapshot.publishLive(from: model)
                 }
+                // These publishers send from willSet. Build the composite widget snapshot after assignment,
+                // then check the current app/session state and the sink's existing source fences at delivery.
                 .onReceive(model.live.$batteryPct.dropFirst()) { _ in
-                    guard WidgetLivePublicationContext.shouldPublish(
-                        sceneIsActive: scenePhase == .active,
-                        hasActiveWorkout: model.activeWorkout != nil
-                    ) else { return }
-                    WidgetSnapshot.publishLive(from: model)
+                    WorkoutLifecycleProjection.afterAssignment {
+                        guard WidgetLivePublicationContext.shouldPublish(
+                            sceneIsActive: UIApplication.shared.applicationState == .active,
+                            hasActiveWorkout: model.activeWorkout != nil
+                        ) else { return }
+                        WidgetSnapshot.publishLive(from: model)
+                    }
                 }
                 .onReceive(model.live.$connected.dropFirst()) { _ in
-                    guard WidgetLivePublicationContext.shouldPublish(
-                        sceneIsActive: scenePhase == .active,
-                        hasActiveWorkout: model.activeWorkout != nil
-                    ) else { return }
-                    WidgetSnapshot.publishLive(from: model)
+                    WorkoutLifecycleProjection.afterAssignment {
+                        guard WidgetLivePublicationContext.shouldPublish(
+                            sceneIsActive: UIApplication.shared.applicationState == .active,
+                            hasActiveWorkout: model.activeWorkout != nil
+                        ) else { return }
+                        WidgetSnapshot.publishLive(from: model)
+                    }
                 }
                 .onReceive(model.$bpm.dropFirst()) { _ in
-                    guard WidgetLivePublicationContext.shouldPublish(
-                        sceneIsActive: scenePhase == .active,
-                        hasActiveWorkout: model.activeWorkout != nil
-                    ) else { return }
-                    guard WidgetSnapshot.HRPublishThrottle.admit() else { return }
-                    WidgetSnapshot.publishLive(from: model)
+                    WorkoutLifecycleProjection.afterAssignment {
+                        guard WidgetLivePublicationContext.shouldPublish(
+                            sceneIsActive: UIApplication.shared.applicationState == .active,
+                            hasActiveWorkout: model.activeWorkout != nil
+                        ) else { return }
+                        guard WidgetSnapshot.HRPublishThrottle.admit() else { return }
+                        WidgetSnapshot.publishLive(from: model)
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: PendingIntents.didAppend)) { _ in
+                    guard scenePhase == .active else { return }
+                    model.drainPendingIntents()
                 }
                 .onOpenURL { url in
                     if url.host == "import-health" {
@@ -731,6 +743,7 @@ struct StrandiOSApp: App {
                     TodayDayBoundaryScheduler.shared.setActive(
                         scenePhase == .active,
                         repository: model.repo)
+                    if scenePhase == .active { model.drainPendingIntents() }
                     refreshExternalSurface()
                     alarmRuntime.start()
                     await health.refreshAuthIfPreviouslyGranted(

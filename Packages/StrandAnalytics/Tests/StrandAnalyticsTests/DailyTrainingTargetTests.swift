@@ -160,6 +160,62 @@ final class DailyTrainingTargetTests: XCTestCase {
         XCTAssertEqual(result, original)
     }
 
+    func testPreviewDecaysOneTrailingMissingDayBeforeToday() throws {
+        let history = days(count: 42, load: 45).filter { $0.day != "2026-10-21" }
+        let result = DailyTrainingTargetEngine.evaluate(input(history: history))
+        XCTAssertEqual(result.target?.observedDays, 13)
+        XCTAssertEqual(result.target?.usualStrainStored, 45)
+        XCTAssertEqual(result.load?.endDay, "2026-10-20")
+        try assertPreviewMatchesCalendarLoad(result, history: history)
+    }
+
+    func testPreviewDecaysTwoTrailingNilDaysBeforeToday() throws {
+        let history = days(count: 42, load: 45).map {
+            DailyTrainingTargetEngine.Day(day: $0.day,
+                strainStored: ["2026-10-20", "2026-10-21"].contains($0.day) ? nil : $0.strainStored,
+                recovery: $0.recovery)
+        }
+        let result = DailyTrainingTargetEngine.evaluate(input(history: history))
+        XCTAssertEqual(result.target?.observedDays, 12)
+        XCTAssertEqual(result.target?.usualStrainStored, 45)
+        XCTAssertEqual(result.load?.endDay, "2026-10-19")
+        try assertPreviewMatchesCalendarLoad(result, history: history)
+    }
+
+    func testPreviewCountsCivilGapDaysAcrossSpringDST() throws {
+        let today = "2026-03-09"
+        let history = (3...44).reversed().map {
+            DailyTrainingTargetEngine.Day(day: DailyTrainingTargetEngine.offsetDay(today, by: -$0)!,
+                                          strainStored: 45, recovery: 75)
+        }
+        let result = DailyTrainingTargetEngine.evaluate(.init(
+            day: today, recovery: 80, sleptHours: 8, sleepNeedHours: 8,
+            sleepNeedDay: today, currentStrainStored: 10, history: history))
+        XCTAssertEqual(result.target?.observedDays, 12)
+        XCTAssertEqual(result.target?.usualStrainStored, 45)
+        XCTAssertEqual(result.load?.endDay, "2026-03-06")
+        try assertPreviewMatchesCalendarLoad(result, history: history)
+    }
+
+    private func assertPreviewMatchesCalendarLoad(
+        _ result: DailyTrainingTargetEngine.Result, history: [DailyTrainingTargetEngine.Day],
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        // The batch model supplies an independent calendar-day reference: its existing gap policy
+        // advances absent and nil days, while neither becomes a measured observation.
+        let expected = TrainingLoadEngine.evaluate(
+            days: history.map { .init(day: $0.day, load: $0.strainStored) }
+                + [.init(day: result.day, load: 60)], through: result.day)
+        let preview = try XCTUnwrap(DailyTrainingTargetEngine.preview(
+            result, plannedTotalStored: 60, plannedSleepHours: 8), file: file, line: line)
+        XCTAssertEqual(try XCTUnwrap(preview.acuteLoad, file: file, line: line),
+                       try XCTUnwrap(expected.acuteLoad, file: file, line: line),
+                       accuracy: 0.000_001, file: file, line: line)
+        XCTAssertEqual(try XCTUnwrap(preview.chronicLoad, file: file, line: line),
+                       try XCTUnwrap(expected.chronicLoad, file: file, line: line),
+                       accuracy: 0.000_001, file: file, line: line)
+    }
+
     func testPreviewCannotUndoRecordedStrainOrAcceptInvalidPlans() {
         let result = DailyTrainingTargetEngine.evaluate(input(strain: 65))
         for invalid in [Double.nan, .infinity, -1, 40, 101] {

@@ -7,7 +7,7 @@ import StrandAnalytics
 final class DailyTrainingTargetRepositoryTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_792_685_600)
 
-    private func fixture() async throws -> (Repository, WhoopStore, String) {
+    private func fixture(historicalStrainVersion: Int? = 2) async throws -> (Repository, WhoopStore, String) {
         let store = try await WhoopStore.inMemory()
         let repo = Repository(deviceId: Repository.whoopSource)
         repo.setStoreForTesting(store)
@@ -18,7 +18,8 @@ final class DailyTrainingTargetRepositoryTests: XCTestCase {
             DailyMetric(day: DailyTrainingTargetEngine.offsetDay(day, by: -offset)!,
                         totalSleepMin: 480, efficiency: 0.9, deepMin: 80, remMin: 100, lightMin: 300,
                         disturbances: 2, restingHr: 55, avgHrv: 60, recovery: 80,
-                        strain: offset == 0 ? 10 : 45, exerciseCount: 1, strainVersion: 2)
+                        strain: offset == 0 ? 10 : 45, exerciseCount: 1,
+                        strainVersion: offset == 0 ? 2 : historicalStrainVersion)
         }
         try await store.upsertDailyMetrics(rows, deviceId: source)
         try await store.upsertMetricSeries([.init(day: day, key: Repository.sleepNeedV2Key, value: 480)], deviceId: source)
@@ -38,16 +39,42 @@ final class DailyTrainingTargetRepositoryTests: XCTestCase {
     }
 
     func testImportedOrLegacyStrainCannotEnterTarget() async throws {
+        // Seed legacy history directly. A legacy upsert cannot downgrade an existing canonical V2 row.
+        let (repo, store, day) = try await fixture(historicalStrainVersion: nil)
+        let start = DailyTrainingTargetEngine.offsetDay(day, by: -14)!
+        let originals = try await store.dailyMetrics(deviceId: Repository.whoopSource + "-noop", from: start, to: day)
+        let history = originals.filter { $0.day < day }
+        XCTAssertEqual(history.count, 14)
+        XCTAssertTrue(history.allSatisfy { $0.strain == 45 && $0.strainVersion == nil })
+        // Neither legacy imported values nor a V2 marker on an imported namespace establishes ownership.
+        for version in [nil, 2] as [Int?] {
+            try await store.upsertDailyMetrics(originals.map {
+                $0.replacing(strain: .some(99), strainVersion: .some(version))
+            }, deviceId: Repository.whoopSource)
+            _ = await repo.refresh(days: 56)
+            let data = try await repo.loadDailyTrainingTarget(now: now)
+            XCTAssertTrue(data.history.allSatisfy { $0.strainStored == nil })
+            let result = try XCTUnwrap(repo.dailyTrainingTargetEvaluation(data, now: now))
+            XCTAssertEqual(result.unavailableReason, .needsRecentHistory)
+            XCTAssertNil(result.target)
+        }
+    }
+
+    func testLegacyUpsertCannotEraseCanonicalV2TrainingHistory() async throws {
         let (repo, store, day) = try await fixture()
         let start = DailyTrainingTargetEngine.offsetDay(day, by: -14)!
         let originals = try await store.dailyMetrics(deviceId: Repository.whoopSource + "-noop", from: start, to: day)
         try await store.upsertDailyMetrics(originals.map { $0.replacing(strainVersion: .some(nil)) },
                                            deviceId: Repository.whoopSource + "-noop")
-        try await store.upsertDailyMetrics(originals.map { $0.replacing(strain: .some(99), strainVersion: .some(nil)) },
-                                           deviceId: Repository.whoopSource)
+        let preserved = try await store.dailyMetrics(deviceId: Repository.whoopSource + "-noop", from: start, to: day)
+            .filter { $0.day < day }
+        XCTAssertEqual(preserved.count, 14)
+        XCTAssertTrue(preserved.allSatisfy { $0.strain == 45 && $0.strainVersion == 2 })
         _ = await repo.refresh(days: 56)
         let data = try await repo.loadDailyTrainingTarget(now: now)
-        XCTAssertNil(repo.dailyTrainingTargetEvaluation(data, now: now)?.target)
+        let target = try XCTUnwrap(repo.dailyTrainingTargetEvaluation(data, now: now)?.target)
+        XCTAssertEqual(target.observedDays, 14)
+        XCTAssertEqual(target.usualStrainStored, 45)
     }
 
     func testPriorDayRecoveryCarryCannotBecomeCurrentRecommendation() async throws {

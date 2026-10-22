@@ -1,0 +1,56 @@
+[0/1] Planning build
+Building for debugging...
+[0/14] Write sources
+[2/14] Write swift-version-4BDBE066E3DC7C8B.txt
+[4/16] Compiling WhoopProtocol Whoop5Config.swift
+[5/16] Emitting module WhoopProtocol
+[6/17] Wrapping AST for WhoopProtocol for debugging
+[8/18] Emitting module StrandAnalytics
+[10/22] Compiling StrandAnalyticsTests StrainDayFixtures.swift
+[11/22] Emitting module StrandAnalyticsTests
+[12/22] Compiling StrandAnalyticsTests StrainGoldenBits.swift
+[13/22] Compiling StrandAnalyticsTests StrainGoldenBitsTests.swift
+[14/23] /tmp/noop-metrics-build/x86_64-unknown-linux-gnu/debug/NoopMetricsHarnessPackageDiscoveredTests.derived/all-discovered-tests.swift
+[15/23] Write sources
+[16/23] Wrapping AST for StrandAnalyticsTests for debugging
+[18/26] Emitting module NoopMetricsHarnessPackageDiscoveredTests
+[19/26] Compiling NoopMetricsHarnessPackageDiscoveredTests StrandAnalyticsTests.swift
+[20/26] Compiling NoopMetricsHarnessPackageDiscoveredTests all-discovered-tests.swift
+[21/27] /tmp/noop-metrics-build/x86_64-unknown-linux-gnu/debug/NoopMetricsHarnessPackageTests.derived/runner.swift
+[22/27] Write sources
+[23/27] Wrapping AST for NoopMetricsHarnessPackageDiscoveredTests for debugging
+[25/29] Compiling NoopMetricsHarnessPackageTests runner.swift
+[26/29] Emitting module NoopMetricsHarnessPackageTests
+[27/29] Write Objects.LinkFileList
+[28/29] Linking NoopMetricsHarnessPackageTests.xctest
+Build complete! (3.49s)
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+Test Suite 'Selected tests' started at 2026-10-21 23:58:37.998
+Test Suite 'ManualWorkoutRescoreTests' started at 2026-10-21 23:58:37.999
+Test Case 'ManualWorkoutRescoreTests.testAvgHrIsTrueMeanOfVariedTrace' started at 2026-10-21 23:58:37.999
+Test Case 'ManualWorkoutRescoreTests.testAvgHrIsTrueMeanOfVariedTrace' passed (0.001 seconds)
+Test Case 'ManualWorkoutRescoreTests.testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate' started at 2026-10-21 23:58:38.000
+Test Case 'ManualWorkoutRescoreTests.testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate' passed (0.005 seconds)
+Test Case 'ManualWorkoutRescoreTests.testImprovesIsStrictAndMonotonic' started at 2026-10-21 23:58:38.004
+Test Case 'ManualWorkoutRescoreTests.testImprovesIsStrictAndMonotonic' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testInvalidReadingsDoNotCreateARescorableWorkout' started at 2026-10-21 23:58:38.005
+Test Case 'ManualWorkoutRescoreTests.testInvalidReadingsDoNotCreateARescorableWorkout' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testLooksUnderScoredGate' started at 2026-10-21 23:58:38.005
+Test Case 'ManualWorkoutRescoreTests.testLooksUnderScoredGate' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testScoresDenseWindow' started at 2026-10-21 23:58:38.005
+Test Case 'ManualWorkoutRescoreTests.testScoresDenseWindow' passed (0.004 seconds)
+Test Case 'ManualWorkoutRescoreTests.testStrainOnlyImprovementFillsMergedRow' started at 2026-10-21 23:58:38.009
+Test Case 'ManualWorkoutRescoreTests.testStrainOnlyImprovementFillsMergedRow' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testTooFewSamplesReturnsNil' started at 2026-10-21 23:58:38.009
+Test Case 'ManualWorkoutRescoreTests.testTooFewSamplesReturnsNil' passed (0.003 seconds)
+Test Case 'ManualWorkoutRescoreTests.testUnderScoredWorkoutGetsRescoredFromDenseWindow' started at 2026-10-21 23:58:38.012
+Test Case 'ManualWorkoutRescoreTests.testUnderScoredWorkoutGetsRescoredFromDenseWindow' passed (0.002 seconds)
+Test Suite 'ManualWorkoutRescoreTests' passed at 2026-10-21 23:58:38.013
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds
+Test Suite 'StrainGoldenBitsTests' started at 2026-10-21 23:58:38.013
+Test Case 'StrainGoldenBitsTests.testScorerBitsMatchTheGoldenFileGeneratedAtTheBase' started at 2026-10-21 23:58:38.013
+Test Case 'StrainGoldenBitsTests.testScorerBitsMatchTheGoldenFileGeneratedAtTheBase' passed (0.624 seconds)
+Test Suite 'StrainGoldenBitsTests' passed at 2026-10-21 23:58:38.637
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.624 (0.624) seconds
+Test Suite 'Selected tests' passed at 2026-10-21 23:58:38.637
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.639 (0.639) seconds

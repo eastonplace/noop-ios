@@ -1,0 +1,5 @@
+$ /tmp/noop-swift-toolchain/usr/bin/swiftc -module-cache-path /tmp/noop-storage-swift-module-cache -parse-as-library /workspace/scratch/a25c9a323562/review-work/storage-harness/raw-prune-before.swift -I /workspace/scratch/a25c9a323562/review-work/storage-harness/sqlite -Xlinker -l:libsqlite3.so.0 -o /workspace/scratch/a25c9a323562/review-work/storage-harness/raw-prune-before
+compile exit: 0
+$ /workspace/scratch/a25c9a323562/review-work/storage-harness/raw-prune-before
+large production prune with SQLite variable limit 999: FAIL (too many SQL variables)
+run exit: 1

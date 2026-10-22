@@ -72,6 +72,45 @@ final class WorkoutPauseTests: XCTestCase {
 
     // MARK: Heart-rate stats exclude paused windows
 
+    func testSameSecondCorrectionKeepsLiveEnergyEqualToCanonicalReplay() {
+        let live = workout()
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_001, bpm: 100)))
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_001, bpm: 220)))
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_151, bpm: 100)))
+        let restored = workout()
+        restored.restore(samples: live.samples)
+
+        XCTAssertEqual(live.samples.count, 2)
+        XCTAssertEqual(live.liveCalories, restored.liveCalories,
+                       "a corrected tail must supply the next interval's calorie rate")
+        XCTAssertEqual(live.liveStrainState, restored.liveStrainState)
+    }
+
+    func testPauseBoundaryCorrectionMatchesCanonicalReplayAndKeepsThePauseBroken() {
+        let live = workout()
+        for second in stride(from: 0, through: 600, by: 5) {
+            XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_000 + second, bpm: 100)))
+        }
+        XCTAssertTrue(live.setPaused(true, at: t(600.2)))
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_600, bpm: 220)),
+                      "the pause boundary second still belongs to the active stretch")
+        func assertReplay(file: StaticString = #filePath, line: UInt = #line) {
+            let replay = workout()
+            replay.restore(samples: live.samples, pauses: live.pauseLedger)
+            XCTAssertEqual(live.avgHr, replay.avgHr, file: file, line: line)
+            XCTAssertEqual(live.peakHr, replay.peakHr, file: file, line: line)
+            XCTAssertEqual(live.liveCalories, replay.liveCalories, file: file, line: line)
+            XCTAssertEqual(live.personalZoneSeconds, replay.personalZoneSeconds, file: file, line: line)
+            XCTAssertEqual(live.liveStrainState, replay.liveStrainState, file: file, line: line)
+        }
+        assertReplay()
+        XCTAssertTrue(live.setPaused(false, at: t(900.2)))
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_901, bpm: 140)))
+        assertReplay()
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_906, bpm: 140)))
+        assertReplay()
+    }
+
     func testPausedReadingsAreNotCountedButTheLiveNumberStillShows() {
         let w = workout()
         feed(w, from: 1, to: 100, bpm: 150)

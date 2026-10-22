@@ -1,0 +1,43 @@
+Recorded Linux NoopLocalAccess build attempt. Repeated compiler diagnostics abbreviated.
+
+Fetching https://github.com/groue/GRDB.swift.git
+[1/114085] Fetching grdb.swift
+Fetched https://github.com/groue/GRDB.swift.git (8.73s)
+Computing version for https://github.com/groue/GRDB.swift.git
+warning: 'grdb.swift': /Package.swift:40:19: warning: 'v4' is deprecated: watchOS 9.0 is the oldest supported version [#DeprecatedDeclaration]
+38 |         .macOS(.v10_13),
+39 |         .tvOS(.v11),
+40 |         .watchOS(.v4),
+   |                   `- warning: 'v4' is deprecated: watchOS 9.0 is the oldest supported version [#DeprecatedDeclaration]
+41 |     ],
+
+[Repeated sqlite3.h / CSQLite diagnostics omitted]
+
+1 | // Export the underlying SQLite library
+2 | #if SWIFT_PACKAGE
+3 | @_exported import CSQLite
+  |                   `- error: could not build C module 'CSQLite'
+4 | #elseif GRDBCIPHER
+5 | @_exported import SQLCipher
+error: emit-module command failed with exit code 1 (use -v to see invocation)
+[173/187] Emitting module GRDB
+<module-includes>:1:10: note: in file included from <module-includes>:1:
+1 | #include "shim.h"
+  |          `- note: in file included from <module-includes>:1:
+2 | 
+
+/tmp/noop-localaccess-review-build/checkouts/GRDB.swift/Sources/CSQLite/shim.h:1:10: error: 'sqlite3.h' file not found
+ 1 | #include <sqlite3.h>
+   |          `- error: 'sqlite3.h' file not found
+ 2 | 
+ 3 | typedef void(*_errorLogCallback)(void *pArg, int iErrCode, const char *zMsg);
+
+/tmp/noop-localaccess-review-build/checkouts/GRDB.swift/GRDB/Export.swift:3:19: error: could not build C module 'CSQLite'
+1 | // Export the underlying SQLite library
+2 | #if SWIFT_PACKAGE
+3 | @_exported import CSQLite
+  |                   `- error: could not build C module 'CSQLite'
+4 | #elseif GRDBCIPHER
+5 | @_exported import SQLCipher
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+error: fatalError

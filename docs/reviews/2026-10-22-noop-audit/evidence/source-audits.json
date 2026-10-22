@@ -1,0 +1,62 @@
+[
+  {
+    "audit": "source_contract_audit",
+    "exit": 0,
+    "tail": "NOOP iPhone source contract audit\nScanned 1241 Swift files\nRESULT: PASS (0 architecture warning(s) remain)\n"
+  },
+  {
+    "audit": "ui_unification_contract_audit",
+    "exit": 0,
+    "tail": "UI unification contract audit: PASS\n"
+  },
+  {
+    "audit": "whoop_ui_contract_audit",
+    "exit": 0,
+    "tail": "         0/0          0/0          gated (count/ceiling)\n  Packages/ReceiptLiftFeature           0/0          0/0          0/0          0/0          gated (count/ceiling)\n  StrandiOSWidgets                      0            0            0            5            report-only\n  bordered: system .buttonStyle(.bordered/.borderedProminent) - use NoopButtonStyle\n  legacy-noop: legacy gold .buttonStyle(.noopPrimary/.noopSecondary/.noopGhost) - use NoopButtonStyle\n  color-red: Color(red:...) literal - use a StrandPalette token\n  text-size: text .font(.system(size:)) - use a StrandFont role (icon glyph sizing is allowed)\nWHOOP UI contract audit: PASS\n"
+  },
+  {
+    "audit": "workout_runtime_contract_audit",
+    "exit": 0,
+    "tail": "Workout runtime contract audit: PASS\n"
+  },
+  {
+    "audit": "workout_persistence_contract_audit",
+    "exit": 0,
+    "tail": "Workout persistence contract audit: PASS\n"
+  },
+  {
+    "audit": "trends_snapshot_contract_audit",
+    "exit": 0,
+    "tail": "Trends snapshot contract audit: PASS\n/workspace/scratch/a25c9a323562/noop-ios/Tools/qa/trends_snapshot_contract_audit.py:123: SyntaxWarning: invalid escape sequence '\\('\n  \"repo.refreshSeq)-\\(repo.canonicalHealth.trendsRevision)-\\(civilContext.localDay)-\\(civilContext.timeZoneIdentifier)\",\n"
+  },
+  {
+    "audit": "accessibility_localization_contract_audit",
+    "exit": 0,
+    "tail": "accessibility/localization contract audit passed\n"
+  },
+  {
+    "audit": "healthkit_sync_contract_audit",
+    "exit": 0,
+    "tail": "HealthKit sync contract audit: PASS\n"
+  },
+  {
+    "audit": "privacy_artifact_contract_audit",
+    "exit": 0,
+    "tail": "privacy_artifact_contract_audit: PASS\n"
+  },
+  {
+    "audit": "paper_strings_contract_audit",
+    "exit": 0,
+    "tail": "paper_strings_contract_audit: PASS\n"
+  },
+  {
+    "audit": "project_hygiene_audit",
+    "exit": 0,
+    "tail": "project_hygiene_audit: WARN MARKETING_VERSION 9.0.1 differs from AppChangelog's newest release 7.9.0\nproject_hygiene_audit: PASS\n"
+  },
+  {
+    "audit": "test_project_hygiene_audit",
+    "exit": 0,
+    "tail": ".............\n----------------------------------------------------------------------\nRan 13 tests in 0.455s\n\nOK\n"
+  }
+]

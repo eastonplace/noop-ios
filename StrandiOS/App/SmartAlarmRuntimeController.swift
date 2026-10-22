@@ -118,8 +118,11 @@ private struct SmartAlarmPersistedConfiguration: Codable, Equatable, Sendable {
 @MainActor
 final class SmartAlarmRuntimeController: ObservableObject {
     static let backupBaseIdentifier = "smart-alarm-wake-backup"
-    static func backupIdentifiers(configurationID: UUID) -> [String] {
-        let generationBase = "\(backupBaseIdentifier)-\(configurationID.uuidString.lowercased())"
+    static func backupIdentifiers(configurationID: UUID, generation: UInt64? = nil) -> [String] {
+        // A foreground/reconnect reconcile keeps the configuration but replaces its
+        // async task. Its cancelled predecessor must only clean up its own requests.
+        var generationBase = "\(backupBaseIdentifier)-\(configurationID.uuidString.lowercased())"
+        if let generation { generationBase += "-g\(generation)" }
         return [generationBase] + (1...7).map { "\(generationBase)-d\($0)" }
     }
 
@@ -719,7 +722,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             guard let self else { return }
             let center = UNUserNotificationCenter.current()
             let operationID = self.configurationID
-            let operationIdentifiers = Self.backupIdentifiers(configurationID: operationID)
+            let operationIdentifiers = Self.backupIdentifiers(configurationID: operationID, generation: token)
 
             let settings = await center.notificationSettings()
             guard !Task.isCancelled,
@@ -852,7 +855,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             guard !Task.isCancelled,
                   self.generation.accepts(token, request: snapshot, current: self.currentSnapshot),
                   operationID == self.configurationID else { return }
-            let currentIdentifiers = Set(Self.backupIdentifiers(configurationID: operationID))
+            let currentIdentifiers = Set(Self.backupIdentifiers(configurationID: operationID, generation: token))
             let scheduled = pending.contains { currentIdentifiers.contains($0.identifier) }
             self.backupStatus = scheduled
                 ? String(localized: "Scheduled")

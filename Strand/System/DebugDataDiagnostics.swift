@@ -15,6 +15,17 @@ import WhoopStore
 ///     latest night). Used by the interactive "Save…/Share log" buttons, which hold `model.repo`.
 enum DebugDataDiagnostics {
 
+    /// Pickers persist the enum's display label. Retain the older diagnostic aliases too.
+    private static func selectedModel() -> WhoopModel? {
+        let raw = UserDefaults.standard.string(forKey: "selectedWhoopModel")
+        if let model = raw.flatMap(WhoopModel.init(rawValue:)) { return model }
+        switch raw {
+        case "whoop5": return .whoop5mg
+        case "whoop4": return .whoop4
+        default: return nil
+        }
+    }
+
     /// Strap identity + timezone from persisted defaults (sync, offline-safe). Mirrors the prefs-backed
     /// portion of the Android strap-state block; keys match the iOS @AppStorage / persisted values.
     static func strapStateLines() -> [String] {
@@ -22,12 +33,7 @@ enum DebugDataDiagnostics {
         lines.append(String(repeating: "─", count: 40))
         lines.append("Strap & data")
         let d = UserDefaults.standard
-        let model: String
-        switch d.string(forKey: "selectedWhoopModel") {
-        case "whoop5": model = "WHOOP 5.0 / MG"
-        case "whoop4": model = "WHOOP 4.0"
-        default:       model = "unknown (never paired)"
-        }
+        let model = selectedModel()?.displayName ?? "unknown (never paired)"
         lines.append("Model:       \(model)")
         lines.append("Firmware:    \(d.string(forKey: "noop.lastFirmware") ?? "unknown (connect to record)")")
         let syncSec = d.double(forKey: "lastSyncedAt")
@@ -126,7 +132,7 @@ enum DebugDataDiagnostics {
         }
         let det = SleepSession(start: cs.startTs, end: cs.endTs, efficiency: cs.efficiency ?? 0,
                                stages: [], restingHR: cs.restingHr, avgHRV: cs.avgHrv)
-        let family: DeviceFamily = (UserDefaults.standard.string(forKey: "selectedWhoopModel") == "whoop5") ? .whoop5 : .whoop4
+        let family = (selectedModel() ?? .whoop4).deviceFamily
         // Mirror the real per-device anchor (#404): learn it from the WHOLE recent window's raws — not just
         // this night — so a single sparse night (<100 in-band) can't misreport under the global fallback when
         // the window as a whole has enough in-band samples for analyzeDay to learn a device anchor.

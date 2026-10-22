@@ -21,7 +21,51 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## 2.0.0
 
-NOOP 2.0. A daily training target based on your recent load, with a preview before you commit. Lift suggests your next weights and shows what changed since your last session. Write or dictate a journal note and review how NOOP read it before saving. Workout suggestions you can save in one tap, with the type changed first if it guessed wrong. Journal in Coach: log your day, and see what affects your recovery.
+Staged combined release. Phone installation and publication remain on hold until Easton calls the batch ready. This entry accumulates implemented work from PR68 onward; the tentative endpoint is PR77 and may change. Unmerged features are not listed as delivered.
+
+- **Daily training targets.** Today suggests a daily Strain range from measured recent history, Recovery and sleep. Preview planned Strain and sleep without replacing observed metrics. Missing trailing days retain the load model's civil-day decay.
+- **Reviewed Lift progression.** Review suggested weights, reps or sets before the next session. Explicit acceptance applies to that session; saved routines, completed history and active-workout ownership remain protected.
+- **Voice Journal.** Type or explicitly start on-device dictation, review matched catalog answers, then save atomically. Stale callbacks, changed catalogs and database replacement cannot publish an obsolete review.
+- **Workout type review.** Review the proposed type and evidence before saving a detected interval. Source ownership and overlap checks run in the transaction; a failed save retains the selection for retry.
+- **Reliable daily scores.** Reconciles missing or invalid score inputs, RR ordering, sleep movement and wake-day evidence, late Charge inputs, workout energy corrections and civil-week totals. No physiological threshold or measured energy-saving claim is added.
+- **Steady strap readings.** Live readings keep their recording source and clock, repeated equal BPM remains fresh until actual silence, reconnects honor broadcast choices, stale callbacks stay fenced, and new live enrollment focuses on WHOOP.
+- **Protected history and background work.** Interrupted transfers retain durable commit/acknowledgment ownership. Restore, import, protected pruning, Lab Book writes, GPS filtering, Coach/export persistence and test reports preserve the correct data owner and completion state.
+- **Apple Health continuity.** Complete sleep episodes share the correct wake day without double counting. Read setup resumes; cancelled synchronization and cleanup preserve saved recovery evidence.
+- **Complete widgets and diagnostics.** Daily widgets retain complete-day coverage. Foreground intents and alarm-backup ownership remain scoped to the current operation, and missing artwork announces an unavailable illustration instead of describing the wrong image.
+
+CI work in PR76 removes duplicate package testing and selects checks by change type. It changes developer validation, not app behavior. Prior 1.8.x release history remains below.
+
+- **Journal in Coach:** capture reviewed notes and mood for a selected day, with explicit save/discard and source/date/consent checks. Notes and structured answers save atomically. Recovery association cards use bounded local history, distinguish missing data, and describe associations without claiming causes.
+
+## 1.8.1
+
+October 2026: Steadier readings and scores.
+
+- **Connection control.** Disconnect and Forget keep your strap released.
+- **Steady live sessions.** Equal heart-rate readings stay fresh until silence.
+- **Reliable daily scores.** Invalid readings no longer lower your daily metrics.
+- **Accurate sleep inputs.** Sleep stages follow the right movement and beat order.
+- **Complete widget days.** Stress includes readings from the whole day.
+- **Safer Health cleanup.** Cancelled syncs and cleanup retain recovery evidence.
+- **Correct weekly totals.** Week boundaries keep workouts in the right week.
+
+Integrates the 20 confirmed audit fix groups after 1.8.0 while preserving its source ownership, historical-data protection, alarm backup ownership and Apple Health sleep reduction. Also restores bounded raw-outbox pruning, preserves exact HRV outputs with a reusable buffer, and sends user-initiated test reports to this fork. No sensor cadence or physiological scoring threshold changes. Physical strap battery savings remain unmeasured.
+
+## 1.8.0
+
+October 2026: More reliable daily data.
+
+- **Fresh heart rate.** Live sessions use actual readings and detect silent straps.
+- **Device switching.** Readings stay with the strap that recorded them.
+- **Protected history.** Interrupted transfers retry before history cleanup.
+- **Saved broadcast choice.** Reconnect requests your saved broadcast setting.
+- **Local Coach images.** Coach uses images bundled with NOOP.
+- **Apple Health continuity.** Read setup resumes and hidden reads keep saved data.
+- **Apple sleep totals.** Stages share a wake day without double counting.
+- **Complete Charge inputs.** Late readings and final night temperatures reach Charge.
+- **WHOOP pairing.** New live connections focus on WHOOP straps.
+
+Also repairs sport-specific GPS filtering, import and Lab Book ownership, live workout energy corrections, Coach/export persistence, exercise artwork accessibility descriptions, foreground actions, widgets, stale Bluetooth callbacks and alarm backup notification ownership. Existing paired devices and offline history imports remain available. No historical data migration or measured battery improvement is claimed.
 
 ## 1.7.1
 

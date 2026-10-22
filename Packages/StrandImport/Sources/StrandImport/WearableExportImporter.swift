@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import ZIPFoundation
 
 // MARK: - Offline file-import of a user's OWN Oura / Fitbit / Garmin data export
@@ -336,6 +337,8 @@ enum WearableJSON {
     }
 
     static func dbl(_ v: [String: Any], _ k: String) -> Double? {
+        // JSON booleans bridge to NSNumber/Double as 0 and 1. They are not measurements.
+        if let number = v[k] as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() { return nil }
         if let d = v[k] as? Double { return d.isFinite ? d : nil }
         if let n = v[k] as? Int { return Double(n) }
         if let n = v[k] as? NSNumber { let d = n.doubleValue; return d.isFinite ? d : nil }

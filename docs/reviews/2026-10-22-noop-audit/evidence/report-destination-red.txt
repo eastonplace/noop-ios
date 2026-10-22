@@ -1,0 +1,46 @@
+Building for debugging...
+[0/15] Write sources
+[3/15] Write swift-version-4BDBE066E3DC7C8B.txt
+[5/18] Emitting module StrandAnalytics
+[6/18] Compiling StrandAnalytics TestDomain.swift
+[7/18] Compiling StrandAnalytics TestModeRegistry.swift
+[8/19] Wrapping AST for StrandAnalytics for debugging
+[10/21] Emitting module NOOP
+[11/21] Compiling NOOP TestReportLink.swift
+[12/22] Wrapping AST for NOOP for debugging
+[14/24] Emitting module NOOPTests
+[15/24] Compiling NOOPTests TestReportDestinationTests.swift
+[16/25] /tmp/noop-report-review-build/x86_64-unknown-linux-gnu/debug/ReportReviewHarnessPackageDiscoveredTests.derived/all-discovered-tests.swift
+[17/25] Write sources
+[18/25] Wrapping AST for NOOPTests for debugging
+[20/28] Emitting module ReportReviewHarnessPackageDiscoveredTests
+[21/28] Compiling ReportReviewHarnessPackageDiscoveredTests NOOPTests.swift
+[22/28] Compiling ReportReviewHarnessPackageDiscoveredTests all-discovered-tests.swift
+[23/29] /tmp/noop-report-review-build/x86_64-unknown-linux-gnu/debug/ReportReviewHarnessPackageTests.derived/runner.swift
+[24/29] Write sources
+[25/29] Wrapping AST for ReportReviewHarnessPackageDiscoveredTests for debugging
+[27/31] Emitting module ReportReviewHarnessPackageTests
+[28/31] Compiling ReportReviewHarnessPackageTests runner.swift
+[29/32] Wrapping AST for ReportReviewHarnessPackageTests for debugging
+[30/32] Write Objects.LinkFileList
+[31/32] Linking ReportReviewHarnessPackageTests.xctest
+Build complete! (11.93s)
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+Test Suite 'All tests' started at 2026-10-21 23:14:34.737
+Test Suite 'debug.xctest' started at 2026-10-21 23:14:34.738
+Test Suite 'TestReportDestinationTests' started at 2026-10-21 23:14:34.738
+Test Case 'TestReportDestinationTests.testReportOpensThisForkAndPreservesDiagnosticFields' started at 2026-10-21 23:14:34.738
+/tmp/noop-report-review-tests/Tests/NOOPTests/TestReportDestinationTests.swift:13: error: TestReportDestinationTests.testReportOpensThisForkAndPreservesDiagnosticFields : XCTAssertEqual failed: ("/ryanbr/noop/issues/new") is not equal to ("/eastonplace/noop-ios/issues/new") - 
+Test Case 'TestReportDestinationTests.testReportOpensThisForkAndPreservesDiagnosticFields' failed (0.001 seconds)
+Test Suite 'TestReportDestinationTests' failed at 2026-10-21 23:14:34.739
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'debug.xctest' failed at 2026-10-21 23:14:34.739
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'All tests' failed at 2026-10-21 23:14:34.739
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.001 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.4.1 (804dc4530ef3666)
+↳ Target Platform: x86_64-unknown-linux-gnu
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+Note: Some test targets reported failures:
+  - ReportReviewHarnessPackageTests (XCTest)
