@@ -51,7 +51,7 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         XCTAssertEqual(rows.first?.totalSleepMin, 480)
     }
 
-    func testAnchoredDeletionClearsOnlyItsTypeAndDaysAndPreservesOtherOwner() async throws {
+    func testKnownTombstoneWithoutAggregateContributionsRetainsTypeAndOtherOwner() async throws {
         let store = try await WhoopStore.inMemory()
         for owner in ["apple-health", "whoop"] {
             _ = try await store.upsertDailyMetrics([daily(day), daily("2026-10-21")], deviceId: owner)
@@ -63,13 +63,17 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         try await replace(store, evidence: [evidence])
         try await replace(store, evidence: [evidence])
         let rows = try await store.dailyMetrics(deviceId: "apple-health", from: day, to: "2026-10-21")
-        XCTAssertNil(rows.first?.avgHrv)
+        XCTAssertEqual(rows.first?.avgHrv, 65)
         XCTAssertEqual(rows.first?.restingHr, 52)
         XCTAssertEqual(rows.last?.avgHrv, 65)
         let hrv = try await store.metricSeries(deviceId: "apple-health", key: "hrv", from: day, to: day)
-        XCTAssertTrue(hrv.isEmpty)
+        XCTAssertEqual(hrv.first?.value, 65)
         let whoop = try await store.dailyMetrics(deviceId: "whoop", from: day, to: day)
         XCTAssertEqual(whoop.first?.avgHrv, 65)
+        try await replace(store, rows: [daily(day, rhr: nil, hrv: 0)],
+                          points: [MetricPoint(day: day, key: "hrv", value: 0)], evidence: [evidence])
+        let visibleZero = try await store.dailyMetrics(deviceId: "apple-health", from: day, to: day)
+        XCTAssertEqual(visibleZero.first?.avgHrv, 0)
     }
 
     func testHiddenActivityAndWorkoutsRemainUntilExactWorkoutDeletionEvidence() async throws {
@@ -187,5 +191,65 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
                                                      from: day, to: "2026-10-22")
         XCTAssertEqual(points.map(\.value), [480, 480, 480])
         try await reopened.close()
+    }
+
+    func testSameDaySurvivingContributorKeepsMissingHeartRateAndStepsAggregates() async throws {
+        let store = try await WhoopStore.inMemory()
+        _ = try await store.upsertAppleDaily([AppleDaily(day: day, steps: 8000, activeKcal: nil,
+            basalKcal: nil, vo2max: nil, avgHr: 100, maxHr: 140, walkingHr: nil, weightKg: nil)],
+            deviceId: "apple-health")
+        _ = try await store.upsertMetricSeries([MetricPoint(day: day, key: "steps", value: 8000),
+            MetricPoint(day: day, key: "avg_hr", value: 100)], deviceId: "apple-health")
+        let types = ["HKQuantityTypeIdentifierHeartRate", "HKQuantityTypeIdentifierStepCount"]
+        try await store.upsertHealthKitObjectIdentities(types.flatMap { type in
+            [HealthKitObjectIdentity(sampleType: type, objectUUID: type + "-deleted", startTs: start + 3600, endTs: start + 3660),
+             HealthKitObjectIdentity(sampleType: type, objectUUID: type + "-surviving", startTs: start + 7200, endTs: start + 7260)]
+        }, deviceId: "apple-health")
+        let evidence = types.map { HealthKitProjectionDeletion(sampleType: $0, fromDay: day, toDay: day,
+            fromTimestamp: start + 3600, toTimestamp: start + 3660) }
+        for _ in 0..<2 { try await replace(store, evidence: evidence) }
+        let rows = try await store.appleDaily(deviceId: "apple-health", from: day, to: day)
+        XCTAssertEqual(rows.first?.avgHr, 100)
+        XCTAssertEqual(rows.first?.steps, 8000)
+        let hr = try await store.metricSeries(deviceId: "apple-health", key: "avg_hr", from: day, to: day)
+        let steps = try await store.metricSeries(deviceId: "apple-health", key: "steps", from: day, to: day)
+        XCTAssertEqual(hr.first?.value, 100)
+        XCTAssertEqual(steps.first?.value, 8000)
+    }
+
+    func testXMLFragmentMergeKeepsMissingSleepAndOtherFieldsButAcceptsObservedZero() async throws {
+        let store = try await WhoopStore.inMemory()
+        for owner in ["apple-health", "whoop"] {
+            _ = try await store.upsertDailyMetrics([daily(day)], deviceId: owner)
+            _ = try await store.upsertAppleDaily([AppleDaily(day: day, steps: 8000, activeKcal: nil,
+                basalKcal: nil, vo2max: nil, avgHr: 100, maxHr: nil, walkingHr: nil, weightKg: 80)], deviceId: owner)
+        }
+        let emptyActivity = AppleDaily(day: day, steps: nil, activeKcal: nil, basalKcal: nil,
+                                      vo2max: nil, avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: nil)
+        let fragment = DailyMetric(day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil,
+            remMin: nil, lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: 70,
+            recovery: nil, strain: nil, exerciseCount: nil)
+        for _ in 0..<2 {
+            _ = try await store.mergeAppleHealthImportProjections(appleDaily: [emptyActivity],
+                dailyMetrics: [fragment], deviceId: "apple-health")
+        }
+        let kept = try await store.dailyMetrics(deviceId: "apple-health", from: day, to: day)
+        XCTAssertEqual(kept.first?.totalSleepMin, 480)
+        XCTAssertEqual(kept.first?.deepMin, 90)
+        XCTAssertEqual(kept.first?.restingHr, 52)
+        XCTAssertEqual(kept.first?.avgHrv, 70)
+        let activity = try await store.appleDaily(deviceId: "apple-health", from: day, to: day)
+        XCTAssertEqual(activity.first?.steps, 8000)
+        XCTAssertEqual(activity.first?.weightKg, 80)
+        let zero = DailyMetric(day: day, totalSleepMin: 0, efficiency: nil, deepMin: 0, remMin: 0,
+            lightMin: 0, disturbances: nil, restingHr: nil, avgHrv: nil,
+            recovery: nil, strain: nil, exerciseCount: nil)
+        _ = try await store.mergeAppleHealthImportProjections(appleDaily: [], dailyMetrics: [zero], deviceId: "apple-health")
+        let observed = try await store.dailyMetrics(deviceId: "apple-health", from: day, to: day)
+        XCTAssertEqual(observed.first?.totalSleepMin, 0)
+        XCTAssertEqual(observed.first?.deepMin, 0)
+        XCTAssertEqual(observed.first?.avgHrv, 70)
+        let other = try await store.dailyMetrics(deviceId: "whoop", from: day, to: day)
+        XCTAssertEqual(other.first?.totalSleepMin, 480)
     }
 }

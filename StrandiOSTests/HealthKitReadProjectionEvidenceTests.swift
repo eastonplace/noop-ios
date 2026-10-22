@@ -24,7 +24,7 @@ final class HealthKitReadProjectionEvidenceTests: XCTestCase {
     }
 
     func testObserverAddsDeletionEvidenceOnlyForExternalDeletedObjects() async throws {
-        let type = HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!
+        let type = HKObjectType.workoutType()
         let start = Date(timeIntervalSince1970: 1_792_454_400)
         let identity = HealthKitObjectIdentity(sampleType: type.identifier, objectUUID: "external",
             startTs: Int(start.timeIntervalSince1970), endTs: Int(start.timeIntervalSince1970) + 60)

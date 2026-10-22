@@ -34,5 +34,44 @@ final class AppleHealthSleepReimportTests: XCTestCase {
         let hrv = try await store.metricSeries(deviceId: "apple-health", key: "hrv", from: day, to: day)
         XCTAssertEqual(hrv.first?.value, 65)
     }
+
+    func testInBedOrAwakeOnlyFragmentPreservesBankedSleepAndOtherMetrics() async throws {
+        for stage in ["InBed", "Awake"] {
+            let store = try await WhoopStore.inMemory()
+            let day = "2024-03-10"
+            for owner in ["apple-health", "whoop"] {
+                _ = try await store.upsertDailyMetrics([DailyMetric(day: day, totalSleepMin: 480, efficiency: 95,
+                    deepMin: 90, remMin: 90, lightMin: 300, disturbances: 2, restingHr: 52, avgHrv: 65,
+                    recovery: nil, strain: nil, exerciseCount: nil)], deviceId: owner)
+                _ = try await store.upsertAppleDaily([AppleDaily(day: day, steps: 8000, activeKcal: nil,
+                    basalKcal: nil, vo2max: nil, avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: 80)], deviceId: owner)
+                _ = try await store.upsertMetricSeries([MetricPoint(day: day, key: "asleep_min", value: 480),
+                    MetricPoint(day: day, key: "deep_min", value: 90)], deviceId: owner)
+            }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("sleep-fragment-\(UUID().uuidString).xml")
+            defer { try? FileManager.default.removeItem(at: url) }
+            try """
+            <?xml version="1.0" encoding="UTF-8"?><HealthData locale="en_US">
+              <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Watch" startDate="2024-03-10 00:00:00 +0000" endDate="2024-03-10 08:00:00 +0000" value="HKCategoryValueSleepAnalysis\(stage)"/>
+              <Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" sourceName="Watch" unit="ms" value="70" startDate="2024-03-10 08:00:00 +0000" endDate="2024-03-10 08:00:00 +0000"/>
+            </HealthData>
+            """.write(to: url, atomically: true, encoding: .utf8)
+            for _ in 0..<2 { _ = try await AppleHealthImport.importExport(url: url, into: store, deviceId: "apple-health") }
+            let rows = try await store.dailyMetrics(deviceId: "apple-health", from: day, to: day)
+            XCTAssertEqual(rows.first?.totalSleepMin, 480)
+            XCTAssertEqual(rows.first?.deepMin, 90)
+            XCTAssertEqual(rows.first?.efficiency, 95)
+            XCTAssertEqual(rows.first?.restingHr, 52)
+            XCTAssertEqual(rows.first?.avgHrv, 70)
+            let activity = try await store.appleDaily(deviceId: "apple-health", from: day, to: day)
+            XCTAssertEqual(activity.first?.steps, 8000)
+            XCTAssertEqual(activity.first?.weightKg, 80)
+            let points = try await store.metricSeries(deviceId: "apple-health", key: "asleep_min", from: day, to: day)
+            XCTAssertEqual(points.first?.value, 480)
+            let other = try await store.dailyMetrics(deviceId: "whoop", from: day, to: day)
+            XCTAssertEqual(other.first?.totalSleepMin, 480)
+            XCTAssertEqual(other.first?.avgHrv, 65)
+        }
+    }
 }
 #endif

@@ -184,4 +184,27 @@ final class AppleSleepEpisodeRegressionTests: XCTestCase {
         XCTAssertEqual(episodes.first?.asleep, 90)
         XCTAssertTrue(reducer.finish().isEmpty)
     }
+
+    func testAggregateDistinguishesMissingAsleepEvidenceFromObservedZero() throws {
+        func aggregate(_ intervals: [SleepStageInterval]) throws -> AppleDailyAggregate {
+            let result = AppleHealthImportResult(samples: [], workouts: [], sleepIntervals: intervals,
+                summary: .init(sourceKind: .appleHealth, recordCount: intervals.count,
+                               earliest: intervals.first?.start, latest: intervals.last?.end, countsByCategory: [:]))
+            return try XCTUnwrap(AppleHealthAggregator.aggregate(result).first)
+        }
+        for stage in [SleepStage.inBed, .awake] {
+            let row = try aggregate([interval(stage, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z")])
+            XCTAssertNil(row.asleepMin)
+            XCTAssertNil(row.deepMin)
+            XCTAssertNil(row.remMin)
+            XCTAssertNil(row.coreMin)
+        }
+        let observed = try aggregate([
+            interval(.asleepUnspecified, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z", source: "Summary"),
+            interval(.awake, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z")
+        ])
+        XCTAssertEqual(observed.asleepMin, 0)
+        XCTAssertEqual(observed.deepMin, 0)
+        XCTAssertEqual(observed.awakeMin, 480)
+    }
 }
