@@ -91,6 +91,71 @@ struct LiftWorkoutLogicTests {
     #expect(fixture.store.activeExercises.map(\.id) == [first.id, second.id])
   }
 
+  @Test func swappingToAnAlreadyActiveExercisePreservesPlansAndProgressAcrossRelaunch() async throws {
+    let first = Self.exercise("First")
+    let existing = Self.exercise("Existing")
+    let firstPartner = Self.exercise("First partner")
+    let existingPartner = Self.exercise("Existing partner")
+    let firstPlan = Self.plan(first.id, sets: "3", rest: "90 s")
+    let existingPlan = Self.plan(existing.id, sets: "5", rest: "180 s")
+    let active = LiftSession(
+      id: UUID(), routineID: nil, title: "Active", startedAt: Date(), endedAt: nil,
+      sets: [Self.set(existing.id, number: 1)]
+    )
+    let fixture = try await Self.fixture(
+      exercises: [first, existing, firstPartner, existingPartner], activeSession: active,
+      activeIDs: [first.id, existing.id, firstPartner.id, existingPartner.id],
+      activePlans: [first.id: firstPlan, existing.id: existingPlan]
+    )
+    defer { fixture.remove() }
+    fixture.store.setExerciseDone(existing.id, isDone: true)
+    fixture.store.setSuperset(first.id, with: firstPartner.id)
+    fixture.store.setSuperset(existing.id, with: existingPartner.id)
+    fixture.store.flushPendingSave()
+    let before = try Self.decodeEnvelope(at: fixture.dataURL)
+
+    fixture.store.replaceActiveExercise(first.id, with: existing.id)
+    fixture.store.flushPendingSave()
+
+    #expect(try Self.decodeEnvelope(at: fixture.dataURL) == before)
+    #expect(fixture.store.activePlan(for: existing.id) == existingPlan)
+    #expect(fixture.store.isExerciseDone(existing.id))
+    #expect(fixture.store.supersetPartners(for: existing.id).map(\.id) == [existingPartner.id])
+    let reloaded = LiftStore(dataURL: fixture.dataURL, saveDebounceInterval: 0)
+    await reloaded.loadAndWait()
+    #expect(reloaded.activeExerciseIDsOverride == before.activeExerciseIDsOverride)
+    #expect(reloaded.activePlanOverrides == before.activePlanOverrides)
+    #expect(reloaded.completedExerciseIDs == before.completedExerciseIDs)
+    #expect(reloaded.activeSupersetGroups == before.activeSupersetGroups)
+    #expect(reloaded.activeSession == active)
+  }
+
+  @Test func swappingToANewExerciseTransfersOnlyTheSourcePrescription() async throws {
+    let first = Self.exercise("First")
+    let replacement = Self.exercise("Replacement")
+    let partner = Self.exercise("Partner")
+    let firstPlan = Self.plan(first.id, sets: "3", rest: "90 s")
+    let active = LiftSession(
+      id: UUID(), routineID: nil, title: "Active", startedAt: Date(), endedAt: nil,
+      sets: [Self.set(first.id, number: 1)]
+    )
+    let fixture = try await Self.fixture(
+      exercises: [first, replacement, partner], activeSession: active,
+      activeIDs: [first.id, partner.id], activePlans: [first.id: firstPlan]
+    )
+    defer { fixture.remove() }
+    fixture.store.setSuperset(first.id, with: partner.id)
+
+    fixture.store.replaceActiveExercise(first.id, with: replacement.id)
+
+    #expect(fixture.store.activeExerciseIDsOverride == [replacement.id, partner.id])
+    #expect(fixture.store.activePlan(for: first.id) == nil)
+    #expect(fixture.store.activePlan(for: replacement.id)?.sets == firstPlan.sets)
+    #expect(fixture.store.activePlan(for: replacement.id)?.rest == firstPlan.rest)
+    #expect(fixture.store.supersetPartners(for: replacement.id).map(\.id) == [partner.id])
+    #expect(fixture.store.activeSession == active, "logged sets keep their original exercise")
+  }
+
   @Test func estimatedMinutesReturnsZeroForEmptyOrAllInvalidPlans() {
     let exerciseID = UUID()
     let invalidPlans = [
