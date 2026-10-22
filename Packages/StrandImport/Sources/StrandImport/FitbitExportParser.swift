@@ -54,13 +54,17 @@ enum FitbitExportParser {
                     var row = day(key); row.restingHr = rhr; byDay[key] = row
                 }
             } else if base.hasPrefix("steps") || base.contains("steps") {
-                // Sum all fragments together. An unrepresentable aggregate makes this day's steps
-                // unknown; keep its other metrics, but never publish a partial/capped step total.
+                // Sum all fragments together. An unknown contributor or unrepresentable aggregate
+                // makes this day's steps unknown; never publish a partial/capped step total.
                 for e in WearableJSON.array(data)?.compactMap({ $0 as? [String: Any] }) ?? [] {
                     guard let key = dayKey(WearableJSON.str(e, "dateTime")),
-                          let raw = WearableJSON.dbl(e, "value"), raw >= 0,
-                          let v = WearableJSON.int(e, "value"), v > 0 || raw == 0,
                           !invalidStepDays.contains(key) else { continue }
+                    guard let raw = WearableJSON.dbl(e, "value"), raw >= 0,
+                          let v = WearableJSON.int(e, "value"), v > 0 || raw == 0 else {
+                        invalidStepDays.insert(key)
+                        stepTotals.removeValue(forKey: key)
+                        continue
+                    }
                     let (total, overflow) = stepTotals[key, default: 0].addingReportingOverflow(v)
                     if overflow {
                         invalidStepDays.insert(key)
