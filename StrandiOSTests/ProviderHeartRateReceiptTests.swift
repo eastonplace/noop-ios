@@ -128,4 +128,35 @@ final class ProviderHeartRateReceiptTests: XCTestCase {
         XCTAssertEqual(live.latestHeartRateReceipt?.observedAt, now)
         XCTAssertEqual(live.heartRate, 120)
     }
+
+    #if targetEnvironment(simulator)
+    func testAdoptingGenericSessionReleasesWhoopDemandWithoutLosingTheViewsLease() {
+        let model = AppModel(startRuntimeTasks: false)
+        let lease = model.acquireRealtimeHR(for: .visible)
+        XCTAssertTrue(model.live.liveFeedActive)
+        let owner = LiveHeartRateProviderSession(live: model.live, deviceId: "existing-generic")
+
+        owner.begin(peripheralID: UUID())
+
+        XCTAssertFalse(model.live.liveFeedActive, "generic visibility must not arm the unrelated WHOOP")
+        model.releaseRealtimeHR(lease)
+        XCTAssertTrue(model.live.hasActiveHeartRateConnection)
+        owner.end()
+    }
+
+    func testNewVisibleAndRecordingLeasesForGenericSourceDoNotArmWhoop() {
+        let model = AppModel(startRuntimeTasks: false)
+        let owner = LiveHeartRateProviderSession(live: model.live, deviceId: "existing-generic")
+        owner.begin(peripheralID: UUID())
+
+        let view = model.acquireRealtimeHR(for: .visible)
+        let recording = model.acquireRealtimeHR(for: .workout)
+        model.rearmRealtimeIfWanted()
+
+        XCTAssertFalse(model.live.liveFeedActive)
+        model.releaseRealtimeHR(view)
+        model.releaseRealtimeHR(recording)
+        owner.end()
+    }
+    #endif
 }
