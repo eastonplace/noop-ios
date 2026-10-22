@@ -124,6 +124,13 @@ enum CoachFollowUps {
     /// Two next questions that fit what the latest answer showed, never parsed from its prose.
     static func suggestions(for message: LocalCoachMessage) -> [CoachFollowUp] {
         let cards = message.cards ?? []
+        if let journal = cards.compactMap({ card -> LocalCoachCard.JournalAssociation? in
+            if case .journalAssociation(let value) = card { return value }
+            return nil
+        }).first {
+            return [.init(title: "Explain this association", prompt: LocalCoachCardFormat.journalFollowUp(journal)),
+                    .init(title: "What should I log?", prompt: "What explicit yes/no journal answers would help me compare my habits with recovery? Explain missing data without treating unlogged days as no.")]
+        }
         if cards.contains(where: { $0.kind == "sleep" }) {
             return [.init(title: "Compare nights", prompt: "Compare my recorded sleep over the last seven days."),
                     .init(title: "Plan tonight", prompt: "Help me plan tonight using my recent sleep records.")]

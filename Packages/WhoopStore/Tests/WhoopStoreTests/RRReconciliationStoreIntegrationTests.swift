@@ -128,7 +128,7 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
                 XCTAssertEqual(Set(identifiers).count, identifiers.count)
             }
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 62)
     }
 
     func testCurrentMigratorUpgradesV59WithoutChangingStrengthStateOrRawRR() throws {
@@ -177,7 +177,7 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
                 firstMigrationIDs = identifiers
             }
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 62)
     }
 }
 

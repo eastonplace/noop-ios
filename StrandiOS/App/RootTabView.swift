@@ -79,9 +79,9 @@ struct RootTabView: View {
     }
     private var coachTabRoot: some View {
         #if DEBUG
-        LocalCoachView(screen: QACoachPage.requested ?? .chat)
+        LocalCoachView(screen: QACoachPage.requested ?? .chat, journalRepository: repo)
         #else
-        LocalCoachView()
+        LocalCoachView(journalRepository: repo)
         #endif
     }
     private var sleepTabRoot: some View {

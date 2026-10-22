@@ -1,5 +1,6 @@
 #if os(iOS)
 import Foundation
+import StrandAnalytics
 
 /// One dated observation in a card's mini series. `day` is the civil `yyyy-MM-dd` record key from the
 /// canonical cache, so a night that was never recorded is simply absent (never zero-filled).
@@ -18,6 +19,7 @@ struct CoachSeriesPoint: Codable, Equatable, Sendable {
 ///
 /// This type is outside any FoundationModels gate and has no model-facing surface.
 enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
+    typealias JournalAssociation = JournalAssociationAnalysis.Insight
     struct Recovery: Codable, Equatable, Sendable {
         var day: String
         var isStale: Bool
@@ -105,6 +107,7 @@ enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
     case effort(Effort)
     case workouts(Workouts)
     case stats(Stats)
+    case journalAssociation(JournalAssociation)
 
     /// Stable per kind + day/metric so the same record read by two tools collapses to one card.
     var id: String {
@@ -115,6 +118,8 @@ enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
         case .effort(let card): return "effort:\(card.day)"
         case .workouts(let card): return "workouts:\(card.items.first?.startTs ?? 0)"
         case .stats(let card): return "stats:\(card.title):\(card.day ?? "")"
+        case .journalAssociation(let card):
+            return "journalAssociation:\(card.questionKey ?? card.state.rawValue):\(card.windowFrom):\(card.windowThrough)"
         }
     }
 
@@ -127,6 +132,7 @@ enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
         case .effort: return "effort"
         case .workouts: return "workouts"
         case .stats: return "stats"
+        case .journalAssociation: return "journalAssociation"
         }
     }
 
@@ -139,6 +145,7 @@ enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
         case .effort(let card): return card.day
         case .workouts(let card): return card.day
         case .stats(let card): return card.day
+        case .journalAssociation(let card): return card.latestDay
         }
     }
 
@@ -150,6 +157,7 @@ enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
         case .effort(let card): return card.isStale
         case .workouts(let card): return card.isStale
         case .stats(let card): return card.isStale
+        case .journalAssociation: return false // Historical association, not a claim about current readiness.
         }
     }
 
@@ -162,10 +170,50 @@ enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
         }
         return merged
     }
+
+    /// At most three habits, with the requested habit first and stable alphabetical order after it.
+    /// Never rank cards by the size or direction of an effect; that would invite cherry-picking.
+    static func journalAssociationCards(_ insights: [JournalAssociation], query: String) -> [LocalCoachCard] {
+        let generic: Set<String> = ["did", "you", "have", "take", "your", "before", "after", "close",
+                                    "what", "which", "with", "from", "days", "late", "feel", "drink"]
+        let request = query.lowercased()
+        func isRequested(_ insight: JournalAssociation) -> Bool {
+            let words = (insight.questionKey ?? "").split(whereSeparator: { !$0.isLetter }).map(String.init)
+            return words.contains { $0.count >= 4 && !generic.contains($0) && request.contains($0) }
+        }
+        return insights.sorted {
+            let left = isRequested($0), right = isRequested($1)
+            if left != right { return left }
+            return ($0.questionKey ?? "") < ($1.questionKey ?? "")
+        }.prefix(3).map(LocalCoachCard.journalAssociation)
+    }
 }
 
 /// Number and duration wording shared by the card views, the export text and the accessibility labels.
 enum LocalCoachCardFormat {
+    static func journalFollowUp(_ card: LocalCoachCard.JournalAssociation) -> String {
+        let subject = card.question.map { "the logged habit “\(String($0.prefix(200)))”" } ?? "my explicitly logged habits"
+        return "Explain the recorded journal association for \(subject) from \(card.windowFrom) through \(card.windowThrough). Distinguish association from causation, explain the comparison's limits, and tell me what data is still missing."
+    }
+
+    static func journalStatus(_ card: LocalCoachCard.JournalAssociation) -> String {
+        switch card.state {
+        case .available:
+            return "Descriptive association only—not causation or a statistical-significance claim."
+        case .insufficientData:
+            return "Need at least 3 matched yes days and at least 3 matched explicit-no days before showing a comparison."
+        case .truncated:
+            return "Incomplete read: the \(JournalAssociationAnalysis.maximumRowsPerSource)-record per-source cap was exceeded. Group counts withheld; no numeric comparison is available. Try a shorter date range."
+        case .noBooleanAnswers:
+            return "No comparable explicit yes/no answers in this window. Quantity entries are not boolean answers."
+        }
+    }
+
+    static func journalSamples(_ card: LocalCoachCard.JournalAssociation) -> String {
+        guard card.state != .truncated else { return "Group counts withheld because the read is incomplete." }
+        func count(_ value: Int?) -> String { value.map(String.init) ?? "not available" }
+        return "Matched recovery days: yes \(count(card.matchedYesCount)), no \(count(card.matchedNoCount)); logged answers: yes \(count(card.loggedYesCount)), no \(count(card.loggedNoCount)); missing recovery \(count(card.missingRecoveryCount)); conflicting answer days \(count(card.conflictingDayCount))."
+    }
     /// "7h 42m", "45m". Nil, non-finite or negative durations are "—" (never "0m"). Worded through the catalog
     /// entries Sleep uses for the same figure, so it reads in the person's language.
     static func duration(minutes: Double?) -> String {
@@ -260,6 +308,19 @@ enum LocalCoachCardFormat {
         case .stats(let card):
             let items = card.items.map { "\($0.label) \($0.value)" }.joined(separator: "; ")
             return "\(card.title) card\(card.day.map { " (\($0)\(card.isStale ? ", stale" : ""))" } ?? ""): \(items)"
+        case .journalAssociation(let card):
+            var parts = ["Journal association card (\(card.windowFrom) through \(card.windowThrough)): \(card.question ?? "Journal data coverage").",
+                         journalStatus(card), journalSamples(card)]
+            if card.state == .available, let difference = card.difference {
+                parts.append("Same-wake-day recovery: yes mean \(oneDecimal(card.yesMean))/100, no mean \(oneDecimal(card.noMean))/100; difference \(oneDecimal(difference)) points (yes minus no).")
+            }
+            if card.excludedNumericAnswerCount > 0 {
+                parts.append("\(card.excludedNumericAnswerCount) records from numeric questions excluded from boolean comparisons.")
+            }
+            parts.append("Journal sources: \((card.sources.isEmpty ? card.sourcesRead : card.sources).joined(separator: ", ")). Recovery source: \(card.recoverySource).")
+            if !card.truncatedSources.isEmpty { parts.append("Incomplete sources: \(card.truncatedSources.joined(separator: ", ")).") }
+            parts.append("Unlogged days are excluded, not treated as no. The canonical recovery cache may cover less than the requested window. Association is not causation.")
+            return parts.joined(separator: " ")
         }
     }
 }

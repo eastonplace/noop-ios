@@ -3,12 +3,6 @@ import StrandAnalytics
 import StrandDesign
 import WhoopStore
 
-struct JournalEntryPresentation: Identifiable {
-    let id = UUID()
-    let day: String
-    let sourceIdentity: String
-}
-
 /// Transient text and review state belong to this sheet. Typing/dictating/parsing never saves; the
 /// repository receives only the explicitly included, edited values from the visible Save action.
 struct JournalEntryComposer: View {
@@ -21,7 +15,8 @@ struct JournalEntryComposer: View {
     let onSaved: () -> Void
 
     @StateObject private var voice = JournalVoice()
-    @State private var entryText = ""
+    @State private var draft: JournalEntryComposerDraft
+    @State private var dayDetails = JournalEntryDayDetailsDraft()
     @State private var parsed: JournalEntryParser.Draft?
     @State private var review: JournalEntryReview?
     @State private var edits: [JournalEntryEditableValue] = []
@@ -35,21 +30,34 @@ struct JournalEntryComposer: View {
     @State private var voiceOperation: Task<Void, Never>?
     @State private var presented = true
 
+    init(catalog: JournalCatalogStore, presentation: JournalEntryPresentation,
+         importedQuestions: [String], currentDay: String, onSaved: @escaping () -> Void) {
+        self._catalog = ObservedObject(wrappedValue: catalog)
+        self.presentation = presentation
+        self.importedQuestions = importedQuestions
+        self.currentDay = currentDay
+        self.onSaved = onSaved
+        self._draft = State(initialValue: JournalEntryComposerDraft(
+            text: presentation.initialText, suggestions: presentation.initialSuggestions))
+    }
+
     private var fields: [JournalEntryParser.Field] {
         catalog.resolvedItems(imported: importedQuestions).map(\.entryParserField)
     }
 
     private var canReview: Bool {
-        !entryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && entryText.utf8.count <= JournalEntryParser.maximumInputBytes
+        draft.canReviewText
             && !preparing && !saving && !voice.isBusy && voice.transcript.isEmpty && !sourceChanged
     }
 
     private var selectedValues: [JournalEntryParser.Suggestion]? {
-        let included = edits.filter(\.included)
-        guard !included.isEmpty else { return nil }
-        let values = included.compactMap(\.suggestion)
-        return values.count == included.count ? values : nil
+        JournalEntryComposerDraft.valuesForSave(
+            edits, includesDayDetails: dayDetails.canIncludeInSave && review?.dayDetails != nil)
+    }
+
+    private var validDayDetails: Bool {
+        dayDetails.isValid(maximumNoteBytes: JournalEntryDayDetails.maximumNoteBytes)
+            && (!dayDetails.included || dayDetails.canIncludeInSave)
     }
 
     var body: some View {
@@ -61,6 +69,9 @@ struct JournalEntryComposer: View {
                             .font(StrandFont.headline)
                         Text("Describe the night and day leading into this morning. Review the suggested answers before saving.")
                             .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        Text("This wake day stays fixed. Words such as “yesterday” do not change it; cancel and choose another date if needed.")
+                            .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textSecondary)
                     }
                     entryEditor
@@ -82,7 +93,11 @@ struct JournalEntryComposer: View {
                     .accessibilityIdentifier("journal-entry-review")
 
                     if let parsed { unmatchedSection(parsed) }
-                    if let review { reviewSection(review) }
+                    if let review {
+                        reviewSection(review)
+                    } else if dayDetails.hasVisibleDraft {
+                        retainedDayDetailsSection
+                    }
                 }
                 .padding(NoopMetrics.screenPadding)
             }
@@ -100,11 +115,12 @@ struct JournalEntryComposer: View {
         .tint(StrandPalette.accent)
         .font(StrandFont.body)
         .onAppear { presented = true }
-        .onChange(of: entryText) { _, _ in
+        .onChange(of: draft.text) { _, _ in
             guard !saving else { return }
             invalidateReview()
         }
         .onChange(of: fields) { _, _ in
+            draft.invalidateSeedSuggestions()
             invalidateReview()
             cancelDictation()
             message = "Your journal catalog changed. Review the entry again with the current items."
@@ -130,7 +146,7 @@ struct JournalEntryComposer: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Your entry").font(StrandFont.headline)
             PaperCard(padding: 8) {
-                TextEditor(text: $entryText)
+                TextEditor(text: $draft.text)
                     .frame(minHeight: 150)
                     .scrollContentBackground(.hidden)
                     .disabled(saving)
@@ -140,7 +156,10 @@ struct JournalEntryComposer: View {
             Text("For example: “I took magnesium and felt stressed.” For quantities, include a unit and an existing journal item, such as “Caffeine: 200 mg.”")
                 .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textTertiary)
-            if entryText.utf8.count > JournalEntryParser.maximumInputBytes {
+            Text("You can also leave this blank and review just your day note and mood.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+            if !draft.canReviewText {
                 Text("This entry is too long. Shorten it before reviewing.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.error)
             }
@@ -201,7 +220,7 @@ struct JournalEntryComposer: View {
             PaperCard {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Unmatched details").font(StrandFont.headline)
-                    Text("These words remain in this draft. Saving adds only the checked journal answers below.")
+                    Text("These words are not saved as journal answers. To keep them, turn on “Update note and mood” below, then choose “Add entry text to day note”.")
                         .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     ForEach(Array(draft.unmatched.enumerated()), id: \.offset) { _, text in
                         Text(text).font(StrandFont.subhead).textSelection(.enabled)
@@ -221,40 +240,148 @@ struct JournalEntryComposer: View {
 
     private func reviewSection(_ review: JournalEntryReview) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            Text("Review answers").font(StrandFont.title2)
-            Text("Edit each value or uncheck an item to leave its saved answer as it is. Quantities use the unit shown in your journal.")
-                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+            Text("Review journal entry").font(StrandFont.title2)
+            if edits.isEmpty {
+                Text("No answers matched. You can still turn on “Update note and mood” to save a day note or mood.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+            } else {
+                Text("Edit each value or uncheck an item to leave its saved answer as it is. Quantities use the unit shown in your journal.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+            }
             ForEach($edits) { $edit in
                 JournalEntryReviewRow(edit: $edit, existing: review.existing[edit.id])
                     .disabled(saving)
             }
+            if review.dayDetails != nil { dayDetailsSection }
             Button(action: save) {
                 HStack {
                     if saving { ProgressView() }
-                    Text("Save \(edits.filter(\.included).count) answers to \(review.day)")
+                    Text(saveLabel(day: review.day))
                 }.frame(maxWidth: .infinity)
             }
             .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-            .disabled(selectedValues == nil || saving || preparing || voice.isBusy || sourceChanged)
+            .disabled(selectedValues == nil || !validDayDetails || saving || preparing
+                      || voice.isBusy || !voice.transcript.isEmpty || sourceChanged)
             .accessibilityIdentifier("journal-entry-save")
         }
+    }
+
+    private var dayDetailsSection: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Update note and mood", isOn: $dayDetails.included)
+                    .font(StrandFont.headline)
+                    .disabled(dayDetails.reviewedValues == nil)
+                    .accessibilityIdentifier("journal-entry-include-day-details")
+                Text("Off keeps your saved note and mood unchanged. On saves the values below; an empty note clears it, and “Not logged” clears mood.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                if let saved = dayDetails.reviewedValues {
+                    if saved.note != dayDetails.note {
+                        Text("Currently saved note:").font(StrandFont.caption)
+                        Text(saved.note.isEmpty ? "No saved note" : saved.note)
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .textSelection(.enabled)
+                    }
+                    if saved.mood != dayDetails.mood {
+                        Text(saved.mood.map { "Currently saved mood: \($0)/5" } ?? "Currently saved mood: Not logged")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+                Text("Day note").font(StrandFont.subhead)
+                TextEditor(text: $dayDetails.note)
+                    .frame(minHeight: 110)
+                    .scrollContentBackground(.hidden)
+                    .disabled(!dayDetails.included)
+                    .accessibilityLabel("Day note")
+                    .accessibilityIdentifier("journal-entry-day-note")
+                Text("\(dayDetails.note.utf8.count)/\(JournalEntryDayDetails.maximumNoteBytes) bytes")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(validDayDetails ? StrandPalette.textTertiary : StrandPalette.error)
+                Picker("Mood", selection: $dayDetails.mood) {
+                    Text("Not logged").tag(Int?.none)
+                    Text("1 · Rough").tag(Int?.some(1))
+                    Text("2 · Low").tag(Int?.some(2))
+                    Text("3 · Okay").tag(Int?.some(3))
+                    Text("4 · Good").tag(Int?.some(4))
+                    Text("5 · Great").tag(Int?.some(5))
+                }
+                .pickerStyle(.menu)
+                .disabled(!dayDetails.included)
+                .accessibilityIdentifier("journal-entry-mood")
+                Button("Add entry text to day note", action: appendEntryToDayNote)
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+                    .disabled(!dayDetails.canIncludeInSave || draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("journal-entry-add-to-day-note")
+                if !validDayDetails {
+                    Text("Shorten the note or remove unsupported characters before saving. Mood must be 1–5 or Not logged.")
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.error)
+                }
+            }
+        }
+        .disabled(saving || sourceChanged)
+    }
+
+    /// Retain a selectable, explicitly pinned copy even while a review is stale, loading, or fenced.
+    /// These values cannot become a new source/day's draft simply because the surrounding UI moved.
+    private var retainedDayDetailsSection: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Note and mood draft").font(StrandFont.headline)
+                Text("Wake day: \(presentation.day)").font(StrandFont.caption)
+                Text(sourceChanged
+                     ? "This draft stays with its original wake day and data source. Copy it before closing; saving is disabled."
+                     : "Your draft is kept. Review again, then turn on “Update note and mood” if you want to save it.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                Text(dayDetails.note.isEmpty ? "Day note: empty" : dayDetails.note)
+                    .font(StrandFont.subhead)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("journal-entry-retained-note")
+                Text(dayDetails.mood.map { "Mood: \($0)/5" } ?? "Mood: Not logged")
+                    .font(StrandFont.subhead)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("journal-entry-retained-mood")
+            }
+        }
+        .accessibilityIdentifier("journal-entry-retained-day-details")
+    }
+
+    private func saveLabel(day: String) -> String {
+        let count = edits.filter(\.included).count
+        if dayDetails.included {
+            return count == 0 ? "Save note and mood to \(day)" : "Save \(count) answers, note and mood to \(day)"
+        }
+        return "Save \(count) answers to \(day)"
+    }
+
+    private func appendEntryToDayNote() {
+        guard !saving, !sourceChanged, dayDetails.canIncludeInSave, review?.dayDetails != nil else { return }
+        guard dayDetails.appendEntryText(draft.text, maximumNoteBytes: JournalEntryDayDetails.maximumNoteBytes) else {
+            message = "The entry could not be added without exceeding the note limit or including an unsupported character. Your existing note is unchanged."
+            return
+        }
+        message = "Entry text added to the draft day note. Review it below; nothing is saved until you tap Save."
     }
 
     private func prepareReview() {
         guard canReview, currentDay == presentation.day else { return }
         cancelDictation()
-        let text = entryText
+        let text = draft.text
         let snapshot = fields
-        let draft = JournalEntryParser.parse(text, fields: snapshot)
-        parsed = draft
+        let parsedDraft = JournalEntryParser.parse(text, fields: snapshot)
+        let suggestions = draft.reviewSuggestions(from: parsedDraft)
+        parsed = parsedDraft
         review = nil
         edits = []
+        dayDetails.invalidateReview()
         message = nil
-        guard !draft.exceedsLimit else {
+        guard !parsedDraft.exceedsLimit else {
             message = "Shorten this entry or reduce the journal catalog before reviewing it."
             return
         }
-        guard !draft.suggestions.isEmpty else { return }
         operation?.cancel()
         let token = UUID()
         operationID = token
@@ -267,12 +394,19 @@ struct JournalEntryComposer: View {
                 guard presentation.sourceIdentity == repo.journalEntrySourceIdentity else {
                     throw JournalEntryReviewError.contextChanged
                 }
-                guard isCurrent(token), entryText == text, fields == snapshot, currentDay == presentation.day else { return }
+                guard isCurrent(token), draft.text == text, fields == snapshot, currentDay == presentation.day else { return }
                 sourceContext = context
                 let loaded = try await repo.reviewJournalEntry(day: presentation.day, sourceContext: context,
-                                                              fields: snapshot, suggestions: draft.suggestions)
-                guard isCurrent(token), entryText == text, fields == snapshot,
+                                                              fields: snapshot, suggestions: suggestions,
+                                                              includeDayDetails: true)
+                guard isCurrent(token), draft.text == text, fields == snapshot,
                       currentDay == presentation.day, repo.journalEntrySourceContext == context else { return }
+                if let savedDetails = loaded.dayDetails {
+                    guard dayDetails.receiveReview(note: savedDetails.note, mood: savedDetails.mood) else {
+                        preparing = false
+                        return
+                    }
+                }
                 review = loaded
                 edits = loaded.suggestions.compactMap { suggestion in
                     snapshot.first(where: { $0.canonical == suggestion.canonical }).map {
@@ -291,46 +425,52 @@ struct JournalEntryComposer: View {
     }
 
     private func save() {
-        guard let review, let values = selectedValues, !saving, !sourceChanged else { return }
+        guard let review, let values = selectedValues, validDayDetails, !saving, !preparing,
+              !voice.isBusy, voice.transcript.isEmpty, !sourceChanged,
+              currentDay == presentation.day else { return }
+        let includedDetails: JournalEntryDayDetails? = dayDetails.included
+            ? JournalEntryDayDetails(note: dayDetails.note, mood: dayDetails.mood) : nil
         let snapshot = fields
         let token = UUID()
         operationID = token
         saving = true
         message = nil
         operation = Task { @MainActor in
+            // Context invalidation cancels UI publication but must not unlock the sheet while an
+            // admitted transaction is still finishing. Every exit releases this single-save lock.
+            defer { saving = false }
             do {
                 try await repo.saveJournalEntry(review: review, values: values,
-                                                currentDay: currentDay, currentFields: snapshot)
+                                                currentDay: currentDay, currentFields: snapshot,
+                                                dayDetails: includedDetails)
                 // A successful transaction is authoritative, even if a context change cancelled the
                 // UI task while SQLite committed. Report that success without reviving an old draft.
                 guard presented else { return }
-                saving = false
                 onSaved()
                 guard isCurrent(token), currentDay == presentation.day, fields == snapshot,
                       repo.journalEntrySourceContext == review.sourceContext else {
-                    message = "Saved \(values.count) answers to \(review.day). The journal context changed; open a new entry to continue."
+                    message = "Saved your journal entry to \(review.day). The journal context changed; open a new entry to continue."
                     return
                 }
                 dismiss()
             } catch is CancellationError {
-                if operationID == token { saving = false }
+                // An invalidated/dismissed draft does not publish a late cancellation result.
             } catch {
                 guard isCurrent(token) else { return }
-                saving = false
                 message = error.localizedDescription
             }
         }
     }
 
     private func useTranscript() {
-        guard !voice.isBusy, !voice.transcript.isEmpty else { return }
-        let prefix = entryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !saving, !sourceChanged, !voice.isBusy, !voice.transcript.isEmpty else { return }
+        let prefix = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let combined = prefix.isEmpty ? voice.transcript : prefix + "\n" + voice.transcript
         guard combined.utf8.count <= JournalEntryParser.maximumInputBytes else {
             message = "The captured text would exceed the entry limit. Shorten your entry before adding it."
             return
         }
-        entryText = combined
+        draft.text = combined
         cancelDictation()
     }
 
@@ -349,15 +489,15 @@ struct JournalEntryComposer: View {
         operation?.cancel()
         operation = nil
         preparing = false
-        saving = false
         review = nil
         parsed = nil
         edits = []
+        dayDetails.invalidateReview()
     }
 
     private func invalidateContext() {
         sourceChanged = true
-        saving = false
+        dayDetails.invalidateContext()
         invalidateReview()
         cancelDictation()
         message = "The journal date or data source changed. Copy any text you want to keep, then open a new entry for the current context."

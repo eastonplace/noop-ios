@@ -2,6 +2,14 @@ import Foundation
 import StrandAnalytics
 import WhoopStore
 
+/// Optional, explicit day-level details. These are distinct from each journal answer's notes.
+/// Passing this value to Save replaces both details for the reviewed day; omitting it preserves them.
+struct JournalEntryDayDetails: Equatable, Sendable {
+    static let maximumNoteBytes = ReviewedJournalDayDetailsChange.maximumNoteBytes
+    var note: String
+    var mood: Int?
+}
+
 struct JournalEntryReview: Equatable {
     let day: String
     let sourceContext: String
@@ -9,6 +17,8 @@ struct JournalEntryReview: Equatable {
     let fields: [JournalEntryParser.Field]
     let suggestions: [JournalEntryParser.Suggestion]
     let existing: [String: JournalEntry]
+    let dayDetails: JournalEntryDayDetails?
+    fileprivate let dayDetailsSnapshot: JournalDayDetailsSnapshot?
 }
 
 enum JournalEntryReviewError: Error, LocalizedError, Equatable {
@@ -20,7 +30,7 @@ enum JournalEntryReviewError: Error, LocalizedError, Equatable {
         switch self {
         case .contextChanged: return "The journal date, catalog, or data source changed. Open a new entry and review it before saving."
         case .unavailable: return "The journal store is unavailable. Your entry is still here; try reviewing it again."
-        case .invalidValues: return "Choose at least one answer and check each quantity before saving."
+        case .invalidValues: return "Choose an answer or reviewed day details, and check the quantities, note, and mood before saving."
         }
     }
 }
@@ -54,9 +64,11 @@ extension Repository {
 
     func reviewJournalEntry(day: String, sourceContext: String,
                             fields: [JournalEntryParser.Field],
-                            suggestions: [JournalEntryParser.Suggestion]) async throws -> JournalEntryReview {
+                            suggestions: [JournalEntryParser.Suggestion],
+                            includeDayDetails: Bool = false) async throws -> JournalEntryReview {
         try checkJournalEntryContext(sourceContext)
-        guard Self.validJournalEntryValues(suggestions, fields: fields) else {
+        guard WhoopStore.isValidJournalDay(day),
+              Self.validJournalEntryValues(suggestions, fields: fields, allowEmpty: includeDayDetails) else {
             throw JournalEntryReviewError.invalidValues
         }
         guard let store = await storeHandle() else { throw JournalEntryReviewError.unavailable }
@@ -65,9 +77,26 @@ extension Repository {
         try checkJournalEntryContext(sourceContext)
         let rows = try await store.journalEntries(deviceId: Self.journalDeviceId, from: day, to: day)
         try checkJournalEntryContext(sourceContext)
+        let details: JournalDayDetailsSnapshot?
+        if includeDayDetails {
+            details = try await store.journalDayDetails(day: day)
+            try checkJournalEntryContext(sourceContext)
+        } else { details = nil }
         return JournalEntryReview(day: day, sourceContext: sourceContext, databaseInstanceId: databaseInstanceId, fields: fields,
                                   suggestions: suggestions,
-                                  existing: Dictionary(rows.map { ($0.question, $0) }, uniquingKeysWith: { _, last in last }))
+                                  existing: Dictionary(rows.map { ($0.question, $0) }, uniquingKeysWith: { _, last in last }),
+                                  dayDetails: try details.map(Self.journalEntryDayDetails), dayDetailsSnapshot: details)
+    }
+
+    /// Source-guarded, read-only projection for the widget. A read does not authorize a later save;
+    /// the visible review action must still capture its own exact persisted snapshot.
+    func journalDayDetails(day: String, sourceContext: String) async throws -> JournalEntryDayDetails {
+        try checkJournalEntryContext(sourceContext)
+        guard let store = await storeHandle() else { throw JournalEntryReviewError.unavailable }
+        try checkJournalEntryContext(sourceContext)
+        let snapshot = try await store.journalDayDetails(day: day)
+        try checkJournalEntryContext(sourceContext)
+        return try Self.journalEntryDayDetails(snapshot)
     }
 
     /// The only write used by the composer. Call from its visible Save action after review.
@@ -75,13 +104,22 @@ extension Repository {
     /// a source switch does not undo a successful commit; SQLite checks database identity and the
     /// exact reviewed rows, and the composer reports success without reviving an obsolete draft.
     func saveJournalEntry(review: JournalEntryReview, values: [JournalEntryParser.Suggestion],
-                          currentDay: String, currentFields: [JournalEntryParser.Field]) async throws {
+                          currentDay: String, currentFields: [JournalEntryParser.Field],
+                          dayDetails: JournalEntryDayDetails? = nil) async throws {
         try checkJournalEntryContext(review.sourceContext)
         guard review.day == currentDay, review.fields == currentFields else {
             throw JournalEntryReviewError.contextChanged
         }
+        let detailChange: ReviewedJournalDayDetailsChange?
+        if let dayDetails {
+            guard let snapshot = review.dayDetailsSnapshot,
+                  ReviewedJournalDayDetailsChange.isValid(note: dayDetails.note, mood: dayDetails.mood) else {
+                throw JournalEntryReviewError.invalidValues
+            }
+            detailChange = .init(day: review.day, note: dayDetails.note, mood: dayDetails.mood, expected: snapshot)
+        } else { detailChange = nil }
         let reviewedKeys = Set(review.suggestions.map(\.canonical))
-        guard Self.validJournalEntryValues(values, fields: currentFields),
+        guard Self.validJournalEntryValues(values, fields: currentFields, allowEmpty: detailChange != nil),
               values.allSatisfy({ reviewedKeys.contains($0.canonical) }) else {
             throw JournalEntryReviewError.invalidValues
         }
@@ -97,7 +135,8 @@ extension Repository {
             return ReviewedJournalChange(day: review.day, question: item.canonical, answeredYes: yes,
                                          numericValue: number, expected: review.existing[item.canonical])
         }
-        _ = try await store.saveReviewedJournal(changes, expectedDatabaseInstanceId: review.databaseInstanceId)
+        _ = try await store.saveReviewedJournal(changes, expectedDatabaseInstanceId: review.databaseInstanceId,
+                                                dayDetails: detailChange)
         // A successful commit always invalidates the journal cache, even if the presenting view was
         // dismissed while SQLite finished. The view's operation token separately fences its UI result.
         journalDidChange()
@@ -111,8 +150,8 @@ extension Repository {
     }
 
     private static func validJournalEntryValues(_ values: [JournalEntryParser.Suggestion],
-                                                fields: [JournalEntryParser.Field]) -> Bool {
-        guard !values.isEmpty, values.count <= JournalEntryParser.maximumFields,
+                                                fields: [JournalEntryParser.Field], allowEmpty: Bool = false) -> Bool {
+        guard (allowEmpty || !values.isEmpty), values.count <= JournalEntryParser.maximumFields,
               fields.count <= JournalEntryParser.maximumFields,
               Set(fields.map(\.canonical)).count == fields.count,
               Set(values.map(\.canonical)).count == values.count else { return false }
@@ -125,6 +164,21 @@ extension Repository {
             }
         }
         return true
+    }
+
+    private static func journalEntryDayDetails(_ snapshot: JournalDayDetailsSnapshot) throws -> JournalEntryDayDetails {
+        let mood: Int?
+        if let raw = snapshot.mood {
+            guard raw.isFinite, (1...5).contains(raw), raw.rounded() == raw else {
+                throw JournalEntryReviewError.invalidValues
+            }
+            mood = Int(raw)
+        } else { mood = nil }
+        let note = snapshot.note ?? ""
+        guard ReviewedJournalDayDetailsChange.isValid(note: note, mood: mood) else {
+            throw JournalEntryReviewError.invalidValues
+        }
+        return JournalEntryDayDetails(note: note, mood: mood)
     }
 }
 

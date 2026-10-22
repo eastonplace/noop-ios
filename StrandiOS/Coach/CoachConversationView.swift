@@ -28,6 +28,8 @@ struct CoachConversationView: View {
     let onSettings: () -> Void
     let onWorkouts: () -> Void
     let onPlan: () -> Void
+    /// Only the empty welcome shows the check-in. Active threads use the parent's compact Journal access.
+    var journalWidget: CoachJournalWidget? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var follow = CoachScrollPolicy()
@@ -61,7 +63,7 @@ struct CoachConversationView: View {
                                     isLatest: message.id == messages.last?.id,
                                     onEdit: onEdit, onRetry: onRetry,
                                     onSpeak: { onSpeak(message) }, onStop: onStop,
-                                    onWorkouts: onWorkouts)
+                                    onWorkouts: onWorkouts, onAsk: onAsk)
                                     .id(message.id)
                             }
                             Color.clear.frame(height: 1)
@@ -126,7 +128,7 @@ struct CoachConversationView: View {
                 LocalCoachFixtureLabel().padding(.horizontal, 24).padding(.top, NoopMetrics.space2)
             }
             CoachWelcomeView(availability: availability, hasConsent: hasConsent, snapshot: snapshot,
-                             onAsk: onAsk, onSettings: onSettings, onPlan: onPlan)
+                             onAsk: onAsk, onSettings: onSettings, onPlan: onPlan, journalWidget: journalWidget)
                 .frame(maxHeight: .infinity)
         }
         .frame(minHeight: height)
@@ -206,6 +208,7 @@ private struct CoachTurnView: View {
     let onSpeak: () -> Void
     let onStop: () -> Void
     let onWorkouts: () -> Void
+    let onAsk: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var textSize: CGFloat = 16.5
     @State private var showEvidence = false
@@ -265,7 +268,7 @@ private struct CoachTurnView: View {
             if !cards.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                     ForEach(showAllCards ? cards : Array(cards.prefix(2))) { card in
-                        LocalCoachCardView(card: card)
+                        LocalCoachCardView(card: card, onAskCoach: onAsk)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
                     }
                     if cards.count > 2 {

@@ -7,6 +7,8 @@ import StrandDesign
 /// A page of flat sections: each destination is a row of a glyph on its domain disc, the name, one line on what is
 /// behind it and a chevron. The rows push with closure-based NavigationLinks (the destinations are built on tap).
 struct TrendsExploreHubView: View {
+    @EnvironmentObject private var repo: Repository
+
     var body: some View {
         ScreenScaffold(title: "Explore", topBackground: nil) {
             VStack(alignment: .leading, spacing: 0) {
@@ -29,7 +31,7 @@ struct TrendsExploreHubView: View {
                     ExploreRowSeparator()
                     NavigationLink {
                         #if os(iOS)
-                        LocalCoachView()
+                        LocalCoachView(journalRepository: repo)
                         #else
                         CoachView()
                         #endif

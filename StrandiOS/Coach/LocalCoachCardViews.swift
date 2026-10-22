@@ -1,6 +1,7 @@
 #if os(iOS)
 import SwiftUI
 import StrandDesign
+import StrandAnalytics
 
 /// Renders one `LocalCoachCard` as a flat widget inside a Coach answer: one surface, a hairline, an eyebrow with the
 /// metric glyph, a delta pill, a hero number, the trend chart where a series exists and a three-column stat strip.
@@ -9,14 +10,22 @@ import StrandDesign
 /// hero figure reads as an em dash.
 struct LocalCoachCardView: View {
     let card: LocalCoachCard
+    /// Optional so saved/export-only surfaces stay read-only. The conversation owns sending.
+    var onAskCoach: ((String) -> Void)? = nil
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
-    var body: some View {
-        content
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(accessibilityText))
-            .accessibilityIdentifier("coach.card.\(card.kind)")
+    @ViewBuilder var body: some View {
+        if case .journalAssociation = card {
+            // Keep the follow-up button separately reachable rather than combining it into the
+            // card's spoken summary. The journal view groups its facts independently.
+            content.accessibilityIdentifier("coach.card.\(card.kind)")
+        } else {
+            content
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(Text(accessibilityText))
+                .accessibilityIdentifier("coach.card.\(card.kind)")
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -27,6 +36,7 @@ struct LocalCoachCardView: View {
         case .effort(let value): CoachEffortCard(card: value, effortScale: effortScale)
         case .workouts(let value): CoachWorkoutsCard(card: value, effortScale: effortScale)
         case .stats(let value): CoachStatsCard(card: value)
+        case .journalAssociation(let value): CoachJournalAssociationCard(card: value, onAskCoach: onAskCoach)
         }
     }
 
@@ -71,7 +81,168 @@ struct LocalCoachCardView: View {
             return "Recent workouts, newest \(date). " + rows.joined(separator: "; ") + "."
         case .stats(let value):
             return "\(value.title), \(date)\(stale). " + value.items.map { "\($0.label) \(LocalCoachCardFormat.displayValue($0.value))" }.joined(separator: ", ") + "."
+        case .journalAssociation:
+            return LocalCoachCardFormat.exportLine(card)
         }
+    }
+}
+
+// MARK: - Journal associations
+
+/// Plain, zero-based bars compare the two observed group averages. Purple identifies Journal; it
+/// never implies that a habit is good/bad or that an observed difference is a causal benefit.
+private struct CoachJournalAssociationCard: View {
+    let card: LocalCoachCard.JournalAssociation
+    let onAskCoach: ((String) -> Void)?
+
+    private var stateLabel: String {
+        switch card.state {
+        case .available: return "Association"
+        case .insufficientData: return "More data needed"
+        case .truncated: return "Incomplete read"
+        case .noBooleanAnswers: return "No comparison yet"
+        }
+    }
+
+    var body: some View {
+        CoachWidget(symbol: "book.closed", title: "Journal insight", tint: .journal,
+                    trailing: coachPill(Text(stateLabel), tint: StrandPalette.journalAccent)) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(card.question ?? "Your journal patterns")
+                    .coachFont(17, .semibold, relativeTo: .headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(LocalCoachCardFormat.humanDay(card.windowFrom)) – \(LocalCoachCardFormat.humanDay(card.windowThrough))")
+                    .coachFont(12.5, .regular, relativeTo: .caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+
+                if card.state == .available, let difference = card.difference,
+                   let yes = card.yesMean, let no = card.noMean,
+                   let yesCount = card.matchedYesCount, let noCount = card.matchedNoCount {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(difference > 0 ? "+" : "")\(LocalCoachCardFormat.oneDecimal(difference)) points")
+                            .coachFont(30, .semibold, relativeTo: .title, digits: true)
+                            .foregroundStyle(StrandPalette.journalAccent)
+                        Text("Recovery difference · yes minus explicit no")
+                            .coachFont(12.5, .regular, relativeTo: .caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        CoachJournalComparisonRow(title: "Explicit yes", count: yesCount, value: yes,
+                                                  tint: StrandPalette.journalAccent)
+                        CoachJournalComparisonRow(title: "Explicit no", count: noCount, value: no,
+                                                  tint: StrandPalette.textSecondary)
+                        Text("Mean recovery on the same wake day · 0–100 scale")
+                            .coachFont(11.5, .regular, relativeTo: .caption2)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if card.state != .truncated {
+                    CoachStatStrip(items: [
+                        .init(id: 0, label: "Matched yes", value: card.matchedYesCount.map(String.init) ?? WidgetMetrics.missingValue),
+                        .init(id: 1, label: "Matched no", value: card.matchedNoCount.map(String.init) ?? WidgetMetrics.missingValue),
+                        .init(id: 2, label: "Missing recovery", value: card.missingRecoveryCount.map(String.init) ?? WidgetMetrics.missingValue)
+                    ])
+                }
+
+                Text(LocalCoachCardFormat.journalStatus(card))
+                    .coachFont(12.5, .medium, relativeTo: .caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let yes = card.loggedYesCount, let no = card.loggedNoCount, let missing = card.missingRecoveryCount {
+                    Text("Logged answers: \(yes) yes · \(no) no. \(missing) missing recovery outcomes excluded.")
+                        .coachFont(12, .regular, relativeTo: .caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let conflicts = card.conflictingDayCount, conflicts > 0 {
+                    Text("\(conflicts) days with conflicting answers excluded.")
+                        .coachFont(12, .regular, relativeTo: .caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                if card.excludedNumericAnswerCount > 0 {
+                    Text("\(card.excludedNumericAnswerCount) records from quantity questions excluded from yes/no comparisons.")
+                        .coachFont(12, .regular, relativeTo: .caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Unlogged days are not “no”. The recovery cache may cover less than this date range.")
+                    Text("Journal: \((card.sources.isEmpty ? card.sourcesRead : card.sources).joined(separator: ", "))")
+                    Text("Recovery: \(card.recoverySource)")
+                    if !card.truncatedSources.isEmpty {
+                        Text("Incomplete sources: \(card.truncatedSources.joined(separator: ", "))")
+                    }
+                }
+                .coachFont(11.5, .regular, relativeTo: .caption2)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 12)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(LocalCoachCardFormat.exportLine(.journalAssociation(card))))
+
+            if let onAskCoach {
+                Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+                    .padding(.top, 12).accessibilityHidden(true)
+                Button { onAskCoach(LocalCoachCardFormat.journalFollowUp(card)) } label: {
+                    HStack(spacing: 7) {
+                        Text("Ask Coach").coachFont(14, .medium, relativeTo: .subheadline)
+                        Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(StrandPalette.journalAccent)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Ask about this journal comparison and its data limits")
+                .accessibilityIdentifier("coach.journalAssociation.askCoach")
+            }
+        }
+    }
+}
+
+private struct CoachJournalComparisonRow: View {
+    let title: String
+    let count: Int
+    let value: Double
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    label(fitsWhole: true)
+                    Spacer(minLength: 4)
+                    amount
+                }
+                VStack(alignment: .leading, spacing: 3) { label(fitsWhole: false); amount }
+            }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(tint.opacity(0.12))
+                    Capsule().fill(tint)
+                        .frame(width: geometry.size.width * CGFloat(max(0, min(100, value)) / 100))
+                }
+            }
+            .frame(height: 10)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func label(fitsWhole: Bool) -> some View {
+        Text("\(title) · n=\(count)")
+            .coachFont(13, .medium, relativeTo: .footnote)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: fitsWhole, vertical: !fitsWhole)
+    }
+
+    private var amount: some View {
+        Text("\(LocalCoachCardFormat.oneDecimal(value)) /100")
+            .coachFont(14, .semibold, relativeTo: .subheadline, digits: true)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -673,4 +844,43 @@ private struct CoachStatsCard: View {
         }
     }
 }
+
+#if DEBUG
+/// Entirely synthetic fixture coverage: a comparison, minimum-data state, capped read and no answers.
+/// No repository, preferences, model or network is read by these previews.
+private enum CoachJournalAssociationPreview {
+    static let cards: [LocalCoachCard] = {
+        let answers = (1...6).map { day in
+            JournalAssociationAnalysis.Answer(day: String(format: "2026-10-%02d", day),
+                question: "Did you take magnesium?", answeredYes: day <= 3)
+        }
+        let recovery = [80.0, 72.0, 85.0, 64.0, 68.0, 62.0].enumerated().map {
+            JournalAssociationAnalysis.Recovery(day: String(format: "2026-10-%02d", $0.offset + 1), value: $0.element)
+        }
+        func sample(_ rows: [JournalAssociationAnalysis.Answer], outcomes: [JournalAssociationAnalysis.Recovery],
+                    truncated: Bool = false) -> [LocalCoachCard] {
+            JournalAssociationAnalysis.analyze(
+                reads: [.init(source: "Synthetic journal", answers: rows, isTruncated: truncated)],
+                recovery: outcomes, nativeSource: "Synthetic journal", recoverySource: "Synthetic recovery",
+                windowFrom: "2026-10-01", windowThrough: "2026-10-07").map(LocalCoachCard.journalAssociation)
+        }
+        return sample(answers, outcomes: recovery)
+            + sample(answers, outcomes: Array(recovery.prefix(4)))
+            + sample(answers, outcomes: recovery, truncated: true)
+            + sample([], outcomes: [])
+    }()
+}
+
+#Preview("Journal association states") {
+    ScrollView {
+        VStack(spacing: 16) {
+            ForEach(Array(CoachJournalAssociationPreview.cards.enumerated()), id: \.offset) { _, card in
+                LocalCoachCardView(card: card, onAskCoach: { _ in })
+            }
+        }
+        .padding(16)
+    }
+    .background(StrandPalette.canvas)
+}
+#endif
 #endif
