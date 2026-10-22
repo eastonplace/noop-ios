@@ -307,6 +307,19 @@ public final class LiveState: ObservableObject {
         receipt.source == heartRateReceiptGate.source
     }
 
+    /// A provider owns its own link time and has no WHOOP security or history admission proof.
+    func activateHeartRateProviderSource(_ source: LiveHeartRateSource,
+                                         at timestamp: TimeInterval = Date().timeIntervalSince1970) {
+        guard source.providerSessionID != nil else { return }
+        bonded = false
+        encryptedBond = false
+        standardHRMode = nil
+        connectedAt = timestamp
+        activateHeartRateSource(source)
+        if !connected { connected = true }
+        streamingLiveHR = false
+    }
+
     /// Provider sessions have their own connection admission; they do not claim WHOOP bond proof.
     public var hasActiveHeartRateConnection: Bool {
         connected && (currentHeartRateSource?.providerSessionID != nil || bonded)

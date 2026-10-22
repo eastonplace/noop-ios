@@ -23,14 +23,7 @@ final class LiveHeartRateProviderSession {
                                         connectionGeneration: generation, providerSessionID: UUID())
         self.source = source
         characteristics.removeAll(keepingCapacity: true)
-        // WHOOP proof and fallback state cannot authorize or describe this provider's new link.
-        live.bonded = false
-        live.encryptedBond = false
-        live.standardHRMode = nil
-        live.connectedAt = Date().timeIntervalSince1970
-        live.activateHeartRateSource(source)
-        if !live.connected { live.connected = true }
-        live.streamingLiveHR = false
+        live.activateHeartRateProviderSource(source)
         return source
     }
 
