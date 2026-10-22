@@ -18,7 +18,7 @@ not rewritten by these features.
 
 ### Personal Stress Baseline
 
-Open **Stress → Personal baseline → Use my previous 30 days**. It is off by default.
+Open **Stress → Your normal → Compare to my normal**. It is off by default.
 The reference uses the previous 30 complete local calendar days, excluding today,
 with covered waking-hour HR means, a low-percentile daily reference, and the existing
 baseline fold. Four usable days permit a provisional reference; 14 establish it.

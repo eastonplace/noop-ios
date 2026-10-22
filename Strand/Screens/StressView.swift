@@ -141,8 +141,8 @@ struct StressView: View {
             return
         }
         let requestKey = stressTaskKey
+        // The ribbon keeps its last published hours until the new read lands; only the baseline status resets.
         if publishedStressKey != requestKey {
-            daytime = nil
             personalBaseline = nil
         }
 
@@ -309,8 +309,7 @@ struct StressView: View {
     /// Today's 24 hourly slots: a scored hour carries its 0-3 level, every other hour stays empty. The daily
     /// score never fabricates an hourly history.
     private var stressRibbonSlots: [Double?] {
-        guard publishedStressKey == stressTaskKey else { return Array(repeating: nil, count: 24) }
-        return StressTimelineSlots.map((daytime?.hours ?? []).map { ($0.hour, $0.level) })
+        StressTimelineSlots.map((daytime?.hours ?? []).map { ($0.hour, $0.level) })
     }
 
     /// The big sibling of Today's Stress module (see `StressHero`). The hour under the finger lives in that view, so

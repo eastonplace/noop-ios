@@ -36,14 +36,25 @@ final class PersonalStressBaselineTests: XCTestCase {
         XCTAssertNotEqual(original, ForegroundStressTaskKey(scope: scope(), personalBaseline: false, now: today, calendar: calendar))
     }
 
-    func testBuildingAndStaleCopiesExplainTheFallback() {
+    func testBuildingEstablishedAndStaleCopiesAreShortAndPlain() {
         let building = PersonalStressBaselineCopy(PersonalStressBaseline.resolve(dailyHR: [60, 60]))
-        XCTAssertTrue(building.title.contains("2 of 4"))
-        XCTAssertTrue(building.detail.contains("day-relative"))
+        XCTAssertEqual(building.title, "Learning your normal · 2 of 4 days")
+        XCTAssertEqual(building.detail, "Uses your last 30 days of daytime heart rate. Until then, today is compared with itself.")
+        let one = PersonalStressBaselineCopy(PersonalStressBaseline.resolve(dailyHR: [60]))
+        XCTAssertEqual(one.title, "Learning your normal · 1 of 4 days")
+        let established = PersonalStressBaselineCopy(PersonalStressBaseline.resolve(dailyHR: Array(repeating: 60, count: 30)))
+        XCTAssertEqual(established.title, "Compared with your normal from the last 30 days.")
+        XCTAssertNil(established.detail)
         let values: [Double?] = Array(repeating: 60, count: 14) + Array(repeating: nil, count: 16)
         let stale = PersonalStressBaselineCopy(PersonalStressBaseline.resolve(dailyHR: values))
-        XCTAssertTrue(stale.title.contains("fresh data"))
-        XCTAssertTrue(stale.detail.contains("16 days"))
+        XCTAssertEqual(stale.title, "Your normal is out of date. Wear your strap for a few days to refresh it.")
+        XCTAssertNil(stale.detail)
+        for copy in [building, one, established, stale] {
+            let text = [copy.title, copy.detail ?? ""].joined(separator: " ").lowercased()
+            for banned in ["lens", "ribbon", "covered", "quiet daytime", "hr only", "day-relative"] {
+                XCTAssertFalse(text.contains(banned), "\(banned) in \(text)")
+            }
+        }
     }
 }
 
