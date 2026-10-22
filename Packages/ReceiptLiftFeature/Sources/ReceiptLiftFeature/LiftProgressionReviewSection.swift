@@ -30,13 +30,13 @@ struct LiftProgressionReviewSection: View {
     let all = review.rows.map { Entry(row: $0, change: change(for: $0)) }
     let changed = all.filter { $0.change != nil }
     let unchanged = all.filter { $0.change == nil }
+    // When nothing changes, and for one and the same reason, a list of "No change" rows is noise: say it once.
+    let sameReason: Entry? = changed.isEmpty ? all.first.flatMap { first in
+      all.allSatisfy { $0.row.decision.reason == first.row.decision.reason } ? first : nil
+    } : nil
     LiftFlatSection("Suggested changes", systemImage: "chart.line.uptrend.xyaxis") {
       VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-        if isCurrent {
-          Text("Based on your last session.")
-            .font(StrandFont.subhead)
-            .foregroundStyle(StrandPalette.textSecondary)
-        } else {
+        if !isCurrent {
           Text("These suggestions are out of date.")
             .font(StrandFont.subhead)
             .foregroundStyle(StrandPalette.textPrimary)
@@ -49,16 +49,30 @@ struct LiftProgressionReviewSection: View {
           .buttonStyle(.plain)
           .accessibilityIdentifier("lift.progression.refresh")
         }
-        ForEach(Array(changed.enumerated()), id: \.element.id) { index, entry in
-          if index > 0 { Divider().overlay(StrandPalette.hairline) }
-          changedRow(entry)
-        }
-        if unchanged.count == 1, let only = unchanged.first {
-          if !changed.isEmpty { Divider().overlay(StrandPalette.hairline) }
-          unchangedRow(only)
-        } else if unchanged.count > 1 {
-          if !changed.isEmpty { Divider().overlay(StrandPalette.hairline) }
-          unchangedGroup(unchanged)
+        if let sameReason {
+          Text(verbatim: sameReason.row.decision.reason == .repeatWork
+            ? String(localized: "No changes from your last session.") : reasonText(sameReason.row))
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("lift.progression.noChanges")
+        } else {
+          if isCurrent {
+            Text("Based on your last session.")
+              .font(StrandFont.subhead)
+              .foregroundStyle(StrandPalette.textSecondary)
+          }
+          ForEach(Array(changed.enumerated()), id: \.element.id) { index, entry in
+            if index > 0 { Divider().overlay(StrandPalette.hairline) }
+            changedRow(entry)
+          }
+          if unchanged.count == 1, let only = unchanged.first {
+            if !changed.isEmpty { Divider().overlay(StrandPalette.hairline) }
+            unchangedRow(only)
+          } else if unchanged.count > 1 {
+            if !changed.isEmpty { Divider().overlay(StrandPalette.hairline) }
+            unchangedGroup(unchanged)
+          }
         }
       }
     }
