@@ -20,14 +20,15 @@ final class WearableExportImporterTests: XCTestCase {
           {"day":"2026-06-04","steps":-1},
           {"day":"2026-06-05","steps":"nan"},
           {"day":"2026-06-06","steps":"1e300"},
-          {"day":"2026-06-07","steps":-0.5}
+          {"day":"2026-06-07","steps":-0.5},
+          {"day":"2026-06-08","steps":0.5}
         ], "daily_readiness":[{"day":"2026-06-01","resting_heart_rate":0,"score":0}]}
         """
         let parsed = WearableExportImporter.parse(brand: .oura, files: ["oura.json": bytes(json)])
         let days = Dictionary(uniqueKeysWithValues: parsed.days.map { ($0.day, $0) })
         XCTAssertEqual(days["2026-06-01"]?.steps, 0)
         XCTAssertEqual(days["2026-06-02"]?.steps, 8421)
-        for day in ["2026-06-03", "2026-06-04", "2026-06-05", "2026-06-06", "2026-06-07"] {
+        for day in ["2026-06-03", "2026-06-04", "2026-06-05", "2026-06-06", "2026-06-07", "2026-06-08"] {
             XCTAssertNil(days[day]?.steps, "Invalid or absent steps must stay absent for \(day)")
         }
         XCTAssertNil(days["2026-06-01"]?.restingHr, "Zero HR still means no measurement")

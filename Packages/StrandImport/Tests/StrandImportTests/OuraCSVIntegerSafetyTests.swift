@@ -52,5 +52,7 @@ final class OuraCSVIntegerSafetyTests: XCTestCase {
         XCTAssertEqual(large.steps, 9_000_000_000_000_000_000)
         let negative = try XCTUnwrap(parse("-0.5,48,81,84"))
         XCTAssertNil(negative.steps)
+        let subunit = try XCTUnwrap(parse("0.5,48,81,84"))
+        XCTAssertNil(subunit.steps, "A positive fraction below one is not an observed zero count")
     }
 }
