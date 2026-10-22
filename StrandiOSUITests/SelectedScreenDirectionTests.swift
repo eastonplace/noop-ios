@@ -115,14 +115,14 @@ final class SelectedScreenDirectionTests: XCTestCase {
 
         // A running label alone is insufficient: the existing phase clock must change phase.
         try reveal(phase, in: app)
-        XCTAssertTrue(["Breathe in…", "Breathe out…"].contains(phase.label))
         let initialPhase = phase.label
+        XCTAssertTrue(["Breathe in…", "Breathe out…"].contains(initialPhase))
         let nextPhase = initialPhase == "Breathe in…" ? "Breathe out…" : "Breathe in…"
-        let advances = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == true AND label == %@", nextPhase),
-            object: phase
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [advances], timeout: 14), .completed, "Starting a session advances its inhale/exhale clock")
+        // Resolve the expected phase in each native existence query. A retained element
+        // predicate repeatedly requested full snapshots and can miss the short phase window.
+        let advancedPhase = app.staticTexts.matching(identifier: "breathe.phase")
+            .matching(NSPredicate(format: "label == %@", nextPhase)).firstMatch
+        XCTAssertTrue(advancedPhase.waitForExistence(timeout: 14), "Starting a session advances its inhale/exhale clock")
         capture(app, "breathe-\(size)-running-timeline")
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label CONTAINS[cd] 'pause'")).count, 0,
                        "This direction preserves the shipped Start/Stop behavior")

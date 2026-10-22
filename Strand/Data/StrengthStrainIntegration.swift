@@ -368,7 +368,7 @@ enum LiftStrainStoredReader {
 
 struct AppLiftStrainProvider: LiftStrainProviding {
     let store: WhoopStore
-    /// The lift owner, re-read on every call so a re-pair is followed.
+    /// The lift's owner. A host pins this while an active session outlives a source selection.
     let deviceId: @Sendable @MainActor () -> String
     let bpm: @Sendable @MainActor () -> Int?
     let startHR: @Sendable @MainActor () -> Void
@@ -376,6 +376,7 @@ struct AppLiftStrainProvider: LiftStrainProviding {
     let maxHR: @Sendable @MainActor () -> Double
     let restingHR: @Sendable @MainActor () -> Double
     let hrSamples: @Sendable (Int, Int) async -> [HRSample]
+    let liveSourceIsCurrent: @Sendable @MainActor () -> Bool
 
     func summary(sessionID: String) async -> LiftStrainSnapshot? {
         await LiftStrainStoredReader.summary(store: store, deviceId: await deviceId(), sessionId: sessionID)
@@ -409,20 +410,25 @@ struct AppLiftStrainProvider: LiftStrainProviding {
     func liveVitals(start: Date, sets: [ReceiptLiftSet]) async -> LiftLiveVitals? {
         let now = Int(Date().timeIntervalSince1970)
         let from = Int(start.timeIntervalSince1970)
-        let currentBpm = await bpm()
         let maxHR = await maxHR()
         let restingHR = await restingHR()
         let samples = await hrSamples(from, now).filter { $0.ts >= from && $0.ts <= now }
         guard let hrStored = StrainScorerV2.strain(samples, maxHR: maxHR, restingHR: restingHR, mode: .activity) else {
-            return LiftLiveVitals(bpm: currentBpm, heartRateDisplay: nil, combinedDisplay: nil)
+            return await MainActor.run {
+                guard liveSourceIsCurrent() else { return nil }
+                return LiftLiveVitals(bpm: bpm(), heartRateDisplay: nil, combinedDisplay: nil)
+            }
         }
         // The same set mapping and the same body-weight rule as a saved lift, so the card and the stored score agree.
         let weight = StrengthStrainIntegration.bodyweight(frozen: nil, profileKg: ProfileStore.storedWeightKg())
         let load = StrengthStrain.evaluate(
             sets: StrengthStrainIntegration.inputs(for: sets), bodyweightKg: weight.kg).muscularLoad
         let split = StrengthStrain.split(hrStored: hrStored, muscularLoad: load)
-        return LiftLiveVitals(bpm: currentBpm, heartRateDisplay: split.heartRateDisplay,
-                              combinedDisplay: split.combinedDisplay)
+        return await MainActor.run {
+            guard liveSourceIsCurrent() else { return nil }
+            return LiftLiveVitals(bpm: bpm(), heartRateDisplay: split.heartRateDisplay,
+                                  combinedDisplay: split.combinedDisplay)
+        }
     }
 
     func beginLiveHeartRate() async { await startHR() }

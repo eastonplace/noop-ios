@@ -16,8 +16,9 @@ import Foundation
 // then 7 bytes of zero. The command is built with the normal puffin envelope via `puffinCommandFrame`
 // (cmd 0x78, the inner b3 byte 0x01 carried as the first payload byte, exactly like CLIENT_HELLO).
 //
-// This is reversible — it only changes which data the strap chooses to emit — but it is gated behind an
-// explicit opt-in in the app, and on real hardware it can only be written from iOS/Android: macOS
+// These settings persist. The app has no qualified inverse or prior-value snapshot; disabling permission
+// blocks future writes and does not restore earlier values. Writes require explicit opt-in and a secure
+// session, and on real hardware can only be written from iOS/Android: macOS
 // CoreBluetooth cannot complete the authenticated SMP bond the command characteristic requires.
 public enum Whoop5Config {
 
@@ -87,6 +88,16 @@ public enum Whoop5Config {
         for i in 0..<min(32, bytes.count) { p[i] = bytes[i] }
         p[32] = value
         return p
+    }
+
+    /// The user's OFF action runs after AppStorage has persisted false. Permit the exact
+    /// broadcast-disable payload independently of that preference, while keeping enable
+    /// opt-in and refusing unrelated SET_DEVICE_CONFIG keys or malformed payloads.
+    /// The BLE layer still requires the current WHOOP 5/MG secure session.
+    public static func allowsBroadcastHrWrite(payload: [UInt8], enabledInPreferences: Bool) -> Bool {
+        return payload == [0x01] + deviceConfigBody(name: "whoop_live_hr_in_adv_ind_pkt", value: 0x30)
+            || (enabledInPreferences
+                && payload == [0x01] + deviceConfigBody(name: "whoop_live_hr_in_adv_ind_pkt", value: 0x31))
     }
 
     /// The full puffin command-frame bytes for one feature-flag write, ready to send to the 5/MG

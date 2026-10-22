@@ -38,6 +38,7 @@ final class LocalCoachUnlockRetryTests: XCTestCase {
 
         let center = NotificationCenter()
         let coach = engine(store, center: center)
+        await coach.waitForHydration()
         XCTAssertNotNil(coach.errorText)
         XCTAssertFalse(coach.preferences.enabled)
         coach.addMemory(text: "Run three times a week", category: .goals)
@@ -61,6 +62,7 @@ final class LocalCoachUnlockRetryTests: XCTestCase {
 
         let center = NotificationCenter()
         let coach = engine(store, center: center)
+        await coach.waitForHydration()
         XCTAssertNotNil(coach.errorText)
         center.post(name: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil)
         try? await Task.sleep(for: .milliseconds(50))

@@ -67,7 +67,10 @@ extension LiveState {
         return String(watts)
     }
 
-    public func setRRIntervals(_ intervals: [Int], recentLimit: Int = 60) {
+    public func setRRIntervals(_ intervals: [Int], recentLimit: Int = 60,
+                               observedAt: Date = Date(), source: LiveHeartRateSource? = nil,
+                               now: Date = Date()) {
+        if let source, source != currentHeartRateSource { return }
         rr = intervals
         let valid = intervals.filter { $0 > 0 }
         guard !valid.isEmpty else { return }
@@ -75,9 +78,15 @@ extension LiveState {
         if rrRecent.count > recentLimit {
             rrRecent.removeFirst(rrRecent.count - recentLimit)
         }
+        if let source, let last = valid.last {
+            let bpm = Int((60_000.0 / Double(last)).rounded())
+            receiveHeartRate(bpm: bpm, observedAt: observedAt, source: source,
+                             transport: .rrFallback, now: now)
+        }
     }
 
     public func clearBiometrics() {
+        activateHeartRateSource(nil)
         heartRate = nil
         streamingLiveHR = false
         standardHRMode = nil

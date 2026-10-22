@@ -180,8 +180,17 @@ public enum DailyTrainingTargetEngine {
         var acute: Double?
         var chronic: Double?
         if let load = result.load, load.isAvailable,
-           let beforeAcute = load.acuteLoad, let beforeChronic = load.chronicLoad {
-            let stepped = TrainingLoadEngine.step(acute: beforeAcute, chronic: beforeChronic, load: plannedTotalStored)
+           let beforeAcute = load.acuteLoad, let beforeChronic = load.chronicLoad,
+           let endDay = load.endDay {
+            var state = (acute: beforeAcute, chronic: beforeChronic)
+            var day = endDay
+            // The historical model ends on its newest measured day. Advance each tolerated missing
+            // civil day before today with its existing gap policy, without adding measured zero days.
+            while let nextDay = offsetDay(day, by: 1), nextDay < result.day {
+                state = TrainingLoadEngine.step(acute: state.acute, chronic: state.chronic, load: 0)
+                day = nextDay
+            }
+            let stepped = TrainingLoadEngine.step(acute: state.acute, chronic: state.chronic, load: plannedTotalStored)
             acute = stepped.acute; chronic = stepped.chronic
         }
         let forecast = RecoveryForecaster.forecast(

@@ -134,6 +134,12 @@ final class LocalCoachEngine: ObservableObject {
 
     private let data: (any LocalCoachDataAccess)?
     private let persistence: LocalCoachPersistence?
+    private let persistenceWriter: LocalCoachPersistenceWriter?
+    private var hydrationTask: Task<Void, Never>?
+    private var hydrationID: UUID?
+    private var hydrationEdits: [UUID: [(inout LocalCoachPersistence.State) -> Void]] = [:]
+    private var preferenceEdits: Set<String> = []
+    private(set) var isHydrating = false
     private let model: (any LocalCoachModelDriver)?
     private let source: @MainActor () -> LocalCoachSourceScope
     private let records: @MainActor () -> String
@@ -148,6 +154,8 @@ final class LocalCoachEngine: ObservableObject {
     private var settingsAwaitUnlock = false
     private var stateAwaitUnlock = false
     private var protectedDataObserver: (any NSObjectProtocol)?
+    private var backgroundFlushObserver: (any NSObjectProtocol)?
+    private var persistenceBackgroundFlush = BackgroundFlushOwnership<UIBackgroundTaskIdentifier>()
     private var storageError: String?
     private var generation: Task<Void, Never>?
     private var operationID: UUID?
@@ -211,24 +219,24 @@ final class LocalCoachEngine: ObservableObject {
          notificationCenter: NotificationCenter = .default) {
         self.data = data
         self.persistence = persistence
+        self.persistenceWriter = persistence.map(LocalCoachPersistenceWriter.init)
         self.model = model
         self.source = source
         self.records = records
         self.scope = source()
         self.recordsToken = records()
         self.isPreview = isPreview
-        if !isPreview {
-            do { preferences = try persistence?.loadPreferences() ?? .init() }
-            catch {
-                settingsReadable = false
-                settingsAwaitUnlock = Self.isAwaitingUnlock(error)
-                preferences.enabled = false
-                storageError = LocalCoachErrorPrefix.settingsUnreadable + error.localizedDescription
-                errorText = storageError
-            }
-            loadSource()
+        if !isPreview, persistence != nil {
+            settingsReadable = false
+            stateReadable = false
         }
         initialized = true
+        persistenceWriter?.reportError = { [weak self] message, sourceID in
+            guard let self, sourceID == nil || sourceID == self.scope.storageID else { return }
+            self.storageError = message
+            self.errorText = message
+        }
+        if !isPreview, persistence != nil { loadSource(loadPreferences: true) }
         updateAvailability()
         if !isPreview, persistence != nil {
             protectedDataObserver = notificationCenter.addObserver(
@@ -236,7 +244,33 @@ final class LocalCoachEngine: ObservableObject {
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.retryLoadsAfterUnlock() }
             }
+            backgroundFlushObserver = notificationCenter.addObserver(
+                forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.flushBeforeBackground() }
+            }
         }
+    }
+
+    /// A finite OS background task keeps accepted snapshots alive while the app leaves the foreground.
+    /// Expiration ends the task; failed protected writes are reported through the ordinary storage error.
+    private func flushBeforeBackground() {
+        guard let token = persistenceBackgroundFlush.reserve() else { return }
+        let identifier = UIApplication.shared.beginBackgroundTask(withName: "Coach save") { [weak self] in
+            Task { @MainActor in self?.endPersistenceBackgroundTask(token) }
+        }
+        if identifier == .invalid { _ = persistenceBackgroundFlush.finish(token) }
+        else { persistenceBackgroundFlush.assign(identifier, to: token) }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.flushPersistence()
+            self.endPersistenceBackgroundTask(token)
+        }
+    }
+
+    private func endPersistenceBackgroundTask(_ token: UUID) {
+        guard let identifier = persistenceBackgroundFlush.finish(token), identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
     }
 
     /// A read refused because the file is protected and the device is locked. Anything else (a decode error,
@@ -254,27 +288,9 @@ final class LocalCoachEngine: ObservableObject {
     /// re-save, no cleared conversation). History is then reloaded under the real settings, because the model
     /// context it restores depends on them.
     func retryLoadsAfterUnlock() {
-        guard !isPreview, let persistence, settingsAwaitUnlock || stateAwaitUnlock else { return }
-        if settingsAwaitUnlock {
-            do {
-                let loaded = try persistence.loadPreferences()
-                settingsAwaitUnlock = false
-                settingsReadable = true
-                initialized = false
-                preferences = loaded
-                initialized = true
-            } catch {
-                settingsAwaitUnlock = Self.isAwaitingUnlock(error)
-                storageError = LocalCoachErrorPrefix.settingsUnreadable + error.localizedDescription
-                errorText = storageError
-                return
-            }
-        }
-        storageError = nil
-        stateAwaitUnlock = false
-        loadSource()
-        errorText = storageError
-        updateAvailability()
+        guard !isPreview, persistence != nil, settingsAwaitUnlock || stateAwaitUnlock else { return }
+        loadSource(loadPreferences: settingsAwaitUnlock)
+
     }
 
     static func makeModel() -> (any LocalCoachModelDriver)? {
@@ -285,6 +301,7 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func refresh() async {
+        await waitForHydration()
         guard !isPreview else { return }
         reconcileSource()
         updateAvailability()
@@ -322,6 +339,7 @@ final class LocalCoachEngine: ObservableObject {
     /// by that Monday) and retries a failed attempt no sooner than every 30 minutes. The data window is the days of
     /// the CURRENT Mon-Sun week elapsed so far, so the text matches the Trends week it is displayed against.
     func refreshWeeklyInsightIfNeeded(now: Date = Date()) async {
+        await waitForHydration()
         guard !isPreview, weeklyInsightTask == nil, let model, let data else { return }
         let calendar = Calendar.current
         let today = Self.dayString(now, calendar: calendar)
@@ -382,6 +400,7 @@ final class LocalCoachEngine: ObservableObject {
 
     @discardableResult
     private func respond(_ text: String, brief: LocalCoachBriefKind?) async -> Bool {
+        await waitForHydration()
         guard canOperate() else { return false }
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
@@ -416,6 +435,11 @@ final class LocalCoachEngine: ObservableObject {
         persistConversation()
         let token = startOperation()
         let captured = scope
+        await persistenceWriter?.flush()
+        guard accepts(token, scope: captured) else {
+            if operationID == token { cancel() }
+            return false
+        }
         let tools = (data?.toolDescriptors ?? []).filter {
             personal || Self.publicToolNames.contains($0.id)
         }
@@ -485,6 +509,7 @@ final class LocalCoachEngine: ObservableObject {
         }
         generation = task
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        await persistenceWriter?.flush()
         return true
     }
 
@@ -505,6 +530,7 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func newConversation() {
+        if editWhileHydrating({ $0.selectedConversationID = nil }) { return }
         reconcileSource()
         cancel()
         messages = []
@@ -516,6 +542,9 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func selectConversation(_ id: UUID) {
+        if editWhileHydrating({ state in
+            if state.conversations.contains(where: { $0.id == id }) { state.selectedConversationID = id }
+        }) { return }
         reconcileSource()
         guard let conversation = conversations.first(where: { $0.id == id }) else { return }
         cancel()
@@ -529,6 +558,10 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func deleteConversation(_ id: UUID) {
+        if editWhileHydrating({ state in
+            state.conversations.removeAll { $0.id == id }
+            if state.selectedConversationID == id { state.selectedConversationID = nil }
+        }) { return }
         reconcileSource()
         if selectedConversationID == id { cancel(); selectedConversationID = nil; messages = []; history = [] }
         conversations.removeAll { $0.id == id }
@@ -537,6 +570,13 @@ final class LocalCoachEngine: ObservableObject {
 
     /// Additional UI entry points; shared Codable models do not need to change.
     func renameConversation(_ id: UUID, title: String) {
+        let boundedTitle = LocalCoachText.bounded(title.trimmingCharacters(in: .whitespacesAndNewlines), bytes: 160)
+        guard !boundedTitle.isEmpty else { return }
+        if editWhileHydrating({ state in
+            guard let index = state.conversations.firstIndex(where: { $0.id == id }) else { return }
+            state.conversations[index].title = boundedTitle
+            state.conversations[index].updatedAt = Date()
+        }) { return }
         reconcileSource()
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, let index = conversations.firstIndex(where: { $0.id == id }) else { return }
@@ -546,6 +586,22 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func editMessage(_ id: UUID, text: String) {
+        let editedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !editedText.isEmpty, editedText.utf8.count <= 8_000 else { return }
+        if editWhileHydrating({ state in
+            guard let conversation = state.conversations.firstIndex(where: { $0.id == state.selectedConversationID }),
+                  let index = state.conversations[conversation].messages.firstIndex(where: { $0.id == id }) else { return }
+            var messages = state.conversations[conversation].messages
+            messages[index].text = editedText
+            messages[index].createdAt = Date()
+            messages[index].evidence = []
+            messages[index].toolNames = []
+            messages[index].cards = nil
+            messages[index].isInterrupted = false
+            messages.removeSubrange(messages.index(after: index)..<messages.endIndex)
+            state.conversations[conversation].messages = messages
+            state.conversations[conversation].updatedAt = Date()
+        }) { return }
         reconcileSource()
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.utf8.count <= 8_000, let index = messages.firstIndex(where: { $0.id == id }) else { return }
@@ -588,6 +644,10 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func deleteMemory(_ id: UUID) {
+        if editWhileHydrating({ state in
+            state.memories.removeAll { $0.id == id }
+            state.historyFloor = Date()
+        }) { return }
         reconcileSource()
         invalidateHistory()
         memories.removeAll { $0.id == id }
@@ -595,6 +655,7 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func createPlan(focus: String, minutes: Int, days: Int) async {
+        await waitForHydration()
         guard canOperate(personal: true), let data else { return }
         cancel()
         let token = startOperation()
@@ -614,6 +675,7 @@ final class LocalCoachEngine: ObservableObject {
         }
         generation = task
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        await persistenceWriter?.flush()
     }
 
     func updatePlan(_ plan: LocalCoachPlan) {
@@ -632,6 +694,7 @@ final class LocalCoachEngine: ObservableObject {
 
     /// This is the only route that writes a workout. It is called by the visible Save action, never a model tool.
     func savePlan() async {
+        await waitForHydration()
         guard canOperate(personal: true), let data else { return }
         guard let draft = plan, draft.sourceID == scope.dataSourceID else {
             errorText = LocalCoachFailure.missingPlan.localizedDescription; return
@@ -654,6 +717,7 @@ final class LocalCoachEngine: ObservableObject {
         }
         generation = task
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        await persistenceWriter?.flush()
     }
 
     /// A brief's prompt names sleep, recovery and training together, so routing it by wording would always read workout
@@ -683,8 +747,14 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func generateBrief(kind: LocalCoachBriefKind) async {
+        await waitForHydration()
         guard canOperate(personal: true) else { return }
         await respond(Self.prompt(for: kind), brief: kind)
+    }
+
+    func exportConversationFlushing() async -> String {
+        await flushPersistence()
+        return exportConversation()
     }
 
     func exportConversation() -> String {
@@ -821,7 +891,7 @@ final class LocalCoachEngine: ObservableObject {
     private func canOperate(personal: Bool = false) -> Bool {
         guard !isPreview else { errorText = LocalCoachFailure.preview.localizedDescription; return false }
         reconcileSource()
-        guard preferences.enabled, settingsReadable else { errorText = storageError ?? LocalCoachFailure.disabled.localizedDescription; return false }
+        guard !isHydrating, preferences.enabled, settingsReadable else { errorText = storageError ?? LocalCoachFailure.disabled.localizedDescription; return false }
         guard !personal || !scope.fenced else { errorText = LocalCoachFailure.recordsUpdating.localizedDescription; return false }
         guard !personal || preferences.usePersonalData else { errorText = LocalCoachFailure.consent.localizedDescription; return false }
         return true
@@ -829,6 +899,16 @@ final class LocalCoachEngine: ObservableObject {
 
     private func preferencesChanged(from previous: LocalCoachPreferences) {
         guard initialized, !isPreview, preferences != previous else { return }
+        if isHydrating {
+            if previous.enabled != preferences.enabled { preferenceEdits.insert("enabled") }
+            if previous.usePersonalData != preferences.usePersonalData { preferenceEdits.insert("usePersonalData") }
+            if previous.memoryEnabled != preferences.memoryEnabled { preferenceEdits.insert("memoryEnabled") }
+            if previous.autoBrief != preferences.autoBrief { preferenceEdits.insert("autoBrief") }
+            if previous.speakReplies != preferences.speakReplies { preferenceEdits.insert("speakReplies") }
+            if previous.style != preferences.style { preferenceEdits.insert("style") }
+            if previous.customInstructions != preferences.customInstructions { preferenceEdits.insert("customInstructions") }
+            return
+        }
         reconcileSource()
         if previous.enabled != preferences.enabled || previous.usePersonalData != preferences.usePersonalData
             || previous.memoryEnabled != preferences.memoryEnabled {
@@ -843,8 +923,7 @@ final class LocalCoachEngine: ObservableObject {
         }
         updateAvailability()
         if settingsReadable {
-            do { try persistence?.savePreferences(preferences) }
-            catch { storageError = LocalCoachErrorPrefix.settingsNotSaved + error.localizedDescription; errorText = storageError }
+            persistenceWriter?.savePreferences(preferences)
         }
         persistState()
     }
@@ -897,27 +976,116 @@ final class LocalCoachEngine: ObservableObject {
         return Array(messages.dropLast()) + [last]
     }
 
-    private func loadSource() {
-        guard let persistence else { return }
-        do {
-            let state = try persistence.load(sourceID: scope.storageID)
-            stateReadable = true
-            conversations = state.conversations.sorted { $0.updatedAt > $1.updatedAt }
-            memories = state.memories
-            plan = state.plan?.sourceID == scope.dataSourceID ? state.plan : nil
-            historyFloor = state.historyFloor
-            if let selected = state.selectedConversationID, let conversation = conversations.first(where: { $0.id == selected }) {
-                selectedConversationID = selected
-                messages = Self.healed(conversation.messages)
-                history = preferences.usePersonalData && preferences.memoryEnabled
-                    ? Array(messages.filter { !$0.isInterrupted && $0.createdAt >= historyFloor }.suffix(12)) : []
-            }
-        } catch {
-            stateReadable = false
-            stateAwaitUnlock = Self.isAwaitingUnlock(error)
-            storageError = LocalCoachErrorPrefix.historyUnreadable + error.localizedDescription
-            errorText = storageError
+    /// Callers that need the restored state (including tests) await this without blocking MainActor.
+    func waitForHydration() async {
+        while true {
+            reconcileSource()
+            guard let task = hydrationTask else { return }
+            await task.value
         }
+    }
+
+    /// Flush includes every snapshot accepted before the barrier, even if the response task was canceled.
+    func flushPersistence() async {
+        await waitForHydration()
+        await persistenceWriter?.flush()
+    }
+
+    private func loadSource(loadPreferences: Bool = false) {
+        guard let writer = persistenceWriter else { return }
+        let previous = hydrationTask
+        let loadPreferences = loadPreferences || !settingsReadable
+        let captured = scope
+        let id = UUID()
+        hydrationID = id
+        isHydrating = true
+        stateReadable = false
+        updateAvailability()
+        hydrationTask = Task { [weak self] in
+            // Finish older source edits before reading the next source, including A -> B -> A.
+            await previous?.value
+            await writer.flush()
+            let settings = loadPreferences ? await writer.io.loadPreferences() : nil
+            let result = await writer.io.load(sourceID: captured.storageID)
+            guard let self else { return }
+            // A repository publication may precede its queued observer. Recheck the actual owner after
+            // the actor hop before applying any decoded state to observable properties.
+            self.reconcileSource()
+            var editedState: LocalCoachPersistence.State?
+            if case .success(var state) = result, let edits = self.hydrationEdits.removeValue(forKey: id) {
+                for edit in edits { edit(&state) }
+                editedState = state
+            } else { self.hydrationEdits.removeValue(forKey: id) }
+            // Edits already accepted for an old source are committed without publishing that source.
+            if self.hydrationID != id {
+                if let editedState { writer.save(editedState); await writer.flush() }
+                return
+            }
+            let editedPreferences = self.preferences
+            var loadedPreferences: LocalCoachPreferences?
+            if let settings {
+                switch settings {
+                case .success(var loaded):
+                    loadedPreferences = loaded
+                    if self.preferenceEdits.contains("enabled") { loaded.enabled = editedPreferences.enabled }
+                    if self.preferenceEdits.contains("usePersonalData") { loaded.usePersonalData = editedPreferences.usePersonalData }
+                    if self.preferenceEdits.contains("memoryEnabled") { loaded.memoryEnabled = editedPreferences.memoryEnabled }
+                    if self.preferenceEdits.contains("autoBrief") { loaded.autoBrief = editedPreferences.autoBrief }
+                    if self.preferenceEdits.contains("speakReplies") { loaded.speakReplies = editedPreferences.speakReplies }
+                    if self.preferenceEdits.contains("style") { loaded.style = editedPreferences.style }
+                    if self.preferenceEdits.contains("customInstructions") { loaded.customInstructions = editedPreferences.customInstructions }
+                    self.settingsReadable = true
+                    self.settingsAwaitUnlock = false
+                    self.initialized = false
+                    self.preferences = loaded
+                    self.initialized = true
+                case .failure(let error):
+                    self.settingsReadable = false
+                    self.settingsAwaitUnlock = Self.isAwaitingUnlock(error)
+                    self.initialized = false
+                    self.preferences.enabled = false
+                    self.initialized = true
+                    self.storageError = LocalCoachErrorPrefix.settingsUnreadable + error.localizedDescription
+                }
+            }
+            switch result {
+            case .success(let loaded):
+                let state = editedState ?? loaded
+                self.stateReadable = true
+                self.stateAwaitUnlock = false
+                if self.settingsReadable { self.storageError = nil }
+                self.conversations = state.conversations
+                self.memories = state.memories
+                self.plan = state.plan?.sourceID == captured.dataSourceID ? state.plan : nil
+                self.historyFloor = state.historyFloor
+                self.selectedConversationID = state.selectedConversationID
+                self.messages = Self.healed(state.conversations.first { $0.id == state.selectedConversationID }?.messages ?? [])
+                self.history = self.preferences.usePersonalData && self.preferences.memoryEnabled
+                    ? Array(self.messages.filter { !$0.isInterrupted && $0.createdAt >= self.historyFloor }.suffix(12)) : []
+            case .failure(let error):
+                self.stateReadable = false
+                self.stateAwaitUnlock = Self.isAwaitingUnlock(error)
+                self.storageError = self.storageError ?? (LocalCoachErrorPrefix.historyUnreadable + error.localizedDescription)
+            }
+            self.isHydrating = false
+            self.hydrationTask = nil
+            self.errorText = self.storageError
+            self.preferenceEdits = []
+            if let loadedPreferences, self.preferences != loadedPreferences {
+                self.preferencesChanged(from: loadedPreferences)
+            }
+            if editedState != nil { self.persistState() }
+            self.updateAvailability()
+        }
+    }
+
+    /// A library action may arrive while the read is pending. Apply its value edit after decode, before
+    /// publication/save. Keeping the deletion in the complete snapshot prevents a late load resurrecting it.
+    private func editWhileHydrating(_ edit: @escaping (inout LocalCoachPersistence.State) -> Void) -> Bool {
+        reconcileSource()
+        guard isHydrating, let id = hydrationID else { return false }
+        hydrationEdits[id, default: []].append(edit)
+        return true
     }
 
     private func ensureConversation(title: String) {
@@ -936,17 +1104,16 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     private func persistState() {
-        guard !isPreview, let persistence else { return }
+        guard !isPreview, let persistenceWriter else { return }
         guard stateReadable else { errorText = storageError; return }
         let state = LocalCoachPersistence.State(sourceID: scope.storageID, conversations: conversations,
                                                memories: memories, plan: plan, selectedConversationID: selectedConversationID,
                                                historyFloor: historyFloor)
-        do { try persistence.save(state) }
-        catch { storageError = LocalCoachErrorPrefix.changesNotSaved + error.localizedDescription; errorText = storageError }
+        persistenceWriter.save(state)
     }
 
     private func updateAvailability() {
-        availability = isPreview ? .available : preferences.enabled ? model?.availability ?? .unsupported : .disabled
+        availability = isHydrating ? .checking : isPreview ? .available : preferences.enabled ? model?.availability ?? .unsupported : .disabled
         contextCapacity = isPreview ? 4_096 : model?.contextCapacity
     }
 

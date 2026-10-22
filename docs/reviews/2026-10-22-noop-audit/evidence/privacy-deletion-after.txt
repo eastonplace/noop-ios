@@ -1,0 +1,9 @@
+$ /tmp/noop-swift-toolchain/usr/bin/swiftc -module-cache-path /tmp/noop-storage-swift-module-cache -parse-as-library /workspace/scratch/a25c9a323562/review-work/storage-harness/privacy-deletion.swift -o /workspace/scratch/a25c9a323562/review-work/storage-harness/privacy-deletion-after
+compile exit: 0
+$ /workspace/scratch/a25c9a323562/review-work/storage-harness/privacy-deletion-after
+privacy deletion success journals UUID before delete: PASS
+privacy deletion success observer skips inbound replay: PASS
+privacy deletion failure journals UUID before delete: PASS
+privacy deletion cancellation journals UUID before delete: PASS
+privacy deletion cancellation observer skips inbound replay: PASS
+run exit: 0

@@ -762,6 +762,9 @@ final class LiftStore: ObservableObject {
     else { return }
 
     var ids = activeExerciseIDsOverride ?? activeExercises.map(\.id)
+    // An exercise already in the queue owns its prescription, completion and superset. Selecting
+    // it in the swap picker must not merge two exercises by overwriting that existing state.
+    guard !ids.contains(newExerciseID) else { return }
     if let oldIndex = ids.firstIndex(of: oldExerciseID) {
       if let duplicateIndex = ids.firstIndex(of: newExerciseID), duplicateIndex != oldIndex {
         ids.remove(at: oldIndex)

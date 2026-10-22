@@ -113,9 +113,16 @@ extension WhoopStore {
         guard !rows.isEmpty else { return 0 }
         return try syncWrite { db in
             var written = 0
-            // Track which (deviceId, markerKey, day) cells need re-projecting.
-            var touched: Set<DayCell> = []
+            // Track shared (markerKey, day) cells that need re-projecting.
+            var touched: Set<LabMarkerProjectionCell> = []
             for r in rows {
+                // A corrected civil day on the same natural reading must clear its old projection too.
+                if let previousDay = try String.fetchOne(db, sql: """
+                    SELECT day FROM labMarker
+                    WHERE deviceId = ? AND markerKey = ? AND takenAt = ? AND source = ?
+                    """, arguments: [r.deviceId, r.markerKey, r.takenAt, r.source]) {
+                    touched.insert(LabMarkerProjectionCell(markerKey: r.markerKey, day: previousDay))
+                }
                 // Upsert keyed on the natural index, NOT on the `id` PK: a re-import of the
                 // "same reading" (same deviceId+markerKey+takenAt+source) must update, not
                 // duplicate, even if the caller minted a fresh id.
@@ -137,9 +144,9 @@ extension WhoopStore {
                         r.value, r.valueText, r.unit, r.source, r.note, r.referenceText,
                     ])
                 written += db.changesCount
-                touched.insert(DayCell(deviceId: r.deviceId, markerKey: r.markerKey, day: r.day))
+                touched.insert(LabMarkerProjectionCell(markerKey: r.markerKey, day: r.day))
             }
-            try reprojectCells(db, cells: touched)
+            try Self.reprojectLabMarkerCells(db, cells: touched)
             return written
         }
     }
@@ -196,34 +203,47 @@ extension WhoopStore {
                 return false
             }
             try db.execute(sql: "DELETE FROM labMarker WHERE id = ?", arguments: [id])
-            try reprojectCells(db, cells: [DayCell(deviceId: row.deviceId, markerKey: row.markerKey, day: row.day)])
+            try Self.reprojectLabMarkerCells(db, cells: [LabMarkerProjectionCell(markerKey: row.markerKey, day: row.day)])
             return true
         }
     }
 
-    // MARK: - Projection helpers (private)
+    // MARK: - Projection helpers
 
     /// Identifies one daily projection cell.
-    private struct DayCell: Hashable {
-        let deviceId: String
+    struct LabMarkerProjectionCell: Hashable {
         let markerKey: String
         let day: String
     }
 
-    /// Recompute the `metricSeries` projection (under `lab-book`) for each touched cell
-    /// from the CURRENT `labMarker` rows. Latest-numeric-per-day wins; if no numeric
-    /// reading remains for a cell, its projected day is deleted (so a removed/last
+    /// Capture shared projection cells before a device-scoped privacy delete removes their raw rows.
+    /// Call the matching reprojection after deletion inside the same database transaction.
+    static func labMarkerProjectionCells(
+        ownedBy deviceIds: [String], in db: Database
+    ) throws -> Set<LabMarkerProjectionCell> {
+        guard !deviceIds.isEmpty, try db.tableExists("labMarker") else { return [] }
+        let placeholders = Array(repeating: "?", count: deviceIds.count).joined(separator: ",")
+        return Set(try Row.fetchAll(db, sql: """
+            SELECT DISTINCT markerKey, day FROM labMarker WHERE deviceId IN (\(placeholders))
+            """, arguments: StatementArguments(deviceIds)).map {
+                LabMarkerProjectionCell(markerKey: $0["markerKey"], day: $0["day"])
+            })
+    }
+
+    /// Recompute the shared `lab-book` projection from every surviving owner's raw readings.
+    /// A device-scoped delete must neither retain its old value nor erase another owner's evidence.
+    /// Latest-numeric-per-day wins; if no numeric reading remains, its projected day is deleted (so a removed/last
     /// reading never leaves a stale projected value behind).
-    private func reprojectCells(_ db: Database, cells: Set<DayCell>) throws {
+    static func reprojectLabMarkerCells(_ db: Database, cells: Set<LabMarkerProjectionCell>) throws {
         for cell in cells {
             // Latest NUMERIC reading for this (markerKey, day): greatest takenAt with a
             // non-null value. Matches LabBookProjection.project(.latest) on numeric rows.
             let latest = try Double.fetchOne(db, sql: """
                 SELECT value FROM labMarker
-                WHERE deviceId = ? AND markerKey = ? AND day = ? AND value IS NOT NULL
-                ORDER BY takenAt DESC
+                WHERE markerKey = ? AND day = ? AND value IS NOT NULL
+                ORDER BY takenAt DESC, deviceId ASC, id ASC
                 LIMIT 1
-                """, arguments: [cell.deviceId, cell.markerKey, cell.day])
+                """, arguments: [cell.markerKey, cell.day])
 
             if let v = latest {
                 try db.execute(sql: """

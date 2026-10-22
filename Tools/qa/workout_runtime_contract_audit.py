@@ -61,7 +61,9 @@ try:
         "Strand/App/AppModel.swift",
         "let avg = samples.isEmpty ? nil : w.avgHr",
         "let peak = samples.isEmpty ? nil : w.peakHr",
-        "workoutOwnsRealtimeHR",
+        "private var workoutRealtimeHRLease: RealtimeHRLeaseToken?",
+        "guard let lease = workoutRealtimeHRLease else { return }",
+        "releaseRealtimeHR(lease)",
         "acquireWorkoutRealtimeHR()",
         "releaseWorkoutRealtimeHR()",
     )

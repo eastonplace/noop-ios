@@ -12,7 +12,11 @@ struct ExerciseInformationView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, NoopMetrics.space3)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Illustration of \(exercise.name)")
+        .accessibilityLabel(
+          LiftMedia.imageName(for: exercise) == nil
+            ? Text("Illustration unavailable for \(exercise.name)")
+            : Text("Illustration of \(exercise.name)")
+        )
       LiftRowList(
         items: rows(metadata),
         row: { row, _ in LiftKeyValueRow(label: row.label, value: row.value) }

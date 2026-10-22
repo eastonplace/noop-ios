@@ -3041,6 +3041,21 @@ final class Repository: ObservableObject {
         return await Self.unionByTimestamp(lists, ts: { $0.ts })
     }
 
+    /// A session-owned read: both the store and source priority are fixed before any suspension.
+    /// Callers that outlive active-source selection must not resolve mutable repository IDs mid-query.
+    nonisolated static func hrSamples(
+        store: WhoopStore, sourceIds: [String], from: Int, to: Int, limit: Int = 8000
+    ) async -> [HRSample] {
+        if sourceIds.count == 1, let source = sourceIds.first {
+            return (try? await store.hrSamples(deviceId: source, from: from, to: to, limit: limit)) ?? []
+        }
+        var lists: [[HRSample]] = []
+        for source in sourceIds {
+            lists.append((try? await store.hrSamples(deviceId: source, from: from, to: to, limit: limit)) ?? [])
+        }
+        return await unionByTimestamp(lists, ts: { $0.ts })
+    }
+
     /// The first list wins a shared second; ascending. A day of readings from two ids is up to 400,000 rows, so the
     /// dedupe and the sort run off the main actor.
     nonisolated private static func unionByTimestamp<T: Sendable>(

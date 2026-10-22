@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// Opt-in switch for the EXPERIMENTAL WHOOP 5.0/MG ("puffin") protocol probes.
 ///
@@ -16,11 +17,19 @@ enum PuffinExperiment {
     /// Separate, more-deliberate opt-in for the WHOOP 5/MG "R22" deep-data unlock — the one probe
     /// that WRITES a persistent feature flag to the strap (the `enable_r22_*` SET_CONFIG sequence the
     /// official app sends; documented by judes.club + Asherlc/dofek). Kept distinct from the read-only
-    /// probes above because it changes strap state, so it must be turned on explicitly and is still
-    /// fully reversible. Driven only from `BLEManager.enableWhoop5DeepData()`. (#174)
+    /// probes above because it changes strap state. It must be turned on explicitly to grant
+    /// permission to send future writes. OFF does not restore values already applied to the strap.
+    /// Driven only from `BLEManager.enableWhoop5DeepData()`. (#174)
     static let deepDataKey = "noopWhoop5DeepData"
 
-    static var deepDataEnabled: Bool { UserDefaults.standard.bool(forKey: deepDataKey) }
+    static var deepDataEnabled: Bool {
+        guard let domainName = Bundle.main.bundleIdentifier,
+              let value = UserDefaults.standard.persistentDomain(forName: domainName)?[deepDataKey] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return false }
+        return value.boolValue
+    }
+
+    static let deepDataPermissionDetail = "Off cancels changes that have not been sent. Changes already sent can still apply. NOOP cannot restore earlier strap settings."
 
     /// Opt-in "Broadcast heart rate": writes the device-config flag `whoop_live_hr_in_adv_ind_pkt="1"`
     /// so the strap advertises the standard Heart Rate Service (0x180D) + its live HR, pairable by a
@@ -29,6 +38,19 @@ enum PuffinExperiment {
     static let broadcastHrKey = "noopBroadcastHr"
 
     static var broadcastHrEnabled: Bool { UserDefaults.standard.bool(forKey: broadcastHrKey) }
+
+    /// Only a persisted app-domain choice may be replayed onto a strap. Registered defaults
+    /// and the AppStorage fallback are not evidence that the user chose a device write.
+    static var savedBroadcastHrChoice: Bool? {
+        guard let domainName = Bundle.main.bundleIdentifier else { return nil }
+        return savedBroadcastHrChoice(in: .standard, domainName: domainName)
+    }
+
+    static func savedBroadcastHrChoice(in defaults: UserDefaults, domainName: String) -> Bool? {
+        guard let value = defaults.persistentDomain(forName: domainName)?[broadcastHrKey] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return nil }
+        return value.boolValue
+    }
 
     /// Opt-in "Continuous HRV capture": hold the dense realtime HR stream armed even with no Live screen
     /// open, so the strap banks beat-to-beat R-R intervals 24/7 for far better overnight HRV/recovery/

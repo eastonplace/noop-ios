@@ -393,8 +393,9 @@ extension WhoopStore {
 
     /// Upsert cached daily metrics. Natural key (deviceId, day). Returns rows changed.
     @discardableResult
-    public func upsertDailyMetrics(_ days: [DailyMetric], deviceId: String) async throws -> Int {
-        try syncWrite { db in
+    public func upsertDailyMetrics(_ days: [DailyMetric], deviceId: String,
+                                   outputWrites: AnalysisOutputWriteLedger? = nil) async throws -> Int {
+        try syncWrite(outputWrites: outputWrites) { db in
             try Self.upsertDailyMetrics(days, deviceId: deviceId, db: db)
         }
     }
@@ -474,9 +475,10 @@ extension WhoopStore {
         deviceId: String,
         from: String,
         to: String,
-        protectedDays: Set<String> = []
+        protectedDays: Set<String> = [],
+        outputWrites: AnalysisOutputWriteLedger? = nil
     ) async throws -> Int {
-        try syncWrite { db in
+        try syncWrite(outputWrites: outputWrites) { db in
             var changed = try Self.upsertDailyMetrics(days, deviceId: deviceId, db: db)
             let retained = Set(days.map(\.day)).union(protectedDays)
             if retained.isEmpty {
