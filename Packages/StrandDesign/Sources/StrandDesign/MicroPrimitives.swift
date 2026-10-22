@@ -32,10 +32,7 @@ public struct MicroBadge: View {
         .font(StrandFont.micro.weight(.bold))
         .tracking(0.5)
         .foregroundStyle(StrandPalette.textPrimary)
-        .padding(.horizontal, 8)
-        .frame(height: 26)
-        .background(Capsule(style: .continuous).fill(StrandPalette.pillFill))
-        .overlay(Capsule(style: .continuous).stroke(StrandPalette.pillStroke, lineWidth: 1))
+        .frame(minHeight: 22)
         .accessibilityElement(children: .combine)
     }
 }

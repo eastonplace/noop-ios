@@ -146,12 +146,11 @@ final class HeaderTitleFitTests: XCTestCase {
 
     func testTrendsToolsFitBesideTheTitleOnA402PointPhone() {
         let idle = height(width: 370, size: .large) { trendsHeaderWithTools(syncState: .idle) }
+        XCTAssertLessThan(idle, 88, "with a short status the page tools sit beside the account controls in one row")
         for battery in [nil, 0, 68, 100] as [Int?] {
             let withTools = height(width: 370, size: .large) { trendsHeaderWithTools(battery) }
-            XCTAssertEqual(withTools, 88, accuracy: 0.5,
-                           "title controls and status each keep a 44 pt touch row at 402 pt")
-            XCTAssertEqual(withTools, idle, accuracy: 0.5,
-                           "the full offline/error status gets its own width without adding a tools band")
+            XCTAssertEqual(withTools, idle + 44, accuracy: 0.5,
+                           "a long offline/error status keeps its row and the page tools take one 44 pt row below")
         }
     }
 

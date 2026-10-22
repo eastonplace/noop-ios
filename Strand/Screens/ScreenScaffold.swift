@@ -119,6 +119,10 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     var usesCompactUtilityHeader: Bool = false
     /// Opt-in tab-root tools that belong beside the pinned page title instead of in a scrolling row.
     var placesTrailingInAppHeader: Bool = false
+    /// Optional small control shown inline right after the pinned page title (Today's date picker).
+    var titleAccessory: AnyView? = nil
+    /// Opts the pinned header's strap status line into the tidy status popover (Today only).
+    var showsDeviceStatusPanel: Bool = true
     /// Optional element pinned to the header's trailing edge (e.g. the strap-battery badge on Today).
     /// Defaults to `EmptyView` via the convenience init below, so other screens are unaffected.
     @ViewBuilder var trailing: () -> Trailing
@@ -179,7 +183,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         if showsAppHeaderChrome {
             VStack(spacing: 0) {
                 AppHeaderChrome(title: title ?? "Today",
-                                titleActions: placesTrailingInAppHeader ? AnyView(headerTrailing) : nil)
+                                titleActions: placesTrailingInAppHeader ? AnyView(headerTrailing) : nil,
+                                titleAccessory: titleAccessory,
+                                showsStatusPanel: showsDeviceStatusPanel)
                     .fixedSize(horizontal: false, vertical: true)
                     .zIndex(1)
                 scrollViewport
@@ -512,6 +518,8 @@ extension ScreenScaffold where Trailing == EmptyView {
          backAction: (() -> Void)? = nil,
          headerContext: String? = nil,
          usesCompactUtilityHeader: Bool = false,
+         titleAccessory: AnyView? = nil,
+         showsDeviceStatusPanel: Bool = true,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, onRefresh: onRefresh, lazy: lazy,
                   topBackground: topBackground,
@@ -519,6 +527,8 @@ extension ScreenScaffold where Trailing == EmptyView {
                   backAction: backAction,
                   headerContext: headerContext,
                   usesCompactUtilityHeader: usesCompactUtilityHeader,
+                  titleAccessory: titleAccessory,
+                  showsDeviceStatusPanel: showsDeviceStatusPanel,
                   trailing: { EmptyView() }, content: content)
     }
 }

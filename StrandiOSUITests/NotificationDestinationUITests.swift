@@ -55,9 +55,11 @@ final class NotificationDestinationUITests: XCTestCase {
         XCTAssertFalse(app.buttons["notification.done"].exists, "The active WHOOP opens its native Settings controls")
         try assertDone("settings.done", in: app)
         capture(app, "typed-whoop-\(size)-native-connection-done")
+        let host = try presentationHost(done: "settings.done", in: app)
+        let viewport = try scrollSurface(within: host, in: app)
         for id in ["sync", "vibration", "refreshBattery", "rescan", "disconnect", "manageDevices"] {
-            let command = app.buttons["settings.whoop.\(id)"]
-            try reveal(command, in: app, needsHitTarget: false)
+            let command = host.buttons["settings.whoop.\(id)"]
+            try reveal(command, in: app, needsHitTarget: false, within: host, viewport: viewport)
             XCTAssertGreaterThanOrEqual(command.frame.height + roundingTolerance, 44)
             // Offline controls may be disabled. Inspection must not activate any device command.
             if id == "sync" || id == "manageDevices" { capture(app, "typed-whoop-\(size)-controls-\(id)") }
@@ -102,24 +104,29 @@ final class NotificationDestinationUITests: XCTestCase {
             try launch(app, size: size, destinations: [destination])
             defer { app.terminate() }
             try require(app.buttons["notification.done"], in: app, timeout: 60)
+            let host = try presentationHost(done: "notification.done", in: app)
+            let viewport = try scrollSurface(within: host, in: app)
             switch name {
             case "day":
                 let formatter = DateFormatter()
                 formatter.locale = Locale(identifier: "en_US")
                 formatter.timeZone = .current
                 formatter.dateStyle = .medium
-                let dateNavigation = app.buttons[formatter.string(from: demoDate(daysAgo: 1)) + ". Swipe or tap to change day"]
-                try reveal(dateNavigation, in: app)
-                try reveal(element("today.health.title", in: app), in: app)
-                XCTAssertEqual(element("today.health.title", in: app).label, "Health Monitor")
+                let dateNavigation = host.buttons[formatter.string(from: demoDate(daysAgo: 1)) + ". Swipe or tap to change day"]
+                try reveal(dateNavigation, in: app, within: host)
+                let headings = host.staticTexts.matching(identifier: "today.health.title")
+                XCTAssertEqual(headings.count, 1, "The foreground dated destination owns one Health Monitor heading")
+                try reveal(headings.firstMatch, in: app, needsHitTarget: false, within: host,
+                           viewport: viewport, usesInteriorLaneWhenStalled: true)
+                XCTAssertEqual(headings.firstMatch.label, "Health Monitor")
             case "sleep":
                 // Preserve and capture the existing Sleep page; this test makes no Sleep redesign.
-                try reveal(app.staticTexts.matching(NSPredicate(format: "label ==[cd] %@", "Sleep stages")).firstMatch,
-                           in: app)
+                try reveal(host.staticTexts.matching(NSPredicate(format: "label ==[cd] %@", "Sleep stages")).firstMatch,
+                           in: app, needsHitTarget: false, within: host, viewport: viewport)
             default:
-                try require(app.navigationBars["Week in review"], in: app)
-                let coverage = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "[1-7] of 7 days had data this week")).firstMatch
-                try reveal(coverage, in: app)
+                try require(host.navigationBars["Week in review"], in: app)
+                let coverage = host.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "[1-7] of 7 days had data this week")).firstMatch
+                try reveal(coverage, in: app, needsHitTarget: false, within: host, viewport: viewport)
             }
             XCTAssertFalse(app.staticTexts["Notification update"].exists, "\(name) resolves actual demo data")
             try assertDone("notification.done", in: app)
@@ -216,19 +223,88 @@ final class NotificationDestinationUITests: XCTestCase {
         }
     }
 
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication, needsHitTarget: Bool = true) throws {
-        // Native Lists create rows lazily. A bounded ordered scroll is navigation, not a retry of a
-        // failed route. Every checkpoint requires the whole frame; partial AX controls do not pass.
+    private func usableFrame(_ frame: CGRect) -> Bool {
+        !frame.isEmpty && !frame.isNull && !frame.isInfinite
+            && frame.origin.x.isFinite && frame.origin.y.isFinite
+            && frame.width.isFinite && frame.height.isFinite
+    }
+
+    private func presentationHost(done identifier: String, in app: XCUIApplication) throws -> XCUIElement {
+        // The covered root remains in the AX tree. The smallest visible ancestor that owns
+        // both this presentation's Done and its scrolling content excludes the covered page.
+        let candidates = app.otherElements.containing(.button, identifier: identifier).allElementsBoundByIndex
+        let hosts = candidates.filter { candidate in
+            guard candidate.exists, usableFrame(candidate.frame) else { return false }
+            let visible = candidate.frame.intersection(app.frame)
+            return usableFrame(visible) && visible.width > 100 && visible.height > 100
+                && (candidate.scrollViews.firstMatch.exists || candidate.collectionViews.firstMatch.exists
+                    || candidate.tables.firstMatch.exists)
+        }
+        guard let host = hosts.min(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
+            try fail("No foreground destination host owned Done and scrolling content", in: app)
+        }
+        XCTAssertEqual(host.buttons.matching(identifier: identifier).count, 1,
+                       "The foreground destination owns its exact Done button")
+        return host
+    }
+
+    private func scrollSurface(within scope: XCUIElement, in app: XCUIApplication) throws -> XCUIElement {
+        // Native collection containers can report false isHittable even when their rows work.
+        // Geometry selects the drag surface; interactive targets still require hit testing.
+        for query in [scope.collectionViews, scope.tables, scope.scrollViews] where query.firstMatch.exists {
+            if let surface = query.allElementsBoundByIndex.first(where: { candidate in
+                guard candidate.exists, usableFrame(candidate.frame) else { return false }
+                let visible = candidate.frame.intersection(app.frame)
+                return usableFrame(visible) && visible.width > 100 && visible.height > 100
+            }) { return surface }
+        }
+        try fail("No destination scroll surface was available", in: app)
+    }
+
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, needsHitTarget: Bool = true,
+                        within scope: XCUIElement? = nil, viewport: XCUIElement? = nil,
+                        usesInteriorLaneWhenStalled: Bool = false) throws {
+        // Native Lists create rows lazily. Keep the full-frame and target hit checks while
+        // scrolling only the foreground destination, using its empty horizontal gutter.
+        var previousTargetY: CGFloat?
         for _ in 0..<40 {
-            if element.exists && app.frame.contains(element.frame) && !element.frame.isEmpty
+            if let viewport, !usableFrame(viewport.frame) { try fail("Invalid raw destination viewport", in: app) }
+            var bounds = viewport.map { $0.frame.intersection(app.frame) } ?? app.frame
+            let bars = (scope ?? app).navigationBars
+            if viewport != nil, bars.firstMatch.exists {
+                for bar in bars.allElementsBoundByIndex where bar.exists && usableFrame(bar.frame) {
+                    let chrome = bar.frame.intersection(bounds)
+                    if usableFrame(chrome), bar.frame.minY <= bounds.minY + 32 {
+                        bounds = CGRect(x: bounds.minX, y: chrome.maxY,
+                                        width: bounds.width, height: bounds.maxY - chrome.maxY)
+                    }
+                }
+            }
+            guard usableFrame(bounds) else { try fail("Invalid destination viewport", in: app) }
+            if element.exists && usableFrame(element.frame) && bounds.contains(element.frame)
                 && (!needsHitTarget || element.isHittable) { return }
-            let surface = app.collectionViews.allElementsBoundByIndex.first(where: \.isHittable)
-                ?? app.tables.allElementsBoundByIndex.first(where: \.isHittable)
-                ?? app.scrollViews.allElementsBoundByIndex.first(where: \.isHittable)
-            guard let surface else { try fail("No destination scroll surface was available", in: app) }
-            let above = element.exists && !element.frame.isEmpty && element.frame.maxY < surface.frame.midY
-            surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: above ? 0.42 : 0.72))
-                .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: above ? 0.72 : 0.42)))
+            let surface = try viewport ?? scrollSurface(within: scope ?? app, in: app)
+            let visible = surface.frame.intersection(bounds)
+            guard usableFrame(surface.frame), usableFrame(visible) else {
+                try fail("Invalid destination scroll surface frame", in: app)
+            }
+            let above = element.exists && usableFrame(element.frame) && element.frame.maxY < visible.midY
+            let targetY = element.exists && usableFrame(element.frame) ? element.frame.minY : nil
+            let useInteriorLane = usesInteriorLaneWhenStalled && targetY.map { y in
+                previousTargetY.map { abs(y - $0) < 1 } ?? false
+            } == true
+            previousTargetY = targetY
+            // The dated Today capture stalled at the outer x8 lane after four successful
+            // scrolls. Its usual lower start point then aligned with the Stress scrubber.
+            // On a stalled heading only, start inside the content and higher in the viewport.
+            let x = visible.minX + (useInteriorLane ? visible.width * 0.10 : min(8, visible.width * 0.04))
+            func point(_ y: CGFloat) -> XCUICoordinate {
+                app.coordinate(withNormalizedOffset: .zero).withOffset(
+                    CGVector(dx: x - app.frame.minX, dy: visible.minY + visible.height * y - app.frame.minY))
+            }
+            let upper: CGFloat = useInteriorLane ? 0.25 : 0.42
+            let lower: CGFloat = useInteriorLane ? 0.65 : 0.78
+            point(above ? upper : lower).press(forDuration: 0.05, thenDragTo: point(above ? lower : upper))
         }
         try fail("Required destination row was not fully visible after bounded scrolling", in: app)
     }

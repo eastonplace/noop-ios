@@ -377,8 +377,8 @@ struct WorkoutDetailView: View {
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
             Spacer(minLength: NoopMetrics.space2)
-            StatePill(LocalizedStringKey(delta.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always()))),
-                      tone: delta >= 0 ? .positive : .neutral, showsDot: false)
+            DeltaLabel(LocalizedStringKey(delta.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always()))),
+                       tone: delta >= 0 ? .positive : .neutral)
                 .fixedSize()
         }
         .frame(minHeight: 28)

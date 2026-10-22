@@ -76,7 +76,8 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         AppGroupIdentifier: "$(APP_GROUP_ID)"
         LSApplicationCategoryType: public.app-category.healthcare-fitness
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         CFBundleIcons:
           CFBundleAlternateIcons:
             AppIcon-Navy:

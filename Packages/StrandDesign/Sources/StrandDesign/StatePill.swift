@@ -74,12 +74,11 @@ extension View {
     /// The neutral pill: 26pt tall at least (10pt side padding) on the `pillFill` wash with a 1pt `pillStroke` edge.
     /// Colour is never in the pill; a pill that carries a state brings its own 7pt dot (`StatePill`, `ScoreStatePill`)
     /// or uses `statePillChrome`.
+    ///
+    /// Flat now: a status or value badge is plain text (with its dot), not a capsule. Capsules belong to
+    /// interactive controls only (buttons, chips that act, segmented controls).
     public func neutralPillChrome() -> some View {
-        self.padding(.horizontal, StatePillMetrics.horizontalPadding)
-            .padding(.vertical, StatePillMetrics.verticalPadding)
-            .frame(minHeight: StatePillMetrics.minHeight)
-            .background(Capsule(style: .continuous).fill(StrandPalette.pillFill))
-            .overlay(Capsule(style: .continuous).stroke(StrandPalette.pillStroke, lineWidth: 1))
+        self.frame(minHeight: StatePillMetrics.minHeight)
     }
 
     /// The state pill's chip: a leading 7pt dot in `tint` and then the neutral chrome. `StatePill` and every pill that
@@ -90,7 +89,27 @@ extension View {
             PillToneDot(color: tint)
             self
         }
-        .neutralPillChrome()
+        .frame(minHeight: StatePillMetrics.minHeight)
+    }
+}
+
+/// A change against a baseline, as plain coloured text: green when the move is good for the metric, red when it is
+/// bad, secondary gray when neutral or without a known direction.
+public struct DeltaLabel: View {
+    private let text: LocalizedStringKey
+    private let tone: StrandTone
+
+    public init(_ text: LocalizedStringKey, tone: StrandTone) {
+        self.text = text
+        self.tone = tone
+    }
+
+    public var body: some View {
+        Text(text)
+            .font(StrandFont.captionNumber.weight(.semibold))
+            .monospacedDigit()
+            .foregroundStyle(tone == .neutral || tone == .accent ? StrandPalette.textSecondary : tone.color)
+            .lineLimit(1)
     }
 }
 

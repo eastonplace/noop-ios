@@ -358,10 +358,23 @@ struct RootTabView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: LocalCoachIntentBridge.notification)) { _ in routePendingCoachRequest() }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { routePendingCoachRequest(); routePendingNotification() } }
-        .onChange(of: localCoach.preferences) { _, _ in routePendingCoachRequest() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                routePendingCoachRequest(); routePendingNotification()
+                Task { await localCoach.refreshWeeklyInsightIfNeeded() }
+            }
+        }
+        .task { await localCoach.refreshWeeklyInsightIfNeeded() }
+        .onChange(of: localCoach.preferences) { _, prefs in
+            if !prefs.enabled || !prefs.usePersonalData { localCoach.clearWeeklyInsight() }
+            routePendingCoachRequest()
+        }
         .onChange(of: repo.todayHealthSnapshotScopeId) { _, _ in routePendingCoachRequest() }
-        .onChange(of: repo.liveSourceState.lineageComponent) { _, _ in routePendingCoachRequest() }
+        .onChange(of: repo.liveSourceState.lineageComponent) { _, _ in
+            localCoach.clearWeeklyInsight()
+            Task { await localCoach.refreshWeeklyInsightIfNeeded() }
+            routePendingCoachRequest()
+        }
         .onChange(of: repo.verifiedExternalSurfaceFenced) { _, _ in routePendingCoachRequest(); routePendingNotification() }
         .onDisappear { notificationRoutingRetry?.cancel() }
     }

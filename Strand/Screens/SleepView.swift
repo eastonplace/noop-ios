@@ -239,6 +239,7 @@ struct SleepView: View {
                             }
                         }
                         nightNavHeader(trailing: displayedNight.night.spanLabel)
+                            .padding(.top, 8)
                             .padding(.bottom, SleepRhythm.navigatorToContent)
                         if !invalidSessions.isEmpty {
                             invalidSleepWindowNotice
