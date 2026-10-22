@@ -172,6 +172,41 @@ struct ScheduleView: View {
 
   // MARK: Routines
 
+  private var createRoutineButton: some View {
+    Button { editorRoute = .create } label: { Label("Create routine", systemImage: "plus") }
+      .buttonStyle(PrimaryPillButtonStyle())
+  }
+
+  private var importRoutinesButton: some View {
+    LiftTextButton("Import routines", systemImage: "square.and.arrow.down") {
+      showsRoutineImport = true
+    }
+    .accessibilityHint("Choose a CSV or Excel file and review it before saving")
+    .disabled(store.activeSession != nil)
+    .accessibilityIdentifier("routine.import.open")
+  }
+
+  /// Create routine and Import routines share a row, import to the right. At large text sizes the row
+  /// does not fit, so import drops under the pill, left-aligned.
+  @ViewBuilder private var createAndImport: some View {
+    if store.routineImportParser != nil {
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .center, spacing: NoopMetrics.space3) {
+          createRoutineButton
+          Spacer(minLength: NoopMetrics.space2)
+          importRoutinesButton.fixedSize(horizontal: true, vertical: false)
+        }
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+          createRoutineButton
+          importRoutinesButton
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    } else {
+      createRoutineButton
+    }
+  }
+
   private var routineSection: some View {
     LiftFlatSection("Routines", systemImage: "list.bullet.rectangle", contentSpacing: 0) {
       if store.routines.isEmpty {
@@ -182,21 +217,11 @@ struct ScheduleView: View {
           routineRow(routine)
         }
       }
-      Button { editorRoute = .create } label: { Label("Create routine", systemImage: "plus") }
-        .buttonStyle(PrimaryPillButtonStyle())
+      createAndImport
         .padding(.top, NoopMetrics.space3)
-      if store.routineImportParser != nil {
-        LiftTextButton("Import routines", systemImage: "square.and.arrow.down", centered: true) {
-          showsRoutineImport = true
-        }
-        .accessibilityHint("Choose a CSV or Excel file and review it before saving")
-        .disabled(store.activeSession != nil)
-        .accessibilityIdentifier("routine.import.open")
-        .padding(.top, NoopMetrics.space2)
-        if store.activeSession != nil {
-          LiftNote(text: "Finish your active workout before importing routines.")
-            .padding(.top, NoopMetrics.space2)
-        }
+      if store.routineImportParser != nil, store.activeSession != nil {
+        LiftNote(text: "Finish your active workout before importing routines.")
+          .padding(.top, NoopMetrics.space2)
       }
     }
   }
