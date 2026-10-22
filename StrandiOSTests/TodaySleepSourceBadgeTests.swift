@@ -2,6 +2,7 @@ import XCTest
 import StrandAnalytics
 @testable import NOOP
 
+@MainActor
 final class TodaySleepSourceBadgeTests: XCTestCase {
     private let day = "2026-07-20"
 

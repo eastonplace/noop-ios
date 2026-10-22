@@ -7,6 +7,7 @@ import XCTest
 /// fragment the edit targets by skipping a leading SPURIOUS pre-onset awake stub (BRIEF + essentially
 /// sleepless). These golden tests pin that rule on the pure helpers so a regression can't slip past the
 /// view internals. The Android twin lives in SleepScreen's isPreOnsetAwakeStub.
+@MainActor
 final class SleepOnsetStubTests: XCTestCase {
 
     // MARK: - isPreOnsetAwakeStub (the per-fragment rule)

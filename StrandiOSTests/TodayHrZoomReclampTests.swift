@@ -6,6 +6,7 @@ import XCTest
 /// a day STEP (the window's start moves) drops the zoom so the new day opens at full scale; a same-day END
 /// extension (today's window growing toward `now`) KEEPS the zoom but re-clamps it into the grown bounds so
 /// a refresh can never leave the window sitting outside the day. Locked here so the contract can't drift.
+@MainActor
 final class TodayHrZoomReclampTests: XCTestCase {
 
     private func d(_ t: TimeInterval) -> Date { Date(timeIntervalSince1970: t) }

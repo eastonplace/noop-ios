@@ -9,6 +9,7 @@ import XCTest
 ///   • Component 2 — explained score states (calibrating / carriedLastNight / needsStrap)
 ///   • Component 3 — recording status (recording / lastSynced Xm ago / notRecording)
 ///   • Component 4 — provenance label (On-device / Whoop / Apple Health = the real per-day merge winner)
+@MainActor
 final class TodayExplainabilityTests: XCTestCase {
 
     // MARK: - Component 2 — MetricTileState.resolve precedence

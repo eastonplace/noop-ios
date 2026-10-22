@@ -16,14 +16,14 @@ final class UpdateInboxDedupTests: XCTestCase {
                    date: date, deepLink: NavRouter.Destination.trends.rawValue)
     }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         UpdateStore.shared.clearAll()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         UpdateStore.shared.clearAll()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     /// The core #521 fix: posting the SAME `.reading` item many times in a tight window (as the old

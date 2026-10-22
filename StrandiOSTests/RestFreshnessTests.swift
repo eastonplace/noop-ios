@@ -9,6 +9,7 @@ import XCTest
 /// night's Rest before today scores, but once the last scored night is STALE it returns nil so the Rest
 /// hero falls through to its No-Data / calibrating state instead of freezing on a stale number. Pure +
 /// headless. Mirrors the Android `freshRestScoreTest`.
+@MainActor
 final class RestFreshnessTests: XCTestCase {
 
     // A fixed "today" so the recency window is deterministic regardless of the test host's wall clock.

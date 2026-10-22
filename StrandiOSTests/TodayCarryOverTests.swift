@@ -10,6 +10,7 @@ import WhoopStore
 /// reporter hit. This pins the GATE + SELECTION that drives all of that: it must only carry on today,
 /// only when today is unscored, only when not mid-calibration, must exclude today's own (still-nil) row,
 /// and must pick the freshest scored prior day. Mirrors the Android `lastScoredRecoveryDay` test.
+@MainActor
 final class TodayCarryOverTests: XCTestCase {
 
     /// A day row with an optional recovery + vitals — enough to exercise the selector + "real value wins".

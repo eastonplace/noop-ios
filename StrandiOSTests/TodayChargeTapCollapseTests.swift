@@ -6,6 +6,7 @@ import StrandAnalytics
 /// the one-word readiness read kept on the hero (#205), the collapsed "Synced from: ..." footer summary
 /// (S5), and the metrics-grid overflow cap (S5). Each is a view-free static so it pins without a live view,
 /// the same way `heroRingDiameter` / `clampedDayOffset` are tested. The Kotlin twins mirror these exactly.
+@MainActor
 final class TodayChargeTapCollapseTests: XCTestCase {
 
     // MARK: #205 one-word readiness read (kept on the hero after Readiness folded into the Charge tap)

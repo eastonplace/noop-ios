@@ -5,6 +5,7 @@ import XCTest
 /// chevrons and the date jump, so they are pinned here: a swipe or tap can never reach a FUTURE day
 /// (offset < 0) or a day OLDER than the earliest banked day (offset > maxOffset). A wrong sign or a
 /// drifted bound would let the user strand on an empty day, so the contract is locked by these tests.
+@MainActor
 final class TodayDayNavClampTests: XCTestCase {
 
     // MARK: - clampedDayOffset

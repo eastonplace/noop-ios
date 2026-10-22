@@ -8,6 +8,7 @@ import XCTest
 /// one pure decision so it can't drift from the Kotlin twin or from the view: a FRESH launch always returns 0
 /// (today), even when the only data is N days back; an in-session call returns the saved offset unchanged so
 /// day memory (#739/#614) is never regressed.
+@MainActor
 final class TodayLaunchLandTests: XCTestCase {
 
     // MARK: - The reported bug

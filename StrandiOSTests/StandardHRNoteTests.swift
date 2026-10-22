@@ -6,6 +6,7 @@ import XCTest
 /// Heart-Rate profile — LiveState.standardHRMode then carries the explanation string. LiveView only renders
 /// the calm inline note when that string is actually present and non-empty; this pins that pure decision so
 /// a nil/blank note can never leave an empty banner on screen.
+@MainActor
 final class StandardHRNoteTests: XCTestCase {
 
     // A real explanation string → the note renders.

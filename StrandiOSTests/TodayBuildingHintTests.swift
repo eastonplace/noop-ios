@@ -9,6 +9,7 @@ import XCTest
 /// mid-calibration, so it keeps the bare dash. Mirrors the Charge tile's "Calibrating N of 4"
 /// today-only treatment and the Android `buildingHint`. Pure copy/gate, pinned here so the wording
 /// and the today-only honesty can't silently regress.
+@MainActor
 final class TodayBuildingHintTests: XCTestCase {
 
     func testRest_today_isTheWearItTonightCopy() {

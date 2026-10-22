@@ -8,6 +8,7 @@ import XCTest
 /// sizes the rings off the row's MEASURED width via `heroRingDiameter(rowWidth:)`. The clamp behind that
 /// width-to-diameter map is the pure, view-free piece worth pinning: it must stay inside [82, 98] so the
 /// trio never crushes on a narrow phone nor bloats on a wide iPad, while scaling smoothly between.
+@MainActor
 final class TodayHeroRingLayoutTests: XCTestCase {
 
     func testNarrowPhoneWidth_clampsToMinimumDiameter() {

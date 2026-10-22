@@ -8,6 +8,7 @@ import XCTest
 /// a fault). It stays HONEST: only on today — a navigated PAST day with no value keeps the plain unit, since
 /// that's missing data the user can't act on now, not a "coming tonight" state. Pure copy/gate, pinned here
 /// so the wording and the today-only honesty can't silently regress. Mirrors the Android side.
+@MainActor
 final class TodayEmptyVitalCaptionTests: XCTestCase {
 
     func testToday_isTheAfterTonightCopy() {

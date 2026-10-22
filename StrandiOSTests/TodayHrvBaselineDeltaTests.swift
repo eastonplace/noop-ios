@@ -10,6 +10,7 @@ import XCTest
 /// The fix suppresses the percentage comparison (returns nil → the insight falls back to the
 /// qualitative recovery-state word) once the magnitude exceeds the ~±100% ceiling of real
 /// night-to-night HRV variation. These pin that gate on the pure delta core.
+@MainActor
 final class TodayHrvBaselineDeltaTests: XCTestCase {
 
     // 4 prior nights = exactly Baselines.minNightsSeed, so the seed gate is satisfied and the delta

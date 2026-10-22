@@ -16,6 +16,7 @@ import XCTest
 /// the onset walk now reads, using the night's REAL stored JSON.
 ///
 /// Android twin: SleepScreen's onset stub-test caller needs the same both-format decode.
+@MainActor
 final class SleepOnsetDecodeTests: XCTestCase {
 
     /// The REAL 12:16 → 1:22 first-sleep fragment (deviceId my-whoop-noop, startTs 1784013364),
