@@ -6,7 +6,7 @@ Checks (see AGENTS.md, "Versions and releases"):
    `MARKETING_VERSION` in `project.yml`, and it has at least one `Feature`.
 2. The `AppChangelog.currentVersion` fallback literal equals `MARKETING_VERSION`.
 3. On a pull request (GITHUB_BASE_REF set) that changes app or package source, `MARKETING_VERSION` and
-   `CURRENT_PROJECT_VERSION` are both higher than on the base branch.
+   `CURRENT_PROJECT_VERSION` are higher than on the exact PR base (except the one-time fork version reset).
 """
 import os
 import re
@@ -58,22 +58,26 @@ if not fallback or fallback.group(1) != marketing:
 base_ref = os.environ.get("GITHUB_BASE_REF")
 if base_ref:
     try:
-        subprocess.run(["git", "fetch", "--quiet", "--depth=50", "origin", base_ref], cwd=ROOT, check=True)
-        changed = subprocess.run(["git", "diff", "--name-only", f"origin/{base_ref}...HEAD"], cwd=ROOT,
+        # CI provides immutable PR refs and a full checkout. Never turn missing history or a moving branch
+        # into an exemption: local PR checks can use an already-fetched origin/<base> and HEAD instead.
+        base = os.environ.get("GITHUB_BASE_SHA") or f"origin/{base_ref}"
+        head = os.environ.get("GITHUB_HEAD_SHA") or "HEAD"
+        subprocess.run(["git", "merge-base", base, head], cwd=ROOT, check=True, capture_output=True, text=True)
+        changed = subprocess.run(["git", "diff", "--name-only", f"{base}...{head}"], cwd=ROOT,
                                  check=True, capture_output=True, text=True).stdout.split()
-        base_project = subprocess.run(["git", "show", f"origin/{base_ref}:project.yml"], cwd=ROOT,
+        base_project = subprocess.run(["git", "show", f"{base}:project.yml"], cwd=ROOT,
                                       check=True, capture_output=True, text=True).stdout
     except subprocess.CalledProcessError as error:
-        print(f"warning: could not compare with origin/{base_ref} ({error}); skipping the bump check")
+        failures.append(f"Could not compare the exact PR base/head ({error}). Fetch complete PR history and retry.")
     else:
         touches_app = any(path.startswith(SOURCE_PREFIXES) and not any(part in path for part in SKIP_PARTS)
                           for path in changed)
         base_marketing = setting(base_project, "MARKETING_VERSION")
         base_build = setting(base_project, "CURRENT_PROJECT_VERSION")
-        # The base still on upstream numbering (9.x) is the one-time renumbering to 1.x: nothing to compare.
-        base_is_upstream = version_tuple(base_marketing)[0] >= 9
-        if touches_app and not base_is_upstream:
-            if version_tuple(marketing) <= version_tuple(base_marketing):
+        # Only marketing numbering resets from upstream 9.x to this fork's 1.x. Build numbers stay monotonic.
+        fork_renumbering = version_tuple(base_marketing)[0] >= 9 and version_tuple(marketing)[0] == 1
+        if touches_app:
+            if not fork_renumbering and version_tuple(marketing) <= version_tuple(base_marketing):
                 failures.append(f"This PR changes app source but MARKETING_VERSION ({marketing}) is not above "
                                 f"{base_ref}'s ({base_marketing}). Bump it and add a What's New entry.")
             if int(build) <= int(base_build):

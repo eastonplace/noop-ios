@@ -50,9 +50,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run all focused source audits
         shell: bash
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -uo pipefail
           mkdir -p qa-artifacts/audits
@@ -71,6 +76,7 @@ jobs:
             project_hygiene_audit.py
             test_project_hygiene_audit.py
             whats_new_release_audit.py
+            test_whats_new_release_audit.py
           )
           for audit in "${audits[@]}"; do
             echo "::group::$audit"

@@ -29,7 +29,9 @@ Settings → About → What's new.
 
 **Enforced in CI.** `Tools/qa/whats_new_release_audit.py` runs in the `source-audits` job and fails a PR when the
 newest What's New entry doesn't match `MARKETING_VERSION`, the fallback literal is stale, or app source changed
-without raising both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` above `main`'s.
+without raising both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` above the exact PR base. The initial
+upstream 9.x to fork 1.x marketing-version reset is allowed; build numbers still increase. CI checks use complete
+history and fail if the PR comparison is unavailable.
 
 ## Credits
 
