@@ -2615,77 +2615,73 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func collectSleep(start: Date, end: Date) async throws -> [String: SleepDayAgg] {
+        let calendar = Calendar.current
+        // Query one civil day on each side. Keep raw overlap until the shared reducer finalizes
+        // an episode, so the first/last requested day sees complete overnight stage evidence.
+        let queryStart = calendar.date(byAdding: .day, value: -1, to: start) ?? start
+        let queryEnd = min(Date(), calendar.date(byAdding: .day, value: 1, to: end) ?? end)
+        let firstDay = Self.dayString(start), lastDay = Self.dayString(end)
+        var reducer = AppleSleepEpisodeReducer.Accumulator()
         var merged: [String: SleepDayAgg] = [:]
-        for (index, window) in queryWindows(start: start, end: end).enumerated() {
-            let chunk = try await collectSleepChunk(
-                start: window.start,
-                end: window.end,
-                includesLeadingOverlap: index == 0
-            )
-            for (day, value) in chunk {
-                var total = merged[day] ?? SleepDayAgg(asleepMin: nil, deepMin: nil, remMin: nil, coreMin: nil)
-                total.asleepMin = Self.boundedSleepSum(total.asleepMin, value.asleepMin)
-                total.deepMin = Self.boundedSleepSum(total.deepMin, value.deepMin)
-                total.remMin = Self.boundedSleepSum(total.remMin, value.remMin)
-                total.coreMin = Self.boundedSleepSum(total.coreMin, value.coreMin)
-                merged[day] = total
+        func append(_ episodes: [AppleSleepEpisodeReducer.Episode]) {
+            for episode in episodes where episode.wakeDay >= firstDay && episode.wakeDay <= lastDay {
+                // In-bed/awake alone never establishes a slept total. A summary fully overridden
+                // by detailed awake evidence does establish a real zero and must still replace it.
+                guard episode.hasAsleepEvidence else { continue }
+                var total = merged[episode.wakeDay]
+                    ?? SleepDayAgg(asleepMin: nil, deepMin: nil, remMin: nil, coreMin: nil)
+                total.asleepMin = (total.asleepMin ?? 0) + episode.asleep
+                total.deepMin = (total.deepMin ?? 0) + episode.deep
+                total.remMin = (total.remMin ?? 0) + episode.rem
+                total.coreMin = (total.coreMin ?? 0) + episode.core
+                merged[episode.wakeDay] = total
             }
         }
-        return merged
-    }
-
-    private static func boundedSleepSum(_ lhs: Double?, _ rhs: Double?) -> Double? {
-        switch (lhs, rhs) {
-        case (nil, nil): return nil
-        case (let value?, nil), (nil, let value?): return value
-        case (let lhs?, let rhs?):
-            let sum = lhs + rhs
-            return sum.isFinite ? min(sum, 24 * 60) : nil
+        for window in queryWindows(start: queryStart, end: queryEnd) {
+            let intervals = try await collectSleepChunk(start: window.start, end: window.end,
+                                                       fallbackTimeZone: calendar.timeZone)
+            append(reducer.ingest(intervals, through: window.end))
         }
+        append(reducer.finish())
+        return merged
     }
 
     private func collectSleepChunk(
         start: Date,
         end: Date,
-        includesLeadingOverlap: Bool
-    ) async throws -> [String: SleepDayAgg] {
-        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return [:] }
+        fallbackTimeZone: TimeZone
+    ) async throws -> [SleepStageInterval] {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return [] }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            HKQuery.predicateForSamples(
-                withStart: start,
-                end: end,
-                options: includesLeadingOverlap ? [] : .strictStartDate
-            ),
+            // Overlap queries deliberately repeat boundary objects; the reducer retains identity and
+            // deduplicates before selecting stages. Strict-start chunks would lose leading stages.
+            HKQuery.predicateForSamples(withStart: start, end: end, options: []),
             Self.notNoopAuthored,
         ])
         return try await withCheckedThrowingContinuation {
-            (cont: CheckedContinuation<[String: SleepDayAgg], Error>) in
-            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+            (cont: CheckedContinuation<[SleepStageInterval], Error>) in
+            let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit,
+                                      sortDescriptors: nil) { _, samples, error in
                 if let error { cont.resume(throwing: error); return }
-                var asleep: [String: Double] = [:], deep: [String: Double] = [:]
-                var rem: [String: Double] = [:], core: [String: Double] = [:]
-                for case let s as HKCategorySample in samples ?? [] {
-                    let mins = s.endDate.timeIntervalSince(s.startDate) / 60
-                    guard mins.isFinite, mins > 0, mins <= 24 * 60 else { continue }
-                    let day = HealthKitBridge.dayString(s.endDate)
-                    switch s.value {
-                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
-                        deep[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
-                        rem[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    case HKCategoryValueSleepAnalysis.asleepCore.rawValue, HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
-                        core[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    default:
-                        break
-                    }
+                let intervals = (samples ?? []).compactMap { sample -> SleepStageInterval? in
+                    guard let sample = sample as? HKCategorySample else { return nil }
+                    let stage = SleepStage.from(rawValue: String(sample.value))
+                    guard stage != .unknown else { return nil }
+                    // Prefer the sample's recorded timezone. With no metadata, freeze the query's
+                    // timezone for every chunk; secondsFromGMT(for:) still handles historical DST.
+                    let zone = (sample.metadata?[HKMetadataKeyTimeZone] as? String)
+                        .flatMap(TimeZone.init(identifier:)) ?? fallbackTimeZone
+                    return SleepStageInterval(
+                        stage: stage, start: sample.startDate, end: sample.endDate,
+                        tzOffsetMin: zone.secondsFromGMT(for: sample.endDate) / 60,
+                        sourceName: sample.sourceRevision.source.name,
+                        sourceIdentifier: sample.sourceRevision.source.bundleIdentifier,
+                        sampleID: sample.uuid.uuidString
+                    )
                 }
-                let values = Dictionary(uniqueKeysWithValues: Set(asleep.keys).map { day in
-                    (day, SleepDayAgg(asleepMin: asleep[day], deepMin: deep[day],
-                                      remMin: rem[day], coreMin: core[day]))
-                })
-                cont.resume(returning: values)
+                cont.resume(returning: intervals)
             }
-            store.execute(q)
+            store.execute(query)
         }
     }
 

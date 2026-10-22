@@ -173,41 +173,27 @@ public enum AppleHealthAggregator {
 
     // MARK: - Sleep daily aggregation
 
-    /// Collapse sleep-stage intervals into per-night totals keyed by the **wake
-    /// day** — the local civil day of each interval's `end`. Minutes are summed
-    /// per stage; `asleep = core + deep + rem` (+ any legacy "asleep
-    /// unspecified" intervals, which Apple emitted before staged sleep).
+    /// Non-overlapping episode totals keyed by the whole episode's final local wake day.
+    /// XML and live HealthKit both use `AppleSleepEpisodeReducer`; raw intervals stay unchanged.
     public static func sleepDaily(
         _ intervals: [SleepStageInterval]
     ) -> [String: (asleep: Double, deep: Double, rem: Double, core: Double, awake: Double, inBed: Double)] {
-        struct Night {
-            var deep = 0.0, rem = 0.0, core = 0.0, unspecified = 0.0, awake = 0.0, inBed = 0.0
+        var output: [String: (asleep: Double, deep: Double, rem: Double, core: Double, awake: Double, inBed: Double)] = [:]
+        for episode in AppleSleepEpisodeReducer.reduce(intervals) {
+            let prior = output[episode.wakeDay] ?? (0, 0, 0, 0, 0, 0)
+            output[episode.wakeDay] = (prior.asleep + episode.asleep, prior.deep + episode.deep,
+                                       prior.rem + episode.rem, prior.core + episode.core,
+                                       prior.awake + episode.awake, prior.inBed + episode.inBed)
         }
-        var byDay: [String: Night] = [:]
-
-        for iv in intervals {
-            let minutes = max(0, iv.end.timeIntervalSince(iv.start)) / 60.0
-            // Wake day = local day of the interval end.
-            let day = localDay(iv.end, tzOffsetMin: iv.tzOffsetMin)
-            var n = byDay[day] ?? Night()
-            switch iv.stage {
-            case .asleepDeep:        n.deep += minutes
-            case .asleepREM:         n.rem += minutes
-            case .asleepCore:        n.core += minutes
-            case .asleepUnspecified: n.unspecified += minutes
-            case .awake:             n.awake += minutes
-            case .inBed:             n.inBed += minutes
-            case .unknown:           break
-            }
-            byDay[day] = n
+        // Preserve the legacy zero-valued unknown-stage day without letting unknown evidence
+        // connect, extend, or choose the wake timezone of a real sleep episode.
+        for interval in intervals where interval.stage == .unknown {
+            let duration = interval.end.timeIntervalSince(interval.start)
+            guard duration.isFinite, duration > 0, duration <= 24 * 60 * 60 else { continue }
+            let day = localDay(interval.end, tzOffsetMin: interval.tzOffsetMin)
+            if output[day] == nil { output[day] = (0, 0, 0, 0, 0, 0) }
         }
-
-        var out: [String: (asleep: Double, deep: Double, rem: Double, core: Double, awake: Double, inBed: Double)] = [:]
-        for (day, n) in byDay {
-            let asleep = n.core + n.deep + n.rem + n.unspecified
-            out[day] = (asleep: asleep, deep: n.deep, rem: n.rem, core: n.core, awake: n.awake, inBed: n.inBed)
-        }
-        return out
+        return output
     }
 
     // MARK: - Full merge

@@ -166,25 +166,32 @@ public enum SleepStage: String, Sendable, Equatable, CaseIterable {
 }
 
 /// A single contiguous sleep-stage interval from Apple Health.
-public struct SleepStageInterval: Sendable, Equatable {
+public struct SleepStageInterval: Sendable, Equatable, Hashable {
     public var stage: SleepStage
     public var start: Date
     public var end: Date
     public var tzOffsetMin: Int
     public var sourceName: String?
+    /// HealthKit's source bundle and object UUID when available. XML keeps its recorded source name.
+    public var sourceIdentifier: String?
+    public var sampleID: String?
 
     public init(
         stage: SleepStage,
         start: Date,
         end: Date,
         tzOffsetMin: Int,
-        sourceName: String?
+        sourceName: String?,
+        sourceIdentifier: String? = nil,
+        sampleID: String? = nil
     ) {
         self.stage = stage
         self.start = start
         self.end = end
         self.tzOffsetMin = tzOffsetMin
         self.sourceName = sourceName
+        self.sourceIdentifier = sourceIdentifier
+        self.sampleID = sampleID
     }
 }
 
