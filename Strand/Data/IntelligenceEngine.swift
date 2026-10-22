@@ -3713,7 +3713,7 @@ final class IntelligenceEngine: ObservableObject {
 
     private static let wholePassInputTables = dayScanInputTables + [
         "dailyMetric", "metricSeries", "workout", "appleDaily",
-        "liftStrain", "liftStrainTarget", "liftStrainControl", "liftStrainJob"
+        "liftStrain", "liftStrainTarget", "liftStrainControl", "liftStrainJob", "sleepRecoveryDailyOverride"
     ]
 
     /// RAM-only idle identity. Database revisions cover every source and all fold/fallback/control rows;
@@ -3735,7 +3735,7 @@ final class IntelligenceEngine: ObservableObject {
         var parts = [
             witness.signature(tables: Self.wholePassInputTables), Self.analyzeScanVersion,
             StrandAnalytics.version, String(StrainScorerV2.version),
-            deviceId, repo.deviceId, repo.notificationSourceContext,
+            deviceId, repo.deviceId, repo.notificationSourceContext, String(repo.loaded),
             strings(repo.importedReadIds), strings(repo.computedReadIds),
             String(maxDays), String(startOffset), String(refreshRepository), String(keepUnproducedHistory),
             String(describing: calendar.identifier), calendar.locale?.identifier ?? "",
