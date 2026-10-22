@@ -147,4 +147,17 @@ final class AppleSleepEpisodeRegressionTests: XCTestCase {
         XCTAssertEqual(result["2024-03-09"]?.asleep, 60)
         XCTAssertEqual(result["2024-03-10"]?.asleep, 0)
     }
+
+    func testInBedOnlyIsNotAReadSleepTotalButAwakeCanOverrideObservedSleepToZero() throws {
+        let inBed = interval(.inBed, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z")
+        let empty = try XCTUnwrap(AppleSleepEpisodeReducer.reduce([inBed]).first)
+        XCTAssertFalse(empty.hasAsleepEvidence)
+        let observed = try XCTUnwrap(AppleSleepEpisodeReducer.reduce([
+            interval(.asleepUnspecified, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z", source: "Summary"),
+            interval(.awake, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z")
+        ]).first)
+        XCTAssertTrue(observed.hasAsleepEvidence)
+        XCTAssertEqual(observed.asleep, 0)
+        XCTAssertEqual(observed.awake, 480)
+    }
 }
