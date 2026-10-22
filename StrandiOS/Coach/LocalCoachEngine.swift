@@ -977,8 +977,11 @@ final class LocalCoachEngine: ObservableObject {
 
     /// Callers that need the restored state (including tests) await this without blocking MainActor.
     func waitForHydration() async {
-        reconcileSource()
-        while let task = hydrationTask { await task.value }
+        while true {
+            reconcileSource()
+            guard let task = hydrationTask else { return }
+            await task.value
+        }
     }
 
     /// Flush includes every snapshot accepted before the barrier, even if the response task was canceled.
@@ -1004,6 +1007,9 @@ final class LocalCoachEngine: ObservableObject {
             let settings = loadPreferences ? await writer.io.loadPreferences() : nil
             let result = await writer.io.load(sourceID: captured.storageID)
             guard let self else { return }
+            // A repository publication may precede its queued observer. Recheck the actual owner after
+            // the actor hop before applying any decoded state to observable properties.
+            self.reconcileSource()
             var editedState: LocalCoachPersistence.State?
             if case .success(var state) = result, let edits = self.hydrationEdits.removeValue(forKey: id) {
                 for edit in edits { edit(&state) }
