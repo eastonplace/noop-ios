@@ -19,9 +19,9 @@ final class AICoachPromptAndStressTests: XCTestCase {
         return AICoachEngine(repo: Repository(deviceId: "test-aicoach-prompt"))
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         UserDefaults.standard.removeObject(forKey: AICoachEngine.systemPromptKey)
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Feature 1: editable system prompt
