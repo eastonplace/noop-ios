@@ -111,6 +111,11 @@ struct JournalEntryDayDetailsDraft {
         reviewedValues = nil
     }
 
+    /// Editing the note or mood is the opt-in to save them. It never applies to a fenced or unreviewed draft.
+    mutating func markEdited() {
+        if reviewedValues != nil && !contextInvalidated { included = true }
+    }
+
     mutating func invalidateContext() {
         contextInvalidated = true
         invalidateReview()

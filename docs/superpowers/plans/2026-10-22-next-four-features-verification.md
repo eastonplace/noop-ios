@@ -9,7 +9,7 @@ This change implements the four approved additions on `main` at
 | --- | --- | --- |
 | Adaptive daily training target | Today, below the daily scores; Preview opens the plan controls | Reads the current canonical snapshot and completed-day history. Preview does not write metrics. |
 | Smart progressive overload | Saved Lift routine preview, including quick-start routes | Explicit acceptance changes the active session. Saved routines and completed history remain intact. |
-| Voice Journal | Journal, Write or dictate an entry | Reviewed answers commit together to the existing global `noop-journal` namespace. |
+| Voice Journal | Journal (+ menu) or the journal reminder, Write or dictate a note | Reviewed answers commit together to the existing global `noop-journal` namespace. |
 | Smarter workout detection | Existing workout suggestion card | Confirmed type and exact detected interval save to the captured raw source, with ownership and overlap checks. |
 
 The training-mix feature belongs to the separate Claude work. This branch has no
@@ -56,8 +56,10 @@ completes or its ownership changes.
 
 ## Data and model decisions
 
-- Daily targets need seven measured Strain days in the preceding fourteen days,
-  including yesterday. Missing observations do not become zeroes. The current day
+- Daily targets need seven measured Strain days in the preceding fourteen days.
+  Yesterday is not required: the usual day is a median of measured days, and the load
+  model ends on the newest measured day, which may trail today by up to two missing
+  days (the load model's own gap tolerance). Missing observations do not become zeroes. The current day
   cannot change the historical baseline. All targets and recovery previews are
   estimates; the UI explains the inputs and calculation policy.
 - Progression requires suitable completed sets and explicit effort ratings. It uses

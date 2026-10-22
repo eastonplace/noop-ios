@@ -8,6 +8,9 @@ public enum DailyTrainingTargetEngine {
     public static let historyDays = 56
     public static let recentDays = 14
     public static let minimumObservedDays = 7
+    /// The newest measured Strain day may trail today by this many missing days (the same tolerance the
+    /// training-load model gives a short gap), so one day off the strap does not pause the target.
+    public static let maximumRecentGapDays = 2
 
     public struct Day: Equatable, Sendable {
         public let day: String
@@ -92,10 +95,11 @@ public enum DailyTrainingTargetEngine {
                    load: nil, currentStrainStored: nil, sleepNeedHours: nil, sleepNeedDay: nil,
                    recentRecovery: [], recentEffort: [], needNights: 0)
         }
-        guard let yesterday = offsetDay(input.day, by: -1),
-              let start = offsetDay(input.day, by: -historyDays),
+        guard let start = offsetDay(input.day, by: -historyDays),
               let recentStart = offsetDay(input.day, by: -recentDays),
-              let needStart = offsetDay(input.day, by: -6) else { return unavailable(.invalidDay) }
+              let needStart = offsetDay(input.day, by: -6),
+              let oldestAllowedLatest = offsetDay(input.day, by: -(maximumRecentGapDays + 1))
+        else { return unavailable(.invalidDay) }
         guard let recovery = valid(input.recovery, in: 0...100) else { return unavailable(.needsRecovery) }
         guard let slept = valid(input.sleptHours, in: 0...24) else { return unavailable(.needsSleep) }
         guard let need = valid(input.sleepNeedHours, in: 1...24),
@@ -117,15 +121,18 @@ public enum DailyTrainingTargetEngine {
         history.sort { $0.day < $1.day }
         let recent = history.filter { $0.day >= recentStart }
         let observed = recent.compactMap(\.strainStored)
+        // The usual day is a median of measured days, so it does not hinge on any single day. Yesterday is
+        // not required; the newest measured day only has to be recent enough that the history is current.
         guard observed.count >= minimumObservedDays,
-              recent.last?.day == yesterday, recent.last?.strainStored != nil else {
+              let latestObserved = recent.last(where: { $0.strainStored != nil }),
+              latestObserved.day >= oldestAllowedLatest else {
             return unavailable(.needsRecentHistory, observed: observed.count)
         }
         let sorted = observed.sorted()
         let middle = sorted.count / 2
         let usual = sorted.count.isMultiple(of: 2) ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
         let load = TrainingLoadEngine.evaluate(
-            days: history.map { .init(day: $0.day, load: $0.strainStored) }, through: yesterday)
+            days: history.map { .init(day: $0.day, load: $0.strainStored) }, through: latestObserved.day)
 
         var drivers: [Driver] = []
         let recoveryFactor: Double

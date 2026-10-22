@@ -361,6 +361,116 @@ final class WeeklyDigestTests: XCTestCase {
         XCTAssertEqual(a, b)   // same input → byte-identical digest
     }
 
+    // MARK: - Highlights + insight line
+
+    private func hrvAboveBaselineDigest() -> WeeklyDigest {
+        var hrv: [String: Double] = [:]
+        for k in Self.daysBetween("2026-05-04", "2026-05-31") { hrv[k] = 50 }
+        for k in Self.daysBetween("2026-06-01", "2026-06-14") { hrv[k] = 62 }
+        return WeeklyDigestEngine.build(byMetric: [.hrv: hrv], anchorDay: "2026-06-13")
+    }
+
+    func testInsightLinePrefersBaselineObservation() {
+        let d = hrvAboveBaselineDigest()
+        let line = WeeklyDigestEngine.insightLine(for: d, highlights: d.focalPoints)
+        XCTAssertEqual(line, "HRV is running 12 ms above your 4-week baseline.")
+    }
+
+    func testInsightLineSkipsBaselineAlreadyInHighlights() {
+        let d = hrvAboveBaselineDigest()
+        let highlights = WeeklyDigestEngine.highlightLines(for: d)
+        XCTAssertTrue(highlights.contains("HRV is running 12 ms above your 4-week baseline."))
+        let line = WeeklyDigestEngine.insightLine(for: d, highlights: highlights)
+        XCTAssertFalse(highlights.contains(line), "insight must not repeat a highlight: \(line)")
+        XCTAssertFalse(line.isEmpty)
+    }
+
+    func testInsightLineFallsToSleepConsistencyThenCoverage() {
+        var rest: [String: Double] = [:]
+        var i = 0
+        for k in Self.daysBetween("2026-06-08", "2026-06-12") { rest[k] = 80 + Double(i % 2); i += 1 }
+        let d = WeeklyDigestEngine.build(byMetric: [.rest: rest], anchorDay: "2026-06-13")
+        let sleep = WeeklyDigestEngine.insightLine(for: d, highlights: [])
+        XCTAssertTrue(sleep.hasPrefix("Sleep was steady"), sleep)
+
+        // Highlight already says sleep held even, balance insufficient → coverage line.
+        let coverage = WeeklyDigestEngine.insightLine(
+            for: d, highlights: ["A steady week: Sleep held even (±0.5 pts) and nothing moved much."])
+        XCTAssertEqual(coverage, "Steady week: nothing moved past normal day-to-day noise across 5 of 7 logged days.")
+    }
+
+    func testInsightLineNeverKeepLoggingAndNeverEmpty() {
+        let empties = [
+            WeeklyDigestEngine.build(byMetric: [:], anchorDay: "2026-06-13"),
+            WeeklyDigestEngine.build(byMetric: [:], anchorDay: "not-a-date"),
+            hrvAboveBaselineDigest(),
+        ]
+        for d in empties {
+            let highlights = WeeklyDigestEngine.highlightLines(for: d)
+            let line = WeeklyDigestEngine.insightLine(for: d, highlights: highlights)
+            XCTAssertFalse(line.isEmpty)
+            XCTAssertFalse(line.lowercased().contains("keep logging"))
+            XCTAssertFalse(highlights.contains(line))
+        }
+    }
+
+    func testHighlightLinesCappedAtThree() {
+        let d = hrvAboveBaselineDigest()
+        XCTAssertLessThanOrEqual(WeeklyDigestEngine.highlightLines(for: d).count, 3)
+    }
+
+    // MARK: - Coach insight store
+
+    private func freshDefaults() -> UserDefaults {
+        let name = "WeeklyCoachInsightStoreTests-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        return d
+    }
+
+    func testStoreOnlyServesMatchingWeek() {
+        let defaults = freshDefaults()
+        XCTAssertTrue(WeeklyCoachInsightStore.needsInsight(forWeekStart: "2026-06-08", defaults: defaults))
+        XCTAssertTrue(WeeklyCoachInsightStore.save(weekStart: "2026-06-08",
+            rawText: "  **Your HRV climbed.**\n Protect sleep.  ", defaults: defaults))
+        XCTAssertEqual(WeeklyCoachInsightStore.text(forWeekStart: "2026-06-08", defaults: defaults),
+                       "Your HRV climbed. Protect sleep.")
+        XCTAssertNil(WeeklyCoachInsightStore.text(forWeekStart: "2026-06-01", defaults: defaults))
+        XCTAssertTrue(WeeklyCoachInsightStore.needsInsight(forWeekStart: "2026-06-15", defaults: defaults))
+    }
+
+    func testNeedsRefreshOncePerLocalDay() {
+        let defaults = freshDefaults()
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let morning = Date(timeIntervalSince1970: 1_781_000_000)
+        let laterSameDay = morning.addingTimeInterval(3_600)
+        let nextDay = morning.addingTimeInterval(86_400)
+        XCTAssertTrue(WeeklyCoachInsightStore.needsRefresh(forWeekStart: "2026-06-08", now: morning,
+                                                           calendar: cal, defaults: defaults))
+        XCTAssertTrue(WeeklyCoachInsightStore.save(weekStart: "2026-06-08", rawText: "HRV is up.",
+                                                   now: morning, defaults: defaults))
+        XCTAssertFalse(WeeklyCoachInsightStore.needsRefresh(forWeekStart: "2026-06-08", now: laterSameDay,
+                                                            calendar: cal, defaults: defaults))
+        XCTAssertTrue(WeeklyCoachInsightStore.needsRefresh(forWeekStart: "2026-06-08", now: nextDay,
+                                                           calendar: cal, defaults: defaults))
+        // The old text keeps showing until a new one replaces it.
+        XCTAssertEqual(WeeklyCoachInsightStore.text(forWeekStart: "2026-06-08", defaults: defaults), "HRV is up.")
+        XCTAssertTrue(WeeklyCoachInsightStore.needsRefresh(forWeekStart: "2026-06-15", now: morning,
+                                                           calendar: cal, defaults: defaults))
+    }
+
+    func testStoreRejectsEmptyAndRefusalAndCapsLength() {
+        let defaults = freshDefaults()
+        XCTAssertFalse(WeeklyCoachInsightStore.save(weekStart: "2026-06-08", rawText: "  \n ", defaults: defaults))
+        XCTAssertFalse(WeeklyCoachInsightStore.save(weekStart: "2026-06-08",
+            rawText: "I'm sorry, I can't help with that.", defaults: defaults))
+        XCTAssertNil(WeeklyCoachInsightStore.load(defaults: defaults))
+        let long = String(repeating: "Sleep held steady this week. ", count: 20)
+        let cleaned = WeeklyCoachInsightStore.clean(long)!
+        XCTAssertLessThanOrEqual(cleaned.count, WeeklyCoachInsightStore.maxLength + 1)
+    }
+
     // MARK: - Helpers
 
     /// Inclusive list of "yyyy-MM-dd" days from `start` to `end`, using the engine's own

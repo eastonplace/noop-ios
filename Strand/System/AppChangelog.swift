@@ -10,18 +10,101 @@ enum AppChangelog {
     /// MARKETING_VERSION) instead of a third hand-maintained copy that drifted; the literal is only the
     /// fallback outside an app bundle. Add the matching entry to `releases` when the version changes.
     static let currentVersion: String =
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "9.0.1"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.0.0"
 
     struct Release: Identifiable {
         let version: String
         let title: String
         let date: String
         let items: [String]
+        /// Short, glanceable changes with an icon, for this fork's releases. Upstream releases only have `items`.
+        var features: [Feature] = []
         var id: String { version }
+
+        /// A fork release: `items` (used by the Updates inbox) are derived from the features.
+        static func fork(_ version: String, _ title: String, _ date: String, _ features: [Feature]) -> Release {
+            Release(version: version, title: title, date: date,
+                    items: features.map { "**\($0.title).** \($0.detail)" }, features: features)
+        }
     }
 
-    /// Newest first.
+    struct Feature: Identifiable {
+        let symbol: String
+        let tint: Tint
+        let title: String
+        let detail: String
+        var id: String { title }
+
+        enum Tint { case accent, heart, strain, sleep, stress, journal, hrv }
+
+        init(_ symbol: String, _ tint: Tint, _ title: String, _ detail: String) {
+            self.symbol = symbol; self.tint = tint; self.title = title; self.detail = detail
+        }
+    }
+
+    /// The first upstream NOOP release in `releases`. Everything before it (newer) is this fork's own history,
+    /// numbered from 1.0 when the iPhone app was forked in July 2026; What's New labels the boundary.
+    static let firstUpstreamVersion = "7.9.0"
+
+    /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
+        .fork("2.0.0", "NOOP 2.0", "October 2026", [
+            Feature("flame.fill", .strain, "Daily training target", "A target based on your recent load."),
+            Feature("dumbbell.fill", .strain, "Lift suggests weights", "Your next weights, worked out for you."),
+            Feature("mic.fill", .journal, "Journal notes", "Write or dictate a note, then review it."),
+            Feature("figure.walk", .accent, "Workout suggestions", "Save a detected workout in one tap."),
+        ]),
+        .fork("1.7.1", "Clearer alarm confirmation", "October 2026", [
+            Feature("alarm.fill", .sleep, "Ordered alarm delivery", "WHOOP 4.0 alarm commands wait for each write."),
+            Feature("checkmark.circle", .accent, "Confirmed wake time", "Alarm status checks the current strap's reply."),
+            Feature("clock.badge.exclamationmark", .sleep, "Clear failure status", "An unconfirmed alarm no longer stays on Arming."),
+        ]),
+        .fork("1.7.0", "A launch you can see", "October 2026", [
+            Feature("sparkles", .accent, "Cold-start splash", "A quick pulse while your dashboard loads."),
+            Feature("heart.fill", .heart, "Live heart rate, redrawn", "The trace fills the card, right behind your reading."),
+            Feature("calendar", .sleep, "Tidier Today header", "The date sits by Today and opens a month calendar."),
+            Feature("antenna.radiowaves.left.and.right", .accent, "Strap panel", "Tap strap status on any tab for live state and quick actions."),
+            Feature("waveform.path.ecg", .hrv, "Sparklines are back", "Every Health Monitor tile shows its trend again."),
+            Feature("plusminus", .strain, "No more glass pills", "Plain values, with deltas coloured good or bad."),
+            Feature("bubble.left.and.text.bubble.right", .journal, "Coach weekly insight", "Trends' weekly readout, in the Coach's words."),
+            Feature("chart.xyaxis.line", .stress, "Simpler Trends", "Explore lives in a quiet list at the bottom."),
+            Feature("person.crop.circle", .accent, "About, made ours", "A real version history and who built it."),
+        ]),
+        .fork("1.6.0", "Strength Strain", "October 2026", [
+            Feature("dumbbell.fill", .strain, "Strength Strain", "Logged sets now count toward Strain."),
+            Feature("bell.badge.fill", .accent, "Notifications", "One settings page, reminders that arrive."),
+            Feature("moon.stars.fill", .sleep, "Better nights", "Overnight physiology reconciled and repaired."),
+        ]),
+        .fork("1.5.0", "UI v2", "October 2026", [
+            Feature("square.grid.2x2.fill", .accent, "UI v2", "A refreshed look across the main tabs."),
+            Feature("flame.fill", .strain, "Training load, redone", "Clearer load and what it means."),
+            Feature("externaldrive.fill.badge.checkmark", .hrv, "Data-loss fixes", "A full bug hunt, and a faster Today."),
+        ]),
+        .fork("1.4.0", "Widgets and Live Activity", "October 2026", [
+            Feature("rectangle.3.group.fill", .accent, "Unified widgets", "One look across widgets and Live Activity."),
+            Feature("gearshape.fill", .journal, "Native Settings", "Rebuilt with standard iOS lists."),
+            Feature("figure.run", .strain, "Workout journey", "Start to summary, in one flow."),
+        ]),
+        .fork("1.3.0", "Sleep repair", "September 2026", [
+            Feature("bed.double.fill", .sleep, "Sleep repaired", "Sleep state and refresh fixed."),
+            Feature("figure.run", .strain, "Steadier workouts", "More reliable, with better zones."),
+            Feature("hammer.fill", .accent, "Xcode 27", "Builds on the new toolchain."),
+        ]),
+        .fork("1.2.0", "One design system", "August 2026", [
+            Feature("paintpalette.fill", .accent, "Dark design system", "Every screen shares one look."),
+            Feature("arrow.down.circle.fill", .hrv, "Faster history", "Imports faster, paints on first open."),
+            Feature("magnifyingglass", .journal, "Settings search", "Find any setting fast."),
+        ]),
+        .fork("1.1.0", "Missed nights", "August 2026", [
+            Feature("moon.zzz.fill", .sleep, "Recover a missed night", "Retry detection or set a sleep window."),
+            Feature("sensor.tag.radiowaves.forward.fill", .accent, "WHOOP 5/MG", "Better device support."),
+            Feature("lock.shield.fill", .hrv, "Hardening", "Integrity, privacy and accessibility fixes."),
+        ]),
+        .fork("1.0.0", "The fork", "July 2026", [
+            Feature("arrow.triangle.branch", .accent, "Forked", "From NOOP 9.0.1, iPhone only."),
+            Feature("doc.richtext.fill", .journal, "Paper UI", "Every screen reskinned."),
+            Feature("flame.fill", .strain, "Strain V2", "One Strain everywhere."),
+        ]),
         Release(
             version: "7.9.0",
             title: "Coupled view, workouts rebuilt, journal numbers",

@@ -64,10 +64,28 @@ final class DailyTrainingTargetTests: XCTestCase {
         XCTAssertEqual(result, baseline)
     }
 
-    func testMissingYesterdayAndSparseRecentHistoryDoNotInventTarget() {
+    func testMissingYesterdayStillBuildsATargetFromTheMeasuredDays() throws {
+        let baseline = try XCTUnwrap(DailyTrainingTargetEngine.evaluate(input()).target)
         let missingYesterday = days(count: 42, load: 45).filter { $0.day != "2026-10-21" }
-        XCTAssertEqual(DailyTrainingTargetEngine.evaluate(input(history: missingYesterday)).unavailableReason,
+        let result = DailyTrainingTargetEngine.evaluate(input(history: missingYesterday))
+        let target = try XCTUnwrap(result.target)
+        // The usual day is a median of measured days; a missing day is never a zero.
+        XCTAssertEqual(target.observedDays, 13)
+        XCTAssertEqual(target.usualStrainStored, baseline.usualStrainStored)
+        // The load model ends on the newest measured day instead of a day with no data.
+        XCTAssertEqual(result.load?.endDay, "2026-10-20")
+    }
+
+    func testRecentGapLongerThanTheLoadModelToleratesPausesTheTarget() throws {
+        let twoMissing = days(count: 42, load: 45).filter { !["2026-10-21", "2026-10-20"].contains($0.day) }
+        XCTAssertNotNil(DailyTrainingTargetEngine.evaluate(input(history: twoMissing)).target)
+        let threeMissing = days(count: 42, load: 45)
+            .filter { !["2026-10-21", "2026-10-20", "2026-10-19"].contains($0.day) }
+        XCTAssertEqual(DailyTrainingTargetEngine.evaluate(input(history: threeMissing)).unavailableReason,
                        .needsRecentHistory)
+    }
+
+    func testSparseRecentHistoryDoesNotInventTarget() {
         XCTAssertEqual(DailyTrainingTargetEngine.evaluate(input(history: days(count: 6, load: 45))).unavailableReason,
                        .needsRecentHistory)
         XCTAssertNotNil(DailyTrainingTargetEngine.evaluate(input(history: days(count: 7, load: 45))).target)

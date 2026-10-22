@@ -685,7 +685,7 @@ public struct TrendsHeroChart: View {
     private var deltaPillView: some View {
         if let shownValue {
             let pill = deltaPill(for: shownValue)
-            StatePill(pill.title, tone: pill.tone, showsDot: false)
+            DeltaLabel(pill.title, tone: pill.tone)
                 .accessibilityLabel(pill.spoken)
         }
     }
@@ -2445,7 +2445,7 @@ public struct TrendsMoverRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: 78, alignment: .trailing)
-            StatePill(LocalizedStringKey(delta), tone: tone, showsDot: false)
+            DeltaLabel(LocalizedStringKey(delta), tone: tone)
                 .frame(minWidth: 76, alignment: .trailing)
         }
         .accessibilityElement(children: .combine)

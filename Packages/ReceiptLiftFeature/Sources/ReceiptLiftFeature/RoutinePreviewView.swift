@@ -109,9 +109,14 @@ private struct RoutinePreviewContent: View {
           .buttonStyle(PrimaryPillButtonStyle())
           .disabled(!suggestionsCurrent)
           .accessibilityIdentifier("lift.progression.applyAndStart")
-          Button { onBegin(false) } label: { Text("Start as planned").liftPillLabel() }
-            .buttonStyle(SecondaryPillButtonStyle())
-            .accessibilityIdentifier("lift.progression.startAsPlanned")
+          Button { onBegin(false) } label: {
+            Text("Start as planned")
+              .font(StrandFont.subhead.weight(.semibold))
+              .foregroundStyle(StrandPalette.textSecondary)
+              .frame(maxWidth: .infinity, minHeight: 44)
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("lift.progression.startAsPlanned")
         } else {
           Button { onBegin(false) } label: {
             Label("Start as planned", systemImage: "play.fill").liftPillLabel()

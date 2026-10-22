@@ -16,11 +16,11 @@ enum JournalVoiceFailure: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .onDeviceUnavailable: return "On-device dictation is unavailable for this language or device. You can type your entry."
-        case .permissionDescriptionsMissing: return "Dictation is unavailable in this build. You can type your entry."
-        case .speechPermissionDenied: return "Speech Recognition is not allowed. Enable it for NOOP in iPhone Settings, or type your entry."
-        case .microphonePermissionDenied: return "Microphone access is not allowed. Enable it for NOOP in iPhone Settings, or type your entry."
-        case .microphoneUnavailable: return "The microphone could not start. Check your audio route or type your entry."
+        case .onDeviceUnavailable: return String(localized: "On-device dictation is unavailable for this language or device. You can type your entry.")
+        case .permissionDescriptionsMissing: return String(localized: "Dictation is unavailable in this build. You can type your entry.")
+        case .speechPermissionDenied: return String(localized: "Speech Recognition is not allowed. Enable it for NOOP in iPhone Settings, or type your entry.")
+        case .microphonePermissionDenied: return String(localized: "Microphone access is not allowed. Enable it for NOOP in iPhone Settings, or type your entry.")
+        case .microphoneUnavailable: return String(localized: "The microphone could not start. Check your audio route or type your entry.")
         }
     }
 }
@@ -109,8 +109,8 @@ final class JournalVoice: ObservableObject {
             do { try await Task.sleep(for: finalizationTimeout) } catch { return }
             guard let self, self.operationID == token else { return }
             self.complete(message: self.transcript.isEmpty
-                ? "No transcript was returned. Try dictating again or type your entry."
-                : "Dictation could not finish. The captured text is available below; check it before using it.")
+                ? String(localized: "No transcript was returned. Try dictating again or type your entry.")
+                : String(localized: "Dictation could not finish. The captured text is available below; check it before using it."))
         }
     }
 
@@ -125,10 +125,10 @@ final class JournalVoice: ObservableObject {
         case .transcript(let text, let final):
             transcript = Self.bounded(text, bytes: 4_000)
             if text.utf8.count > 4_000 {
-                complete(message: "Dictation reached the entry limit. Check the captured text before using it.")
+                complete(message: String(localized: "Dictation reached the entry limit. Check the captured text before using it."))
             } else if final {
                 complete(message: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "No speech was captured. Try again or type your entry." : nil)
+                    ? String(localized: "No speech was captured. Try again or type your entry.") : nil)
             }
         case .failed(let message):
             complete(message: message)
@@ -165,7 +165,7 @@ final class JournalVoice: ObservableObject {
                 guard began else { return }
                 Task { @MainActor [weak self] in
                     guard self?.isBusy == true else { return }
-                    self?.complete(message: "Dictation was interrupted. Check any captured text or try again.")
+                    self?.complete(message: String(localized: "Dictation was interrupted. Check any captured text or try again."))
                 }
             }.store(in: &observers)
         NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)
@@ -175,7 +175,7 @@ final class JournalVoice: ObservableObject {
                     || reason == AVAudioSession.RouteChangeReason.noSuitableRouteForCategory.rawValue else { return }
                 Task { @MainActor [weak self] in
                     guard self?.isBusy == true else { return }
-                    self?.complete(message: "The microphone route changed. Check any captured text or try again.")
+                    self?.complete(message: String(localized: "The microphone route changed. Check any captured text or try again."))
                 }
             }.store(in: &observers)
     }
@@ -265,7 +265,7 @@ private final class AppleJournalVoiceCapture: JournalVoiceCapture {
                     guard self?.operationID == token else { return }
                     if let text { receive(.transcript(text, isFinal: final)) }
                     if failed && !final {
-                        receive(.failed("On-device dictation stopped. Check any captured text or try again."))
+                        receive(.failed(String(localized: "On-device dictation stopped. Check any captured text or try again.")))
                     }
                 }
             }

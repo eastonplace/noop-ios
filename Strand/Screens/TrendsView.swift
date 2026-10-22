@@ -22,6 +22,10 @@ struct TrendsView: View {
     @State private var screenSnapshot: TrendsScreenSnapshot?
     @State private var loadState = LatestWinsLoadState()
     @State private var civilContext = TrendsCivilContext.current()
+    /// The Coach's weekly insight, observed as raw bytes so the readout re-renders when it is saved or cleared,
+    /// and decoded once per change rather than on every render.
+    @AppStorage(WeeklyCoachInsightStore.defaultsKey) var coachInsightData: Data?
+    @State var coachInsight: WeeklyCoachInsight?
     @State var selectedMetric: ProductionTrendMetric = .recovery
     @State var selectedRange: TrendRange = .month
     /// Zero is the current Monday-Sunday digest; negative values step backward.
@@ -88,32 +92,12 @@ struct TrendsView: View {
             placesTrailingInAppHeader: true,
             trailing: {
                 HStack(spacing: 8) {
-                    NavigationLink {
-                        TrendsExploreHubView()
-                    } label: {
-                        #if os(iOS)
-                        WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2", showsChevron: false,
-                                   overhangs: false)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
-                        #else
-                        WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2", showsChevron: false,
-                                   overhangs: false)
-                            .chipHitTarget()
-                        #endif
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Explore insights and metrics")
-                    .accessibilityHint("Opens insights, comparisons, metrics, and experiments")
-                    .accessibilityIdentifier("trends.explore")
                     Button { showingReport = true } label: {
-                        WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
-                            #if os(iOS)
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
-                            #else
-                            .chipHitTarget()
-                            #endif
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Share Trends")
@@ -136,10 +120,15 @@ struct TrendsView: View {
                     paperScoresOverTime
                     trainingLoadCard
                     paperWeekReview
+                    trendsSeparator
+                    TrendsExploreMoreList()
                 }
                 // Today's first section sits this far below the tab title row; match it.
                 .padding(.top, 9)
             }
+        }
+        .onChange(of: coachInsightData, initial: true) { _, data in
+            coachInsight = WeeklyCoachInsightStore.decode(data)
         }
         .sheet(isPresented: $showingReport) {
             TrendsReportSheet(days: canonicalDays)

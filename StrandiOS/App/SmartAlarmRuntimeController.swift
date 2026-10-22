@@ -218,6 +218,23 @@ final class SmartAlarmRuntimeController: ObservableObject {
 
         installStrapHooks()
 
+        NotificationCenter.default.publisher(for: SmartAlarmEvidenceStore.readbackDidChange)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refreshStatus() }
+            }
+            .store(in: &cancellables)
+
+        model.ble.$connectedPeripheralUUID
+            .combineLatest(model.live.$connected)
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.refreshEvidence(for: self.currentEndpoint())
+                }
+            }
+            .store(in: &cancellables)
+
         model.repo.$refreshSeq
             .dropFirst()
             .sink { [weak self] _ in
@@ -541,13 +558,27 @@ final class SmartAlarmRuntimeController: ObservableObject {
 
         var actuation: SmartAlarmEvidence.Actuation = .notRequested
         var requestedWake = endpoint
+        var retainedArmEvidence: SmartAlarmEvidence?
+        var startedAdaptiveArm = false
         if computation.evaluation.decision == .wakeNow {
             SmartAlarmEvidenceStore.refreshCorrelation()
             let previous = SmartAlarmEvidenceStore.latest
+            let reuseEarlyWake: Bool
+            if model.whoop5Detected {
+                // Experimental WHOOP 5/MG has no owned WHOOP 4 readback transaction.
+                reuseEarlyWake = previous?.actuation == .sentToConnectedStrap
+            } else if let previous, let source = model.ble.connectedPeripheralUUID {
+                reuseEarlyWake = previous.matchesEarlyWakeAttempt(
+                    endpoint: endpoint, mode: snapshot.mode, sourceID: source)
+            } else {
+                reuseEarlyWake = false
+            }
             if previous?.windowEndpoint == endpoint,
-               previous?.actuation == .sentToConnectedStrap {
-                actuation = .sentToConnectedStrap
+               previous?.mode == snapshot.mode,
+               reuseEarlyWake {
+                actuation = previous?.actuation ?? .notRequested
                 requestedWake = previous?.requestedWakeAt ?? endpoint
+                retainedArmEvidence = previous
             } else {
                 let context: SmartAlarmEvaluator.ExecutionContext =
                     trigger == .backgroundRefresh ? .backgroundBestEffort : .foreground
@@ -563,6 +594,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
                     case .sentAwaitingReadback:
                         actuation = .sentToConnectedStrap
                         requestedWake = earlier
+                        startedAdaptiveArm = true
                         model.ble.buzzStrapOnce()
                     case .queuedForReconnect:
                         actuation = .queuedForReconnect
@@ -577,7 +609,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             }
         }
 
-        SmartAlarmEvidenceStore.save(.init(
+        var evaluationEvidence = SmartAlarmEvidence(
             mode: snapshot.mode,
             trigger: trigger,
             decision: computation.evaluation.decision,
@@ -594,8 +626,22 @@ final class SmartAlarmRuntimeController: ObservableObject {
             observedStrapWakeAt: nil,
             actuation: actuation,
             evaluatorModelVersion: computation.evaluation.modelVersion
-        ))
+        )
+        if let retainedArmEvidence {
+            // Reusing an earlier actuation must retain its physical request, even though this
+            // evaluation has new provenance. Correlation still validates the current source/request.
+            evaluationEvidence.armRequestID = retainedArmEvidence.armRequestID
+            evaluationEvidence.armSourceID = retainedArmEvidence.armSourceID
+            evaluationEvidence.armSentAt = retainedArmEvidence.armSentAt
+            evaluationEvidence.readbackStatus = retainedArmEvidence.readbackStatus
+            evaluationEvidence.earlyWakeAttempted = retainedArmEvidence.hasAttemptedEarlyWake ? true : nil
+            evaluationEvidence.earlyWakeSourceID = retainedArmEvidence.attemptedEarlyWakeSourceID
+        }
+        SmartAlarmEvidenceStore.save(evaluationEvidence)
         refreshEvidence(for: endpoint)
+        if startedAdaptiveArm {
+            scheduleEvidenceRefresh(snapshot: snapshot, endpoint: endpoint, token: token)
+        }
         model.live.append(
             log: "Smart alarm: mode=\(snapshot.mode.rawValue) decision=\(computation.evaluation.decision.rawValue) reason=\(computation.evaluation.reason) actuation=\(actuation.rawValue)"
         )
@@ -845,13 +891,13 @@ final class SmartAlarmRuntimeController: ObservableObject {
         evidenceTask?.cancel()
         evidenceTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for delay in [250, 750, 1_500, 3_000] {
+            for delay in [250, 750, 1_500, 3_000, 4_500] {
                 try? await Task.sleep(for: .milliseconds(delay))
                 guard !Task.isCancelled,
                       self.generation.accepts(token, request: snapshot, current: self.currentSnapshot)
                 else { return }
                 self.refreshEvidence(for: endpoint)
-                if self.evidence?.strapReportedArmedAt != nil { return }
+                if self.evidence?.readbackStatus == .confirmed { return }
             }
         }
     }
@@ -867,8 +913,30 @@ final class SmartAlarmRuntimeController: ObservableObject {
             return
         }
         evidence = latest
-        if latest.strapReportedArmedAt != nil {
+        // WHOOP 5/MG has no owned WHOOP 4 readback transaction; retain its explicit experimental state.
+        guard !model.whoop5Detected else { return }
+        let currentSource = model.ble.connectedPeripheralUUID
+        if !model.live.connected || latest.armSourceID != currentSource {
+            deliveryStatus = String(localized: "Saved · waiting for strap")
+        } else if latest.strapReportedArmedAt != nil, latest.readbackStatus == .confirmed {
             deliveryStatus = String(localized: "Armed on strap")
+        } else {
+            switch latest.readbackStatus {
+            case .noAlarm:
+                deliveryStatus = String(localized: "Not armed · strap reports no alarm")
+            case .mismatch:
+                deliveryStatus = String(localized: "Not armed · strap time differs")
+            case .unconfirmed:
+                deliveryStatus = String(localized: "Alarm not confirmed")
+            case .pending:
+                deliveryStatus = model.whoop5Detected
+                    ? String(localized: "Experimental arm sent · unconfirmed")
+                    : String(localized: "Arming…")
+            case .confirmed:
+                deliveryStatus = String(localized: "Alarm not confirmed")
+            case nil:
+                break
+            }
         }
     }
 
@@ -878,7 +946,9 @@ final class SmartAlarmRuntimeController: ObservableObject {
         snapshot: SmartAlarmRuntimeSnapshot
     ) {
         refreshEvidence(for: endpoint)
-        if evidence?.strapReportedArmedAt != nil { return }
+        if evidence?.strapReportedArmedAt != nil, evidence?.readbackStatus == .confirmed { return }
+        if let readback = evidence?.readbackStatus,
+           readback == .noAlarm || readback == .mismatch || readback == .unconfirmed { return }
         switch arm {
         case .queuedForReconnect:
             deliveryStatus = String(localized: "Saved · waiting for strap")
@@ -902,7 +972,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         arm: BLEManager.AlarmCommandResult
     ) {
         SmartAlarmEvidenceStore.refreshCorrelation()
-        if let previous = SmartAlarmEvidenceStore.latest,
+        if model.whoop5Detected, let previous = SmartAlarmEvidenceStore.latest,
            previous.windowEndpoint == endpoint,
            previous.actuation == .sentToConnectedStrap {
             return

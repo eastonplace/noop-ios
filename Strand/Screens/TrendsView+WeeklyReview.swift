@@ -21,7 +21,7 @@ extension TrendsView {
         let digest = snapshot.weeklyDigest
         let reviewLines = paperReviewLines(digest)
         let movers = paperMoverRows(digest)
-        let insight = paperInsightText(digest, reviewLines: reviewLines)
+        let insight = paperInsight(digest, reviewLines: reviewLines)
 
         return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow(
@@ -90,8 +90,12 @@ extension TrendsView {
             }
             .padding(.top, NoopMetrics.space1)
 
-            WidgetCard(title: String(localized: "Insight"), systemImage: "sparkles", tint: .accent) {
-                Text(insight)
+            WidgetCard(
+                title: insight.fromCoach ? String(localized: "Coach insight") : String(localized: "Insight"),
+                systemImage: "sparkles",
+                tint: .accent
+            ) {
+                Text(insight.text)
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -139,7 +143,7 @@ extension TrendsView {
         let hasPrior = (summary?.weekOverWeek.previous.n ?? 0) > 0
         let unchanged = hasValue && hasPrior && trendsDeltaIsZero(deltaMagnitude)
         let tone: TrendDeltaTone
-        if hasValue, hasPrior, !unchanged, let summary, !summary.isRoughComparison {
+        if hasValue, hasPrior, !unchanged, let summary, !summary.isRoughComparison, metric != .effort {
             switch summary.wowGoodness {
             case 1: tone = .positive
             case -1: tone = .negative
@@ -183,14 +187,19 @@ extension TrendsView {
     }
 
     private func paperReviewLines(_ digest: WeeklyDigest) -> [String] {
-        let lines = Array(digest.focalPoints.prefix(3))
-        return lines.isEmpty ? [digest.balance.sentence] : lines
+        WeeklyDigestEngine.highlightLines(
+            for: digest, effortDisplayFactor: UnitPrefs.currentEffortDisplayFactor())
     }
 
-    private func paperInsightText(_ digest: WeeklyDigest, reviewLines: [String]) -> String {
-        let candidates = [digest.balance.sentence] + digest.focalPoints
-        return candidates.first(where: { !reviewLines.contains($0) })
-            ?? String(localized: "Keep logging this week. The next distinct pattern will appear as soon as it clears the weekly signal threshold.")
+    /// The on-device Coach's takeaway for the displayed week when it has written one, else a deterministic
+    /// rule-based line. Never empty.
+    private func paperInsight(_ digest: WeeklyDigest, reviewLines: [String]) -> (text: String, fromCoach: Bool) {
+        if let stored = coachInsight, stored.weekStart == digest.weekStart, !stored.text.isEmpty {
+            return (stored.text, true)
+        }
+        return (WeeklyDigestEngine.insightLine(
+            for: digest, highlights: reviewLines,
+            effortDisplayFactor: UnitPrefs.currentEffortDisplayFactor()), false)
     }
 
     private func reviewDotColor(for line: String) -> Color {
@@ -263,7 +272,7 @@ extension TrendsView {
 
     /// A move that rounds to nothing carries no colour: "No change" is neither good nor bad.
     private func paperMoverTone(_ summary: WeeklyMetricSummary) -> StrandTone {
-        guard !summary.isRoughComparison, !trendsDeltaIsZero(paperMoverMagnitude(summary)) else { return .neutral }
+        guard !summary.isRoughComparison, summary.metric != .effort, !trendsDeltaIsZero(paperMoverMagnitude(summary)) else { return .neutral }
         switch summary.wowGoodness {
         case 1: return .positive
         case -1: return .critical

@@ -9,8 +9,8 @@ options:
 
 settings:
   base:
-    MARKETING_VERSION: "9.0.1"
-    CURRENT_PROJECT_VERSION: "205"
+    MARKETING_VERSION: "2.0.0"
+    CURRENT_PROJECT_VERSION: "243"
     SWIFT_EMIT_LOC_STRINGS: YES
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: "479HYY24G2"
@@ -76,7 +76,8 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         AppGroupIdentifier: "$(APP_GROUP_ID)"
         LSApplicationCategoryType: public.app-category.healthcare-fitness
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         CFBundleIcons:
           CFBundleAlternateIcons:
             AppIcon-Navy:

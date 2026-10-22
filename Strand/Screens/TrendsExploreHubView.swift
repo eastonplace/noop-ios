@@ -1,6 +1,73 @@
 import SwiftUI
 import StrandDesign
 
+/// The six analysis destinations that used to hang off Trends' header. One list feeds both the Explore page (grouped,
+/// with a line on what is behind each) and the quiet "Explore more" list at the bottom of Trends.
+enum TrendsExploreDestination: CaseIterable, Identifiable {
+    case whatMovesYou, intelligence, coach, allMetrics, compare, labBook
+
+    var id: Self { self }
+
+    var symbol: String {
+        switch self {
+        case .whatMovesYou: "sparkles"
+        case .intelligence: "brain.head.profile"
+        case .coach: "bubble.left.and.text.bubble.right"
+        case .allMetrics: "waveform.path.ecg"
+        case .compare: "chart.line.uptrend.xyaxis"
+        case .labBook: "flask"
+        }
+    }
+
+    var tint: DomainTint {
+        switch self {
+        case .whatMovesYou: .journal
+        case .intelligence, .coach: .accent
+        case .allMetrics: .heart
+        case .compare: .strain
+        case .labBook: .stress
+        }
+    }
+
+    var title: Text {
+        switch self {
+        case .whatMovesYou: Text("What Moves You")
+        case .intelligence: Text("Intelligence")
+        case .coach: Text("Coach")
+        case .allMetrics: Text("All metrics")
+        case .compare: Text("Compare")
+        case .labBook: Text("Lab Book")
+        }
+    }
+
+    var subtitle: Text {
+        switch self {
+        case .whatMovesYou: Text("Personal patterns ranked by effect size")
+        case .intelligence: Text("Your scored days and tomorrow's Recovery")
+        case .coach: Text("Ask questions grounded in your metrics")
+        case .allMetrics: Text("Open every signal and its history")
+        case .compare: Text("Overlay signals and inspect relationships")
+        case .labBook: Text("Your bloods, blood pressure and body numbers")
+        }
+    }
+
+    @MainActor @ViewBuilder func destination(repo: Repository) -> some View {
+        switch self {
+        case .whatMovesYou: InsightsHubView()
+        case .intelligence: IntelligenceView()
+        case .coach:
+            #if os(iOS)
+            LocalCoachView(journalRepository: repo)
+            #else
+            CoachView()
+            #endif
+        case .allMetrics: MetricExplorerView()
+        case .compare: CompareView()
+        case .labBook: LabBookView()
+        }
+    }
+}
+
 /// Re-homes the former More analysis destinations under Trends, where history,
 /// comparison, interpretation, and records share one predictable owner.
 ///
@@ -13,65 +80,91 @@ struct TrendsExploreHubView: View {
         ScreenScaffold(title: "Explore", topBackground: nil) {
             VStack(alignment: .leading, spacing: 0) {
                 FlatSection("Insights", systemImage: "sparkles", contentSpacing: 0) {
-                    NavigationLink { InsightsHubView() } label: {
-                        ExploreFlatRow(
-                            symbol: "sparkles", tint: .journal,
-                            title: Text("What Moves You"),
-                            subtitle: Text("Personal patterns ranked by effect size"))
-                    }
-                    .exploreRowPress()
+                    row(.whatMovesYou)
                     ExploreRowSeparator()
-                    NavigationLink { IntelligenceView() } label: {
-                        ExploreFlatRow(
-                            symbol: "brain.head.profile", tint: .accent,
-                            title: Text("Intelligence"),
-                            subtitle: Text("Your scored days and tomorrow's Recovery"))
-                    }
-                    .exploreRowPress()
+                    row(.intelligence)
                     ExploreRowSeparator()
-                    NavigationLink {
-                        #if os(iOS)
-                        LocalCoachView(journalRepository: repo)
-                        #else
-                        CoachView()
-                        #endif
-                    } label: {
-                        ExploreFlatRow(
-                            symbol: "bubble.left.and.text.bubble.right", tint: .accent,
-                            title: Text("Coach"),
-                            subtitle: Text("Ask questions grounded in your metrics"))
-                    }
-                    .exploreRowPress()
+                    row(.coach)
                 }
                 FlatSectionSeparator.afterExploreRows
                 FlatSection("Metrics", systemImage: "waveform.path.ecg", contentSpacing: 0) {
-                    NavigationLink { MetricExplorerView() } label: {
-                        ExploreFlatRow(
-                            symbol: "waveform.path.ecg", tint: .heart,
-                            title: Text("All metrics"),
-                            subtitle: Text("Open every signal and its history"))
-                    }
-                    .exploreRowPress()
+                    row(.allMetrics)
                     ExploreRowSeparator()
-                    NavigationLink { CompareView() } label: {
-                        ExploreFlatRow(
-                            symbol: "chart.line.uptrend.xyaxis", tint: .strain,
-                            title: Text("Compare"),
-                            subtitle: Text("Overlay signals and inspect relationships"))
-                    }
-                    .exploreRowPress()
+                    row(.compare)
                 }
                 FlatSectionSeparator.afterExploreRows
                 FlatSection("Records", systemImage: "flask", contentSpacing: 0) {
-                    NavigationLink { LabBookView() } label: {
-                        ExploreFlatRow(
-                            symbol: "flask", tint: .stress,
-                            title: Text("Lab Book"),
-                            subtitle: Text("Your bloods, blood pressure and body numbers"))
-                    }
-                    .exploreRowPress()
+                    row(.labBook)
                 }
             }
         }
+    }
+
+    private func row(_ d: TrendsExploreDestination) -> some View {
+        NavigationLink { d.destination(repo: repo) } label: {
+            ExploreFlatRow(symbol: d.symbol, tint: d.tint, title: d.title, subtitle: d.subtitle)
+        }
+        .exploreRowPress()
+    }
+}
+
+/// The quiet list at the foot of Trends: icon, name and chevron per row, no card or disc behind them.
+struct TrendsExploreMoreList: View {
+    @EnvironmentObject private var repo: Repository
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.spring(duration: 0.38, bounce: 0.12)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 0) {
+                    SectionEyebrow(title: String(localized: "Explore more"), systemImage: "square.grid.2x2", tint: .accent)
+                    Spacer(minLength: NoopMetrics.space2)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Explore more")
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            .accessibilityIdentifier("trends.exploreMore")
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(TrendsExploreDestination.allCases.enumerated()), id: \.element) { index, d in
+                        if index > 0 { FlatRowSeparator(leadingInset: 32) }
+                        NavigationLink { d.destination(repo: repo) } label: {
+                            HStack(spacing: NoopMetrics.space3) {
+                                Image(systemName: d.symbol)
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .frame(width: 20)
+                                    .accessibilityHidden(true)
+                                d.title
+                                    .font(.body)
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                Spacer(minLength: NoopMetrics.space2)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                                    .accessibilityHidden(true)
+                            }
+                            .padding(.vertical, NoopMetrics.space3)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .exploreRowPress()
+                        .accessibilityIdentifier("trends.explore.\(index)")
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .clipped()
     }
 }

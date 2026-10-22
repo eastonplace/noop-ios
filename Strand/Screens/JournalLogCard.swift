@@ -137,14 +137,9 @@ struct JournalLogCard: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     if !editing {
-                        Button {
+                        JournalComposeRow {
                             composingEntry = JournalEntryPresentation(day: dayKey, sourceIdentity: repo.journalEntrySourceIdentity)
-                        } label: {
-                            Label("Write or dictate an entry", systemImage: "square.and.pencil")
-                                .font(StrandFont.body)
                         }
-                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                        .accessibilityIdentifier("journal-compose-entry")
                     }
 
                     ForEach(JournalGroup.displayOrder, id: \.self) { group in
@@ -580,6 +575,11 @@ struct CoachingRootView: View {
     @State private var stacks: [CoachingStack] = []
     @State private var loaded = false
     @State private var savedMessage: String?
+    /// The typed/dictated note for today. It stays transient until its sheet's reviewed Save.
+    @State private var composingEntry: JournalEntryPresentation?
+    #if DEBUG && os(iOS)
+    @State private var qaComposeOpened = false
+    #endif
 
     private var todayKey: String { Repository.localDayKey(Date()) }
     private var activeItems: [JournalCatalogItem] {
@@ -620,6 +620,20 @@ struct CoachingRootView: View {
             #endif
         }
         .tint(StrandPalette.journalAccent)
+        .sheet(item: $composingEntry) { entry in
+            JournalEntryComposer(catalog: catalog, presentation: entry,
+                                 importedQuestions: importedQuestions, currentDay: todayKey,
+                                 onSaved: { Task { await load() } })
+                .environmentObject(repo)
+        }
+        #if DEBUG && os(iOS)
+        // `--noop-qa-route journal-compose`: open the composer over this screen once it has loaded.
+        .onChange(of: loaded) { _, isLoaded in
+            guard isLoaded, QARoute.requested == .journalCompose, !qaComposeOpened else { return }
+            qaComposeOpened = true
+            composingEntry = JournalEntryPresentation(day: todayKey, sourceIdentity: repo.journalEntrySourceIdentity)
+        }
+        #endif
     }
 
     private var checkInCard: some View {
@@ -651,6 +665,11 @@ struct CoachingRootView: View {
                 }
                 .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .accessibilityHint("Opens the existing journal check-in")
+
+                Divider().overlay(StrandPalette.hairline)
+                JournalComposeRow {
+                    composingEntry = JournalEntryPresentation(day: todayKey, sourceIdentity: repo.journalEntrySourceIdentity)
+                }
             }
         }
     }

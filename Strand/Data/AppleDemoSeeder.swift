@@ -119,6 +119,14 @@ enum AppleDemoSeeder {
             do { try await seed(into: store) }
             catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
         }
+        // Today's training target also needs a sleep need, which the demo has no sleep scorer to compute. A Strain
+        // scenario lays one down for the last week. Idempotent, so a database seeded earlier today gets it too.
+        if StrainDemoScenario.requested != nil {
+            let days = (try? await store.dailyMetrics(deviceId: whoop, from: "0000-00-00", to: "9999-99-99")) ?? []
+            let points = days.sorted { $0.day < $1.day }.suffix(7)
+                .map { MetricPoint(day: $0.day, key: Repository.sleepNeedV2Key, value: 500) }
+            _ = try? await store.upsertMetricSeries(points, deviceId: "\(whoop)-noop")
+        }
         // The Workouts screens' known week. It replaces what it owns on every launch, so a demo database that was
         // seeded before it existed gets it too. A Strain scenario owns today's workouts and heart rate (each one is a
         // state of the day, "no workouts" or "three workouts"), and this fixture deletes and rewrites exactly those, so
