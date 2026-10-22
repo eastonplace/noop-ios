@@ -1,0 +1,9 @@
+PASS baseline whoop4: 31 equal notifications -> 1 display publication; nil-timer engine stale at +9s
+PASS fixed whoop4: 31 notifications -> 31 arrivals / 1 display publication; silence +9s -> stale, no cue
+PASS invalid whoop4: 9 malformed/out-of-range inputs -> 0 arrivals; bounds 30/220 retained
+PASS baseline whoop5: 31 equal notifications -> 1 display publication; nil-timer engine stale at +9s
+PASS fixed whoop5: 31 notifications -> 31 arrivals / 1 display publication; silence +9s -> stale, no cue
+PASS invalid whoop5: 9 malformed/out-of-range inputs -> 0 arrivals; bounds 30/220 retained
+PASS cache seam: cached value does not replay; a new equal notification does arrive
+PASS original timer reproduction: 1 notification + cached-value timer -> 31 false sample accepts
+PASS all 376 checks (production parser methods / StandardHeartRate / LiveSessionEngine; Apple seams explicit)
