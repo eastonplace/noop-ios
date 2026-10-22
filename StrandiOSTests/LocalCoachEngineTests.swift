@@ -254,6 +254,30 @@ final class LocalCoachEngineTests: XCTestCase {
         XCTAssertTrue(deleted.conversations.isEmpty)
     }
 
+    func testDeletingRespondingConversationCannotBeResurrectedByLateOutputOrSave() async throws {
+        let root = try directory()
+        let model = TestCoachModel()
+        let gate = CoachTestGate()
+        model.body = { _, _, receive in
+            receive("partial answer")
+            await gate.wait()
+            receive("late deleted answer")
+        }
+        let engine = await make(model: model, directory: root)
+        let response = Task { await engine.send("Delete this conversation") }
+        await gate.waitUntilEntered()
+        let id = try XCTUnwrap(engine.selectedConversationID)
+        engine.deleteConversation(id)
+        gate.release()
+        _ = await response.value
+        await engine.flushPersistence()
+        let reopened = await make(directory: root)
+        XCTAssertTrue(engine.conversations.isEmpty)
+        XCTAssertTrue(engine.messages.isEmpty)
+        XCTAssertTrue(reopened.conversations.isEmpty)
+        XCTAssertTrue(reopened.messages.isEmpty)
+    }
+
     func testOrphanedEmptyAssistantTurnIsRestoredAsInterrupted() async throws {
         let root = try directory()
         let store = LocalCoachPersistence(directory: root)
