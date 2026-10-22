@@ -31,6 +31,9 @@ public enum StrainScorer {
         (90.0, 5), (80.0, 4), (70.0, 3), (60.0, 2), (50.0, 1),
     ]
 
+    /// The Edwards weight of zones 1...5, lowest first: the same weights Effort counts zone time with.
+    public static var zoneWeights: [Double] { edwardsZones.reversed().map { Double($0.weight) } }
+
     // MARK: - HRmax helpers
 
     /// Tanaka (2001): HRmax = 208 − 0.7 × age (gender-independent).

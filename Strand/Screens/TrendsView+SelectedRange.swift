@@ -82,6 +82,9 @@ extension TrendsView {
                         endLabel: String(localized: "Today")
                     )
                 }
+                if let loadFocus {
+                    LoadFocusCardRow(summary: loadFocus)
+                }
             }
         } else {
             HStack(alignment: .top, spacing: 12) {
@@ -126,7 +129,8 @@ extension TrendsView {
         return [title, status,
                 String(localized: "Recent load") + " " + trainingLoadNumber(load.acute),
                 String(localized: "Fitness base") + " " + trainingLoadNumber(load.chronic),
-                String(localized: "Form") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
+                String(localized: "Form") + " " + trainingLoadBalance(load.balance)]
+            .joined(separator: ", ") + (loadFocus.map { ". " + LoadFocusCardRow.spoken($0) } ?? "")
     }
 
     // MARK: - Selected range

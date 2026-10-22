@@ -752,6 +752,8 @@ struct TrainingLoadDrivers: View {
         let meta: String
         let fraction: Double
         let effort: Double
+        /// How the workout's heart-rate load splits by intensity; nil when it has no heart rate, so its bar stays plain.
+        var focus: LoadFocus.Split? = nil
     }
 
     let rows: [Row]
@@ -768,6 +770,13 @@ struct TrainingLoadDrivers: View {
                 if index > 0 { FlatRowSeparator() }
                 rowView(row)
             }
+            if rows.contains(where: { $0.focus != nil }) {
+                Text("Bar length is the workout's Strain. The colours show how it split by intensity.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 10)
+            }
             Text(verbatim: trainingDaysText)
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -777,7 +786,8 @@ struct TrainingLoadDrivers: View {
     }
 
     private func rowView(_ row: Row) -> some View {
-        let spoken = String(localized: "\(row.weekday) \(row.dayNumber), \(row.title), \(row.meta), Strain \(TrainingLoadWords.number(row.effort))")
+        var spoken = String(localized: "\(row.weekday) \(row.dayNumber), \(row.title), \(row.meta), Strain \(TrainingLoadWords.number(row.effort))")
+        if let split = row.focus { spoken += ", " + LoadFocusWords.spoken(split) }
         return Group {
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 4) {
@@ -835,8 +845,13 @@ struct TrainingLoadDrivers: View {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule(style: .continuous).fill(StrandPalette.hairlineStrong)
-                    Capsule(style: .continuous).fill(TrainingLoadInk.recent)
-                        .frame(width: max(proxy.size.width * CGFloat(row.fraction), 3))
+                    if let split = row.focus {
+                        LoadFocusBar(fractions: LoadFocus.Bucket.allCases.map(split.fraction), height: 4, spacing: 1)
+                            .frame(width: max(proxy.size.width * CGFloat(row.fraction), 3))
+                    } else {
+                        Capsule(style: .continuous).fill(TrainingLoadInk.recent)
+                            .frame(width: max(proxy.size.width * CGFloat(row.fraction), 3))
+                    }
                 }
             }
             .frame(height: 4)
@@ -1026,6 +1041,9 @@ struct TrainingLoadComparisonStrip: View {
 struct TrainingLoadMethod: View {
     let configuration: TrainingLoadEngine.Configuration
     let timeZoneIdentifier: String
+    /// The max heart rate Load focus sorts zones with, and whether it is the person's own setting (else from their age).
+    let loadFocusMaxHR: Int
+    let loadFocusMaxHRIsSet: Bool
 
     var body: some View {
         let maxGap = configuration.maxGapDays
@@ -1054,11 +1072,31 @@ struct TrainingLoadMethod: View {
             Text("A day with no Strain recorded counts as a rest day for up to \(maxGap) days in a row. Longer gaps restart the history.")
             Text("The first \(prime) recorded days are averaged to start both lines. Load appears after \(minimum) recorded days and is marked Established at \(established).")
             Text("Dates use the Trends source time zone: \(timeZoneIdentifier)")
+            loadFocusBlock
         }
         .font(StrandFont.footnote)
         .foregroundStyle(StrandPalette.textSecondary)
         .lineSpacing(2)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var loadFocusBlock: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+            Text("Load focus")
+                .font(StrandFont.footnote.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            let source = loadFocusMaxHRIsSet ? String(localized: "your own setting") : String(localized: "estimated from your age")
+            Text("Each workout's heart rate is sorted into your five zones (max HR **\(loadFocusMaxHR)**, \(source)). Minutes in harder zones count more, using the same weighting Strain uses.")
+            Text("**Low aerobic** = zones 1–2 · **High aerobic** = zones 3–4 · **Anaerobic** = zone 5")
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(TrainingLoadInk.surface))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
+            Text("Targets (35–55% low aerobic, 25–45% high aerobic, 5–15% anaerobic) are a broad endurance split, not a prescription. Without lactate or power data this is an **estimate from heart rate**. Workouts only; all-day heart rate isn't counted.")
+        }
     }
 
     private func formula(_ name: LocalizedStringKey, _ rest: LocalizedStringKey) -> some View {
@@ -1079,5 +1117,305 @@ struct TrainingLoadMethod: View {
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(TrainingLoadInk.surface))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Load focus
+
+/// The three intensity tints, from the palette: the teal accent (easy), the strain blue (tempo) and the purple (hard).
+/// The Trends card, the page and the workout bars all read them from here.
+enum LoadFocusInk {
+    static func color(_ bucket: LoadFocus.Bucket) -> Color {
+        switch bucket {
+        case .lowAerobic: StrandPalette.accent
+        case .highAerobic: StrandPalette.strainAccent
+        case .anaerobic: StrandPalette.metricPurple
+        }
+    }
+
+    static func status(_ status: LoadFocus.Status) -> Color {
+        status == .inRange ? StrandPalette.accent : StrandPalette.metricAmber
+    }
+}
+
+enum LoadFocusWords {
+    static func name(_ bucket: LoadFocus.Bucket) -> String {
+        switch bucket {
+        case .lowAerobic: String(localized: "Low aerobic")
+        case .highAerobic: String(localized: "High aerobic")
+        case .anaerobic: String(localized: "Anaerobic")
+        }
+    }
+
+    static func zones(_ bucket: LoadFocus.Bucket) -> String {
+        switch bucket {
+        case .lowAerobic: String(localized: "Zones 1–2 · easy")
+        case .highAerobic: String(localized: "Zones 3–4 · tempo, threshold")
+        case .anaerobic: String(localized: "Zone 5 · intervals")
+        }
+    }
+
+    static func target(_ bucket: LoadFocus.Bucket) -> String {
+        let range = bucket.target
+        return String(localized: "target \(range.lowerBound)–\(range.upperBound)%")
+    }
+
+    /// The card's short status: "in range", "a bit high".
+    static func short(_ status: LoadFocus.Status) -> String {
+        switch status {
+        case .inRange: String(localized: "in range")
+        case .below(let n): n <= 5 ? String(localized: "a bit low") : String(localized: "low")
+        case .above(let n): n <= 5 ? String(localized: "a bit high") : String(localized: "high")
+        }
+    }
+
+    /// The page's status, with the distance from the target: "1 pt above".
+    static func long(_ status: LoadFocus.Status) -> String {
+        switch status {
+        case .inRange: String(localized: "in range")
+        case .below(let n): String(localized: "\(n) pt below")
+        case .above(let n): String(localized: "\(n) pt above")
+        }
+    }
+
+    static func spoken(_ share: LoadFocus.Share) -> String {
+        let status: String = switch share.status {
+        case .inRange: String(localized: "in range")
+        case .below(let n): String(localized: "\(n) points below target")
+        case .above(let n): String(localized: "\(n) points above target")
+        }
+        return String(localized: "\(name(share.bucket)), \(share.percent) percent, \(status)")
+    }
+
+    /// A workout's split, in whole percent: "52 percent low aerobic, 30 percent high aerobic".
+    static func spoken(_ split: LoadFocus.Split) -> String {
+        LoadFocus.Bucket.allCases.compactMap { bucket in
+            let percent = Int((split.fraction(bucket) * 100).rounded())
+            return percent > 0 ? String(localized: "\(percent) percent \(name(bucket).lowercased())") : nil
+        }.joined(separator: ", ")
+    }
+
+    /// One plain-English line from the statuses alone: the mix's lead, then the biggest gap from its target (if any).
+    static func read(_ summary: LoadFocus.Summary) -> String {
+        let hard = summary.shares.first { $0.bucket == .anaerobic }?.percent ?? 0
+        let lead = hard >= 30 ? String(localized: "A hard-leaning mix") : String(localized: "Mostly aerobic")
+        guard let gap = summary.largestGap else { return String(localized: "\(lead), right in your target ranges.") }
+        let large = gap.status.points > 5
+        let phrase: String = switch (gap.bucket, gap.status) {
+        case (.anaerobic, .above): large ? String(localized: "a lot more hard work than your target") : String(localized: "a little more hard work than your target")
+        case (.anaerobic, _): large ? String(localized: "a lot less hard work than your target") : String(localized: "a little less hard work than your target")
+        case (.highAerobic, .above): large ? String(localized: "a lot more tempo work than your target") : String(localized: "a little more tempo work than your target")
+        case (.highAerobic, _): large ? String(localized: "a lot less tempo work than your target") : String(localized: "a little less tempo work than your target")
+        case (.lowAerobic, .above): large ? String(localized: "a lot more easy work than your target") : String(localized: "a little more easy work than your target")
+        case (.lowAerobic, _): large ? String(localized: "a lot less easy work than your target") : String(localized: "a little less easy work than your target")
+        }
+        return String(localized: "\(lead), with \(phrase).")
+    }
+}
+
+/// A rounded multi-part bar of the three intensity colours; parts with nothing in them are left out.
+struct LoadFocusBar: View {
+    /// Low aerobic, high aerobic, anaerobic.
+    let fractions: [Double]
+    var height: CGFloat = 12
+    var spacing: CGFloat = 3
+
+    var body: some View {
+        GeometryReader { proxy in
+            let live = LoadFocus.Bucket.allCases.indices.filter { fractions[$0] > 0 }
+            let usable = max(proxy.size.width - CGFloat(max(live.count - 1, 0)) * spacing, 1)
+            HStack(spacing: spacing) {
+                ForEach(live, id: \.self) { index in
+                    Capsule(style: .continuous).fill(LoadFocusInk.color(LoadFocus.Bucket.allCases[index]))
+                        .frame(width: max(usable * CGFloat(fractions[index]), 3))
+                }
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The Trends card's row: the 4-week bar and a three-column legend (name, percent, status). The caller hides it
+/// when there is not enough heart-rate data.
+struct LoadFocusCardRow: View {
+    let summary: LoadFocus.Summary
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                Text("Load focus · last 4 weeks")
+                    .font(StrandFont.caption.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Spacer(minLength: 0)
+                Text("from heart-rate zones")
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            LoadFocusBar(fractions: summary.shares.map(\.fraction), height: 8)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(summary.shares, id: \.bucket) { share in legend(share) }
+                }
+            } else {
+                HStack(alignment: .top, spacing: NoopMetrics.space2) {
+                    ForEach(summary.shares, id: \.bucket) { share in legend(share) }
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: Self.spoken(summary)))
+        .accessibilityIdentifier("trends.trainingLoad.loadFocus")
+    }
+
+    static func spoken(_ summary: LoadFocus.Summary) -> String {
+        ([String(localized: "Load focus, last 4 weeks, from heart-rate zones")] + summary.shares.map(LoadFocusWords.spoken))
+            .joined(separator: ". ")
+    }
+
+    private func legend(_ share: LoadFocus.Share) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 5) {
+                Circle().fill(LoadFocusInk.color(share.bucket)).frame(width: 6, height: 6)
+                Text(verbatim: LoadFocusWords.name(share.bucket))
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textSecondary)
+            }
+            Text(verbatim: "\(share.percent)%")
+                .font(StrandFont.subhead.weight(.semibold).monospacedDigit())
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text(verbatim: LoadFocusWords.short(share.status))
+                .font(StrandFont.micro.weight(.semibold))
+                .foregroundStyle(LoadFocusInk.status(share.status))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The page's Intensity view of "Where the load came from": the bar, a one-line read, a row per bucket against its
+/// target, and the four weeks as small stacked bars (a bar's height is that week's weighted load).
+struct TrainingLoadFocus: View {
+    /// A ready summary, or how many workouts with heart rate there were when there were too few.
+    let result: LoadFocus.Result
+    /// One label per week, oldest first.
+    let weekLabels: [String]
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var barsHeight: CGFloat = 72
+
+    var body: some View {
+        Group {
+            switch result {
+            case .insufficient(let count):
+                Text("Not enough heart-rate data yet. Load focus needs \(LoadFocus.minimumWorkouts) workouts with heart rate in the last 4 weeks; there are \(count) so far.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .ready(let summary):
+                VStack(alignment: .leading, spacing: 14) {
+                    LoadFocusBar(fractions: summary.shares.map(\.fraction))
+                    Text(verbatim: LoadFocusWords.read(summary))
+                        .font(Font.system(.subheadline, design: .default))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(summary.shares.enumerated()), id: \.element.bucket) { index, share in
+                            if index > 0 { FlatRowSeparator() }
+                            row(share)
+                        }
+                    }
+                    weeks(summary)
+                }
+            }
+        }
+        .accessibilityIdentifier("trends.trainingLoad.loadFocus")
+    }
+
+    private func row(_ share: LoadFocus.Share) -> some View {
+        let label = VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Circle().fill(LoadFocusInk.color(share.bucket)).frame(width: 9, height: 9).accessibilityHidden(true)
+                Text(verbatim: LoadFocusWords.name(share.bucket))
+                    .font(Font.system(.subheadline, design: .default).weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+            }
+            Text(verbatim: LoadFocusWords.zones(share.bucket) + " · " + LoadFocusWords.target(share.bucket))
+                .font(StrandFont.caption.weight(.regular))
+                .foregroundStyle(StrandPalette.textTertiary)
+        }
+        let value = VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 0) {
+            Text(verbatim: "\(share.percent)%")
+                .font(Font.system(.title3, design: .default).weight(.semibold).monospacedDigit())
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text(verbatim: LoadFocusWords.long(share.status))
+                .font(StrandFont.micro.weight(.semibold))
+                .foregroundStyle(LoadFocusInk.status(share.status))
+        }
+        return Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) { label; value }
+            } else {
+                HStack(alignment: .center, spacing: NoopMetrics.space2) {
+                    label.fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: NoopMetrics.space2)
+                    value.fixedSize()
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: LoadFocusWords.name(share.bucket) + ", " + LoadFocusWords.zones(share.bucket)
+            + ", " + LoadFocusWords.target(share.bucket) + ", " + LoadFocusWords.spoken(share)))
+    }
+
+    private func weeks(_ summary: LoadFocus.Summary) -> some View {
+        let peak = max(summary.weeks.map { $0.split.total }.max() ?? 0, 1)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Week by week")
+                .font(StrandFont.caption.weight(.semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .accessibilityAddTraits(.isHeader)
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(Array(summary.weeks.enumerated()), id: \.offset) { index, week in
+                    let label = index < weekLabels.count ? weekLabels[index] : ""
+                    VStack(spacing: 4) {
+                        Spacer(minLength: 0)
+                        stack(week.split, height: week.split.total > 0 ? max(barsHeight * CGFloat(week.split.total / peak), 4) : 3)
+                        Text(verbatim: label)
+                            .font(StrandFont.micro)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: barsHeight + 20)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(verbatim: week.split.total > 0
+                        ? String(localized: "\(label), \(LoadFocusWords.spoken(week.split))")
+                        : String(localized: "\(label), no workouts with heart rate")))
+                }
+            }
+        }
+    }
+
+    /// Anaerobic on top, low aerobic at the bottom; an empty week is a hairline stub.
+    private func stack(_ split: LoadFocus.Split, height: CGFloat) -> some View {
+        VStack(spacing: 1) {
+            if split.total > 0 {
+                ForEach(Array(LoadFocus.Bucket.allCases.reversed()), id: \.self) { bucket in
+                    let fraction = split.fraction(bucket)
+                    if fraction > 0 {
+                        Rectangle().fill(LoadFocusInk.color(bucket)).frame(height: max(height * CGFloat(fraction), 1))
+                    }
+                }
+            } else {
+                Rectangle().fill(StrandPalette.hairlineStrong)
+            }
+        }
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }

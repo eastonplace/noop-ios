@@ -30,6 +30,8 @@ struct TrendsView: View {
     @State var selectedRange: TrendRange = .month
     /// Zero is the current Monday-Sunday digest; negative values step backward.
     @State var weekOffset: Int
+    /// Load focus for the Training load card: nil until read, and while there is too little heart rate for it.
+    @State var loadFocus: LoadFocus.Summary?
 
     init(initialWeekOffset: Int = 0) {
         _weekOffset = State(initialValue: TrendsBounds.clampWeekOffset(initialWeekOffset))
@@ -155,6 +157,13 @@ struct TrendsView: View {
         }
         .task(id: screenSnapshotKey) {
             await rebuildScreenSnapshot()
+        }
+        // Load focus reads each workout's heart rate once (the repository remembers it), so a refresh only re-reads the
+        // workout list, and the card keeps its last value meanwhile.
+        .task(id: "\(loadedData.anchorDay)|\(loadedData.timeZoneIdentifier)|\(repo.refreshSeq)") {
+            let result = await repo.loadFocus(anchorDay: loadedData.anchorDay, timeZoneIdentifier: loadedData.timeZoneIdentifier)
+            guard !Task.isCancelled else { return }
+            if case .ready(let summary) = result { loadFocus = summary } else { loadFocus = nil }
         }
     }
 

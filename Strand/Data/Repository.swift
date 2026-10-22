@@ -269,6 +269,10 @@ final class Repository: ObservableObject {
     /// data load on this so they reload when fresh strap data lands , `today?.day` alone is a stable
     /// date string within a day and would freeze e.g. the Today HR trend until the date rolls over.
     @Published var refreshSeq = 0
+    /// Zone minutes per finished workout window and max heart rate, so Trends and the Training load page re-scan no HR.
+    /// Only workouts that carry heart rate are kept: one with none yet is read again, in case a sync filled it in.
+    private var workoutZoneMemo: [WorkoutZoneKey: [Double]] = [:]
+    private struct WorkoutZoneKey: Hashable { let start: Int, end: Int, hrMax: Int }
     /// One resolved first-paint snapshot. It carries each key metric's provenance and freshness evidence,
     /// so a full cache refresh can never replace a visible value with nil during its handoff.
     @Published var todayHealthSnapshot: TodayHealthSnapshot?
@@ -5249,6 +5253,40 @@ final class Repository: ObservableObject {
         let zoneSet = HRZones.zones(maxHR: Double(maxHR), source: hrMaxOverride > 0 ? "manual" : "tanaka")
         let minutes = HRZones.timeInZone(samples, zoneSet: zoneSet).seconds.map { $0 / 60.0 }
         return minutes.contains(where: { $0 > 0 }) ? minutes : nil
+    }
+
+    /// The workouts in a window with their zone minutes, for Load focus: workouts only, never all-day heart rate. The HR
+    /// reads and binning run off the main actor (see `workoutZoneMinutes`) and are remembered per workout.
+    func workoutLoadFocus(from: Int, to: Int, age: Int) async -> [LoadFocus.Workout] {
+        let rows = await workoutRows(from: from, to: to, reconcileHR: false)
+        let override = ProfileStore.storedHrMaxOverride()
+        let hrMax = ProfileStore.hrMax(age: age > 0 ? age : 30, override: override)
+        var result: [LoadFocus.Workout] = []
+        for row in rows {
+            let key = WorkoutZoneKey(start: row.startTs, end: row.endTs, hrMax: hrMax)
+            var minutes = workoutZoneMemo[key]
+            if minutes == nil {
+                minutes = await workoutZoneMinutes(from: row.startTs, to: row.endTs, age: age, hrMaxOverride: override)
+                workoutZoneMemo[key] = minutes
+            }
+            result.append(.init(start: Date(timeIntervalSince1970: TimeInterval(row.startTs)), zoneMinutes: minutes))
+        }
+        return result
+    }
+
+    /// Load focus for the four weeks ending on a Trends anchor day, in that day's source time zone.
+    func loadFocus(anchorDay: String, timeZoneIdentifier: String) async -> LoadFocus.Result {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: timeZoneIdentifier) ?? .autoupdatingCurrent
+        let parts = anchorDay.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3,
+              let day = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])),
+              let end = calendar.date(byAdding: .day, value: 1, to: day),
+              let start = calendar.date(byAdding: .day, value: -LoadFocus.windowDays, to: end)
+        else { return .insufficient(workoutsWithHR: 0) }
+        let workouts = await workoutLoadFocus(from: Int(start.timeIntervalSince1970), to: Int(end.timeIntervalSince1970),
+                                              age: ProfileStore.storedAge())
+        return LoadFocus.evaluate(workouts: workouts, through: end, calendar: calendar)
     }
 
     /// Apple Health daily aggregates (steps/energy/vo2/hr).

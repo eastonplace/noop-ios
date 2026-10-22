@@ -183,6 +183,12 @@ final class ProfileStore: ObservableObject {
         defaults.object(forKey: K.hrMax) as? Int ?? 0
     }
 
+    /// The age as the profile last saved it (derived from the date of birth, else the legacy Int), for readers with no `ProfileStore`.
+    nonisolated static func storedAge(_ defaults: UserDefaults = .standard) -> Int {
+        if let dob = defaults.object(forKey: K.dateOfBirth) as? Date { return years(from: dob, to: Date()) }
+        return defaults.object(forKey: K.legacyAge) as? Int ?? 30
+    }
+
     /// The body weight (kg) as the profile last saved it, for readers with no `ProfileStore`. nil means it was never
     /// set: Strength Strain then scores with 75 kg and marks the score as using the default.
     nonisolated static func storedWeightKg(_ defaults: UserDefaults = .standard) -> Double? {
