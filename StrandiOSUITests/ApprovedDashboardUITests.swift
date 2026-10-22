@@ -227,12 +227,62 @@ final class ApprovedDashboardUITests: XCTestCase {
         XCTAssertEqual(heroVersions, [displayedVersion], "What's New shows the running version from About")
         try requireExists(app.buttons["Continue"], in: app)
         capture(app, "fork-whats-new")
+        let enrollment = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "WHOOP pairing")).firstMatch
+        try reveal(enrollment, in: app, needsHitTarget: false)
+        capture(app, "fork-whats-new-last-feature")
         app.buttons["Continue"].tap()
         try requireExists(app.buttons["What's new"], in: app)
     }
 
+    func testNewLiveEnrollmentOffersOnlyWHOOP() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        launch(app, route: "settings")
+        defer { app.terminate() }
+        try openWHOOPFromSettingsRoot(in: app)
+        let manage = app.buttons["settings.whoop.manageDevices"]
+        try reveal(manage, in: app)
+        manage.tap()
+        let addDevice = app.buttons.matching(NSPredicate(format: "label ==[cd] %@", "Add a device")).firstMatch
+        try reveal(addDevice, in: app)
+        addDevice.tap()
+        let whoop5 = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "WHOOP 5.0 / MG.")).firstMatch
+        let whoop4 = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "WHOOP 4.0.")).firstMatch
+        try requireExists(whoop5, in: app)
+        try requireExists(whoop4, in: app)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "WHOOP ")).count, 2)
+        for retired in ["Oura", "Amazfit", "Heart-rate strap", "Gym equipment"] {
+            XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", retired)).firstMatch.exists)
+        }
+        capture(app, "whoop-only-new-enrollment")
+    }
+
+    func testDeepDataPermissionWordingInSettings() throws {
+        try assertDeepDataPermissionCopy(route: "settings-diagnosticsexperimental", captureName: "deep-data-settings-permission")
+    }
+
+    func testDeepDataPermissionWordingInTestCentre() throws {
+        try assertDeepDataPermissionCopy(route: "settings-testcentre", captureName: "deep-data-test-centre-permission")
+    }
+
+    private func assertDeepDataPermissionCopy(route: String, captureName: String) throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        // The argument domain selects a synthetic 5/MG UI without changing a paired device.
+        launch(app, route: route, extraArguments: ["-selectedWhoopModel", "whoop5mg"])
+        defer { app.terminate() }
+        let permission = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Allow WHOOP 5/MG deep-data changes")).firstMatch
+        try reveal(permission, in: app)
+        XCTAssertTrue(permission.isEnabled)
+        let detail = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Off cancels changes that have not been sent.")).firstMatch
+        try reveal(detail, in: app, needsHitTarget: false)
+        XCTAssertTrue(detail.label.contains("Changes already sent can still apply."))
+        XCTAssertTrue(detail.label.contains("NOOP cannot restore earlier strap settings."))
+        capture(app, captureName)
+    }
+
     private func launch(_ app: XCUIApplication, route: String? = nil, size: TextSize = .normal,
-                        preserveDemoPreferences: Bool = false) {
+                        preserveDemoPreferences: Bool = false, extraArguments: [String] = []) {
         app.terminate()
         app.launchArguments = [
             "--noop-coach-shell-qa", "--demo-seed", "--noop-lift-demo", "fresh",
@@ -242,6 +292,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         ]
         if preserveDemoPreferences { app.launchArguments.append("--noop-qa-preserve-preferences") }
         if let route { app.launchArguments += ["--noop-qa-route", route] }
+        app.launchArguments += extraArguments
         app.launch()
     }
 
