@@ -33,7 +33,7 @@ final class NotificationSettingsUITests: XCTestCase {
         try requireExists(app.navigationBars["Notifications"], in: app, timeout: 60)
         let picker = button("Morning summary", in: app)
         try reveal(picker, in: app)
-        let row = try pickerRow(containing: picker, in: app)
+        let row = try pickerRow(containing: picker, title: "Morning summary", in: app)
         let hierarchy = XCTAttachment(string: app.debugDescription)
         hierarchy.name = "notifications-native-picker-row-accessibility"
         hierarchy.lifetime = .keepAlways
@@ -68,15 +68,19 @@ final class NotificationSettingsUITests: XCTestCase {
             // actual touch and require its saved result rather than relying on that AX flag.
             restoredOriginal = false
             try activateMenuOption("Notify", in: app)
-            let applied = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Morning summary, Notify"), object: picker)
-            let appliedResult = XCTWaiter.wait(for: [applied], timeout: 5)
-            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: option)
-            let dismissedResult = XCTWaiter.wait(for: [dismissed], timeout: 5)
+            let appliedPicker = app.collectionViews.firstMatch.buttons.matching(
+                NSPredicate(format: "label == %@", "Morning summary, Notify")
+            ).firstMatch
+            let appliedResult = appliedPicker.waitForExistence(timeout: 5)
+            let dismissedResult = option.waitForNonExistence(timeout: 5)
             try restorePickerMode(originalMode, originalValue: originalValue, picker: picker, in: app)
             restoredOriginal = true
-            XCTAssertEqual(appliedResult, .completed, "The exact Notify option saves the selected delivery mode")
-            XCTAssertEqual(dismissedResult, .completed, "Activating Notify closes the native menu")
-            XCTAssertEqual(picker.label, originalValue, "The edge probe restores the original saved value")
+            XCTAssertTrue(appliedResult, "The exact Notify option saves the selected delivery mode")
+            XCTAssertTrue(dismissedResult, "Activating Notify closes the native menu")
+            let restoredPicker = app.collectionViews.firstMatch.buttons.matching(
+                NSPredicate(format: "label == %@", originalValue)
+            ).firstMatch
+            XCTAssertEqual(restoredPicker.label, originalValue, "The edge probe restores the original saved value")
         }
     }
 
@@ -102,9 +106,16 @@ final class NotificationSettingsUITests: XCTestCase {
         }
         let option = app.buttons.matching(NSPredicate(format: "label == %@", mode)).firstMatch
         try activateMenuOption(mode, in: app)
-        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", originalValue), object: picker)
-        let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: option)
-        guard XCTWaiter.wait(for: [restored, closed], timeout: 5) == .completed else {
+        // Selecting a mode replaces the native button's AX snapshot. Query the exact saved value
+        // afresh inside this foreground List, then verify the menu closes. Keep the original shared
+        // five-second budget instead of interleaving two app-wide predicate queries on stale snapshots.
+        let deadline = Date().addingTimeInterval(5)
+        let savedPicker = app.collectionViews.firstMatch.buttons.matching(
+            NSPredicate(format: "label == %@", originalValue)
+        ).firstMatch
+        let restored = savedPicker.waitForExistence(timeout: max(0, deadline.timeIntervalSinceNow))
+        let closed = option.waitForNonExistence(timeout: max(0, deadline.timeIntervalSinceNow))
+        guard restored && closed else {
             fail("The native Picker did not restore its captured delivery mode", in: app)
             throw HarnessError.unreachable("Delivery mode restoration failed")
         }
@@ -283,29 +294,30 @@ final class NotificationSettingsUITests: XCTestCase {
         let control = button(label, in: app)
         try reveal(control, in: app)
         XCTAssertTrue(control.isEnabled, "\(label) remains enabled")
-        _ = try pickerRow(containing: control, in: app)
+        _ = try pickerRow(containing: control, title: label, in: app)
         return control
     }
 
-    private func pickerRow(containing control: XCUIElement, in app: XCUIApplication) throws -> XCUIElement {
-        // Native List owns the menu Picker's tap target; its AX Button can describe only the inner label.
-        // The separate edge-touch test verifies that this larger row actually opens the same control.
-        let rows = app.cells.containing(.button, identifier: control.label).allElementsBoundByIndex
-        let finiteRows = rows.filter { row in
-            guard row.exists else { return false }
-            let frame = row.frame
-            return !frame.isEmpty && !frame.isNull && !frame.isInfinite
-                && frame.origin.x.isFinite && frame.origin.y.isFinite
-                && frame.width.isFinite && frame.height.isFinite
-        }
-        guard let row = finiteRows.min(by: { $0.frame.height < $1.frame.height }) else {
-            fail("The native Picker has no containing list row", in: app)
+    private func pickerRow(containing control: XCUIElement, title: String,
+                           in app: XCUIApplication) throws -> XCUIElement {
+        // The foreground Settings List is the native collection; the dashboard behind its sheet is a
+        // ScrollView. Use the row's stable title rather than enumerating app-wide cells by a changing
+        // Picker label, which required repeated full-hierarchy snapshots in the failed CI run.
+        let list = app.collectionViews.firstMatch
+        try requireExists(list, in: app)
+        let row = list.cells.containing(.staticText, identifier: title).firstMatch
+        try requireExists(row, in: app)
+        try reveal(row, in: app, needsHitTarget: false)
+        let frame = row.frame
+        guard !frame.isEmpty && !frame.isNull && !frame.isInfinite,
+              frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.width.isFinite, frame.height.isFinite else {
+            fail("The native Picker has no finite containing list row", in: app)
             throw HarnessError.unreachable("Missing native Picker row")
         }
-        try reveal(row, in: app, needsHitTarget: false)
-        XCTAssertGreaterThanOrEqual(row.frame.height, 44, "The native Picker row keeps a 44-point touch target")
-        XCTAssertTrue(app.frame.contains(row.frame), "The complete native Picker row is visible")
-        XCTAssertTrue(row.frame.contains(control.frame), "The measured row owns this exact Picker")
+        XCTAssertGreaterThanOrEqual(frame.height, 44, "The native Picker row keeps a 44-point touch target")
+        XCTAssertTrue(app.frame.contains(frame), "The complete native Picker row is visible")
+        XCTAssertTrue(frame.contains(control.frame), "The measured row owns this exact Picker")
         return row
     }
 

@@ -82,6 +82,7 @@ enum ActiveGpsWorkoutPersistence {
         let rawFixCount: Int
         let recordingWasActive: Bool
         let hadTerminatedGap: Bool
+        var filterPolicy: GpsTrackPolicy? = nil
 
         init(
             sessionID: UUID,
@@ -90,7 +91,8 @@ enum ActiveGpsWorkoutPersistence {
             distanceM: Double,
             rawFixCount: Int,
             recordingWasActive: Bool,
-            hadTerminatedGap: Bool
+            hadTerminatedGap: Bool,
+            filterPolicy: GpsTrackPolicy? = nil
         ) {
             version = Self.currentVersion
             self.sessionID = sessionID
@@ -100,6 +102,7 @@ enum ActiveGpsWorkoutPersistence {
             self.rawFixCount = rawFixCount
             self.recordingWasActive = recordingWasActive
             self.hadTerminatedGap = hadTerminatedGap
+            self.filterPolicy = filterPolicy
         }
 
         var acceptedPointCount: Int { segments.reduce(0) { $0 + $1.count } }
@@ -132,6 +135,7 @@ enum ActiveGpsWorkoutPersistence {
         let acceptedPointCount: Int
         let recordingWasActive: Bool
         let hadTerminatedGap: Bool
+        var filterPolicy: GpsTrackPolicy? = nil
 
         var expectedBasePointCount: Int { acceptedPointCount - appendedPoints.count }
 
@@ -162,6 +166,7 @@ enum ActiveGpsWorkoutPersistence {
         let acceptedPointCount: Int
         let recordingWasActive: Bool
         let hadTerminatedGap: Bool
+        var filterPolicy: GpsTrackPolicy? = nil
         let checksum: UInt64
 
         init(checkpoint: Checkpoint, generation: UUID, checksum: UInt64) {
@@ -174,6 +179,7 @@ enum ActiveGpsWorkoutPersistence {
             acceptedPointCount = checkpoint.acceptedPointCount
             recordingWasActive = checkpoint.recordingWasActive
             hadTerminatedGap = checkpoint.hadTerminatedGap
+            filterPolicy = checkpoint.filterPolicy
             self.checksum = checksum
         }
     }
@@ -438,7 +444,8 @@ enum ActiveGpsWorkoutPersistence {
                     rawFixCount: snapshot.rawFixCount,
                     acceptedPointCount: snapshot.acceptedPointCount,
                     recordingWasActive: snapshot.recordingWasActive,
-                    hadTerminatedGap: snapshot.hadTerminatedGap
+                    hadTerminatedGap: snapshot.hadTerminatedGap,
+                    filterPolicy: snapshot.filterPolicy
                 ),
                 synchronously: true
             )
@@ -716,7 +723,8 @@ enum ActiveGpsWorkoutPersistence {
                 distanceM: metadata.distanceM,
                 rawFixCount: metadata.rawFixCount,
                 recordingWasActive: metadata.recordingWasActive,
-                hadTerminatedGap: metadata.hadTerminatedGap
+                hadTerminatedGap: metadata.hadTerminatedGap,
+                filterPolicy: metadata.filterPolicy
             )
             return snapshot.isValid ? snapshot : nil
         }

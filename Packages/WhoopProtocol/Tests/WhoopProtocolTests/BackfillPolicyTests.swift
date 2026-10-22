@@ -63,6 +63,39 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .foreground, now: 1000, lastBackfillAt: last, emptyStreak: 99))
     }
 
+    func testLowPowerProductiveStrapAndForegroundUseThePeriodicFloor() {
+        for trigger: BackfillTrigger in [.strap, .foreground] {
+            for elapsed in [90.0, 480, 900, 2_699] {
+                XCTAssertFalse(BackfillPolicy.shouldRun(trigger: trigger, now: elapsed, lastBackfillAt: 0,
+                                                        emptyStreak: 0, powerSaving: true),
+                               "Productive automatic events must not bypass power saving at \(elapsed)s")
+            }
+            XCTAssertTrue(BackfillPolicy.shouldRun(trigger: trigger, now: 2_700, lastBackfillAt: 0,
+                                                   emptyStreak: 0, powerSaving: true))
+            XCTAssertFalse(BackfillPolicy.shouldRun(trigger: trigger, now: 3_599, lastBackfillAt: 0,
+                                                    emptyStreak: 2, powerSaving: true))
+            XCTAssertTrue(BackfillPolicy.shouldRun(trigger: trigger, now: 3_600, lastBackfillAt: 0,
+                                                   emptyStreak: 2, powerSaving: true))
+        }
+    }
+
+    func testLowPowerPreservesFirstAttemptAndBoundedRecoveryPaths() {
+        for trigger: BackfillTrigger in [.periodic, .strap, .foreground, .connect, .manual, .autoContinue] {
+            XCTAssertTrue(BackfillPolicy.shouldRun(trigger: trigger, now: 1, lastBackfillAt: nil,
+                                                   powerSaving: true))
+        }
+        for trigger: BackfillTrigger in [.manual, .autoContinue] {
+            XCTAssertTrue(BackfillPolicy.shouldRun(trigger: trigger, now: 1, lastBackfillAt: 0,
+                                                   emptyStreak: 99, powerSaving: true))
+        }
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .connect, now: 19, lastBackfillAt: 0,
+                                                powerSaving: true, interruptedSessions: 1))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .connect, now: 20, lastBackfillAt: 0,
+                                               powerSaving: true, interruptedSessions: 1))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .connect, now: 90, lastBackfillAt: 0,
+                                               powerSaving: true))
+    }
+
     // MARK: - #160: future-dated clock backoff
 
     /// #160: a future-dated-clock strap's recurring automatic offloads are SKIPPED ENTIRELY (not just

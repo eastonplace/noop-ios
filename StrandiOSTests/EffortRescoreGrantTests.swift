@@ -135,6 +135,10 @@ final class EffortRescoreGrantTests: XCTestCase {
         XCTAssertTrue(grant.isActive)
         grant.cancel()
         XCTAssertFalse(grant.isActive)
+        // Joining the task donates the test's priority while the cancelled chunk unwinds. Keep the bounded
+        // observation below, so a grant that stops forwarding cancellation still fails instead of hanging.
+        let completion = Task { @MainActor in await grant.waitUntilIdle() }
+        defer { completion.cancel() }
         await waitUntil { probe.sawCancellation }
         XCTAssertTrue(probe.sawCancellation, "the in-flight chunk is told to stop")
     }

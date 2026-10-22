@@ -438,6 +438,7 @@ final class AppModel: ObservableObject {
         /// The live reading while paused: shown, never counted.
         func noteReading(_ bpm: Int, at time: Date = Date()) {
             guard (30...240).contains(bpm) else { return }
+            guard lastReadingAt.map({ time >= $0 }) ?? true else { return }
             lastReadingAt = time
             if currentBPM != bpm { currentBPM = bpm }
         }
@@ -446,16 +447,24 @@ final class AppModel: ObservableObject {
         func ingest(_ sample: HRSample) -> Bool {
             guard sample.ts > 0, (30...240).contains(sample.bpm) else { return false }
             guard !pauseLedger.isPausedSecond(sample.ts) else {
-                noteReading(sample.bpm)
+                noteReading(sample.bpm, at: Date(timeIntervalSince1970: TimeInterval(sample.ts)))
                 return false
             }
             if let last = samples.last {
                 guard sample.ts >= last.ts else { return false }
                 if sample.ts == last.ts {
                     samples[samples.count - 1] = sample
-                    countZone(sample)
-                    guard strainAccumulator.replaceCurrentSecond(with: sample),
-                          chartAccumulator.ingest(sample) else { return false }
+                    if strainAccumulator.replaceCurrentSecond(with: sample) {
+                        countZone(sample)
+                        guard chartAccumulator.ingest(sample) else { return false }
+                        energy?.replaceCurrentSecond(with: sample)
+                        publishEnergy()
+                    } else {
+                        // Pause breaks the strain and zone cursors, but its boundary second can still
+                        // be corrected. Rebuild this rare case from the canonical samples and pauses
+                        // so the tail changes without reconnecting either stretch across the pause.
+                        restore(samples: samples, pauses: pauseLedger)
+                    }
                 } else {
                     samples.append(sample)
                     countZone(sample)
@@ -470,7 +479,7 @@ final class AppModel: ObservableObject {
                 appendEnergy(sample)
                 guard chartAccumulator.ingest(sample) else { return false }
             }
-            lastReadingAt = Date()
+            lastReadingAt = Date(timeIntervalSince1970: TimeInterval(sample.ts))
             publishLiveState(sample: sample)
             return true
         }
@@ -676,7 +685,14 @@ final class AppModel: ObservableObject {
             }
         }.store(in: &hrCancellables)
         // Smooth HR centrally so it's solid everywhere it's shown.
-        live.$heartRate.sink { [weak self] _ in self?.ingestDirectHR() }.store(in: &hrCancellables)
+        live.heartRateSourceChanges.sink { [weak self] _ in
+            self?.reconcileRealtimeHRDemand()
+        }.store(in: &hrCancellables)
+        live.heartRateReceipts.sink { [weak self] receipt in
+            guard let self, self.live.isCurrentHeartRateReceipt(receipt) else { return }
+            self.ingestInstantaneousHR(Double(receipt.bpm), observedAt: receipt.observedAt)
+        }.store(in: &hrCancellables)
+        live.$heartRate.sink { [weak self] hr in self?.ingestDirectHR(hr) }.store(in: &hrCancellables)
         live.$rr.sink { [weak self] rr in self?.ingestRRPacket(rr) }.store(in: &hrCancellables)
 
         // Physical-input + wear hooks (fired live by FrameRouter).
@@ -2199,20 +2215,31 @@ final class AppModel: ObservableObject {
     /// Direct HR and R-R are independent live streams. Keeping their sinks separate prevents one R-R
     /// packet from re-running HR smoothing/workout capture and prevents a direct-HR tick from appending
     /// the same R-R packet to the stress window a second time.
-    private func ingestDirectHR() {
-        guard let hr = live.heartRate, hr >= 30, hr <= 220 else {
+    private func ingestDirectHR(_ incomingHR: Int?) {
+        // Receipt delivery owns sample semantics; the presentation write must not ingest it twice.
+        guard !live.isReceivingHeartRateReceipt else { return }
+        // @Published emits in willSet. The argument is fresh; live.heartRate still holds the prior sample.
+        guard let hr = incomingHR, hr >= 30, hr <= 220 else {
             // #39: when the live source is gone (disconnect blanks heartRate AND rr), drop the stale
             // median so screens that now prefer `bpm` fall through to "," instead of freezing on the
             // last value. Mirrors Android (_bpm = null on disconnect). A transient out-of-range sample
             // with the link still up (heartRate or rr still present) keeps the last median.
-            if live.heartRate == nil && live.rr.isEmpty { resetSmoothing() }
+            if incomingHR == nil && live.rr.isEmpty { resetSmoothing() }
             return
         }
         ingestInstantaneousHR(Double(hr))
     }
 
     private func ingestRRPacket(_ packet: [Int]) {
+        // clearBiometrics clears HR before RR. Reset when the second stream clears, too.
+        if packet.isEmpty && live.heartRate == nil {
+            resetSmoothing()
+            return
+        }
         evaluateStress(packet)
+        // Session-tagged RR fallback is emitted by LiveState with its callback time. Other live
+        // device sources retain the existing direct/RR publisher path.
+        guard live.currentHeartRateSource == nil else { return }
         // R-R is only an HR fallback. When a valid direct-HR stream exists, its publisher owns
         // smoothing and workout capture, so the higher-frequency R-R publisher cannot duplicate work.
         guard !(live.heartRate.map { (30...220).contains($0) } ?? false),
@@ -2223,8 +2250,8 @@ final class AppModel: ObservableObject {
     }
 
     /// Fold one fresh instantaneous HR into the 10-second median window.
-    private func ingestInstantaneousHR(_ inst: Double) {
-        let now = Date()
+    private func ingestInstantaneousHR(_ inst: Double, observedAt now: Date = Date()) {
+        guard hrWindow.last.map({ now >= $0.t }) ?? true else { return }
         hrWindow.append((now, inst))
         hrWindow.removeAll { now.timeIntervalSince($0.t) > 10 }   // ~10s window
         if hrWindow.count > 40 { hrWindow.removeFirst(hrWindow.count - 40) }
@@ -2234,7 +2261,7 @@ final class AppModel: ObservableObject {
         // unconditional assign re-renders every bpm observer (Live, menu bar, widgets) for nothing.
         let smoothed = vals.isEmpty ? nil : Int(vals[vals.count / 2].rounded())
         if bpm != smoothed { bpm = smoothed }
-        captureWorkoutSample()
+        captureWorkoutSample(observedAt: now)
     }
 
     // MARK: - Manual workout tracking
@@ -2273,7 +2300,8 @@ final class AppModel: ObservableObject {
         if activeWorkoutIsGps {
             gpsRecorder.start(
                 sessionID: activeWorkout!.sessionID,
-                startMs: Int64(started.timeIntervalSince1970 * 1000)
+                startMs: Int64(started.timeIntervalSince1970 * 1000),
+                sport: resolved
             )
             if let checkpoint = gpsRecorder.persistenceCheckpoint() {
                 _ = persistActiveGpsWorkout(checkpoint, synchronously: true)
@@ -2743,7 +2771,7 @@ final class AppModel: ObservableObject {
         acquireWorkoutRealtimeHR()
         if let gps = ActiveGpsWorkoutPersistence.load(), gps.sessionID == snap.sessionID {
             activeWorkoutIsGps = true
-            gpsRecorder.restore(gps)
+            gpsRecorder.restore(gps, sport: snap.sport)
             // A workout that was paused when the app closed is still paused: location stays open, no fix counts.
             if pauses.isPaused { gpsRecorder.setPaused(true) }
             if gps.recordingWasActive {
@@ -2815,6 +2843,7 @@ final class AppModel: ObservableObject {
 
     func setApplicationActive(_ active: Bool) {
         applicationIsActive = active
+        reconcileRealtimeHRDemand()
         if !active {
             if !flushActiveWorkoutSnapshot(), activeWorkout != nil {
                 refreshWorkoutDurabilityWarning()
@@ -3022,22 +3051,24 @@ final class AppModel: ObservableObject {
     /// Append the current smoothed `bpm` to the active workout and advance its O(1) running strain
     /// accumulator. Called from the direct-HR path (or the R-R fallback when direct HR is absent); a
     /// no-op when no workout is running. No growing-window rescan occurs at the ~1 Hz live cadence.
-    private func captureWorkoutSample() {
+    private func captureWorkoutSample(observedAt: Date) {
         guard pendingWorkoutSnapshot == nil, let w = activeWorkout, let hr = bpm else { return }
+        guard observedAt >= w.start else { return }
         // Paused: the live number still shows, but it is not a reading of the workout.
         if w.isPaused {
-            w.noteReading(hr)
+            w.noteReading(hr, at: observedAt)
             return
         }
-        let sample = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr)
+        let sample = HRSample(ts: Int(observedAt.timeIntervalSince1970), bpm: hr)
         guard w.ingest(sample) else { return }
+        w.noteReading(hr, at: observedAt)
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()
     }
 
     /// Drop the smoothing window and blank the hero number so a resume / re-attach shows ","
     /// until a genuinely fresh sample arrives, instead of republishing the stale pre-gap median.
-    /// Called on Live-tab entry / manual Start HR (see `startRealtimeHR`), NOT on the 30s keep-alive
+    /// Called when the first realtime lease is acquired, NOT on the 30s keep-alive
     /// re-arm , so steady-state smoothing is untouched. Fixes #46 (HR jumped to a stale ~100 on
     /// reopen, then "slowly came back down" as fresh low samples refilled the window).
     func resetSmoothing() {
@@ -3148,6 +3179,10 @@ final class AppModel: ObservableObject {
     /// (the SourceCoordinator reacts to the active-device change and connects). No-op if the registry
     /// hasn't been wired yet (pre store-open) , the wizard is only reachable once it has.
     func registerDevice(_ device: PairedDevice, makeActive: Bool) {
+        guard LiveDeviceEnrollmentPolicy.permits(device) else {
+            live.append(log: "Device registration rejected: only WHOOP enrollment is supported.")
+            return
+        }
         guard deviceRegistry != nil else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -3222,59 +3257,55 @@ final class AppModel: ObservableObject {
             .store(in: &ouraAdoptCancellables)
     }
 
-    /// How many on-screen surfaces currently want the realtime HR stream (the Live tab and the
-    /// in-exercise LiveWorkoutView, which can be open at the same time , the workout sheet sits over
-    /// Live, or is reached straight from the Workouts tab without Live ever appearing). The stream
-    /// stays armed while ANY of them is visible, so a second surface arming it never disarms it out
-    /// from under the first (#681 , a WHOOP 5/MG manual workout started without first opening Live got
-    /// no live HR, so every sample was dropped and the session was silently discarded). Ref-counted to
-    /// match Android's `realtimeWanters` (AppViewModel.requestRealtimeHr/releaseRealtimeHr).
-    private var realtimeWanters = 0
-    /// A recording session owns one realtime lease independently of whichever screen is visible. This
-    /// keeps WHOOP 5/MG HR armed while the phone is locked or the live-workout sheet is closed.
-    private var workoutOwnsRealtimeHR = false
+    private var realtimeHRLeases = RealtimeHRLeaseSet()
+    private var workoutRealtimeHRLease: RealtimeHRLeaseToken?
 
     private func acquireWorkoutRealtimeHR() {
-        guard !workoutOwnsRealtimeHR else { return }
-        workoutOwnsRealtimeHR = true
-        startRealtimeHR()
+        guard workoutRealtimeHRLease == nil else { return }
+        workoutRealtimeHRLease = acquireRealtimeHR(for: .workout)
     }
 
     private func releaseWorkoutRealtimeHR() {
-        guard workoutOwnsRealtimeHR else { return }
-        workoutOwnsRealtimeHR = false
-        stopRealtimeHR()
+        guard let lease = workoutRealtimeHRLease else { return }
+        workoutRealtimeHRLease = nil
+        releaseRealtimeHR(lease)
     }
 
-    /// A surface that shows live HR appeared. Arms the realtime stream on the 0→1 edge , and ONLY on
-    /// that edge blanks the stale smoothing window (#46) so a resume shows "," until a fresh sample
-    /// lands, never re-clearing an already-live window when a second concurrent HR surface opens. The
-    /// keep-alive re-arm goes through `ble.startRealtime()` directly, NOT here, so steady-state is
-    /// untouched. Each surface must balance this with exactly one `stopRealtimeHR()` on disappear.
-    func startRealtimeHR() {
-        if realtimeWanters == 0 {
-            resetSmoothing()
-            ble.startRealtime()
+    /// Acquire even while disconnected. A later connection re-arms this remembered demand without
+    /// creating another lease. Only its returned token can release it.
+    func acquireRealtimeHR(for consumer: RealtimeHRConsumer) -> RealtimeHRLeaseToken {
+        let wasEmpty = realtimeHRLeases.isEmpty
+        if wasEmpty { resetSmoothing() }
+        let token = realtimeHRLeases.acquire(consumer)
+        reconcileRealtimeHRDemand(allowRawRetry: wasEmpty && consumer == .visible)
+        return token
+    }
+
+    func releaseRealtimeHR(_ token: RealtimeHRLeaseToken) {
+        guard realtimeHRLeases.release(token) else { return }
+        reconcileRealtimeHRDemand()
+    }
+
+    private func reconcileRealtimeHRDemand(rearm: Bool = false, allowRawRetry: Bool = false) {
+        let demand = realtimeHRLeases.demand(applicationIsActive: applicationIsActive)
+        let whoopOwnsDemand: Bool
+        if live.currentHeartRateSource?.providerSessionID != nil {
+            whoopOwnsDemand = false
+        } else if let registry = deviceRegistry {
+            whoopOwnsDemand = registry.devices.first(where: { $0.id == registry.activeDeviceId })
+                .map { $0.sourceKind == .liveBLE && SourceCoordinator.isWhoop($0) } ?? false
+        } else {
+            // Before registry hydration, preserve the existing default WHOOP startup demand.
+            whoopOwnsDemand = true
         }
-        realtimeWanters += 1
-    }
-    /// A live-HR surface went away. Stops the realtime stream only when the last one leaves (1→0 edge);
-    /// the lightweight 0x2A37 HR keeps recording regardless. Clamped at 0 so an unbalanced extra stop
-    /// cannot release the workout-owned lease or drive the count negative.
-    func stopRealtimeHR() {
-        realtimeWanters = WorkoutRealtimeLeasePolicy.remaining(afterRelease: realtimeWanters,
-                                                            workoutOwnsLease: workoutOwnsRealtimeHR)
-        if realtimeWanters == 0 { ble.stopRealtime() }
+        ble.setRealtimeDemand(visible: whoopOwnsDemand && demand.visible,
+                              recording: whoopOwnsDemand && demand.recording,
+                              rearm: rearm, allowRawRetry: allowRawRetry)
     }
 
-    /// Re-issue the BLE realtime arm WITHOUT touching the ref-count , used when a fresh
-    /// connection/bond lands while a surface is already showing live HR (Apple's `ble.startRealtime()`
-    /// must be re-sent on a new connection). A no-op when nothing wants the stream, so a stray
-    /// connection event can't arm it behind a closed Live tab. Mirrors that Android re-arms via its
-    /// own keep-alive rather than re-calling `requestRealtimeHr` on reconnect.
     func rearmRealtimeIfWanted() {
-        guard realtimeWanters > 0 else { return }
-        ble.startRealtime()
+        guard !realtimeHRLeases.isEmpty else { return }
+        reconcileRealtimeHRDemand(rearm: true)
     }
     /// Ask the strap for a fresh battery reading.
     func getBattery() { ble.refreshBattery() }

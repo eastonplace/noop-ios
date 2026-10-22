@@ -10,6 +10,7 @@ import PhotosUI
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 /// Settings — profile (powers zones / calories / recovery), strap connection, and about.
 /// Grouped cards on surface.raised with a two-column form feel.
@@ -609,12 +610,13 @@ struct SettingsDetailHost: View {
         if showFiveMGControls {
             Section {
                 Toggle("WHOOP 5/MG protocol probes", isOn: $puffinExperiments)
-                Toggle("WHOOP 5/MG deep data", isOn: $deepDataEnabled)
+                Toggle("Allow WHOOP 5/MG deep-data changes", isOn: deepDataPermissionBinding)
+                Text(PuffinExperiment.deepDataPermissionDetail).font(.subheadline).foregroundStyle(.secondary)
                 if deepDataEnabled {
                     Button("Send Enable Sequence to Strap") { model.ble.enableWhoop5DeepData() }
                         .disabled(deepDataButtonDisabled)
                     Text(deepDataButtonReason).font(.subheadline).foregroundStyle(.secondary)
-                    LabeledContent("Accepted flags", value: "\(live.r22FlagsAccepted) of 15")
+                    LabeledContent("Accepted flags", value: "\(live.r22FlagsAccepted) of \(deepDataFlagCount)")
                 }
                 Toggle("Broadcast heart rate", isOn: $broadcastHrEnabled)
                     .onChangeCompat(of: broadcastHrEnabled) { enabled in model.ble.setBroadcastHr(enabled) }
@@ -627,7 +629,7 @@ struct SettingsDetailHost: View {
             } header: {
                 Text("WHOOP 5 / MG")
             } footer: {
-                Text("These protocol tools are experimental. Deep-data and broadcast actions write reversible feature flags to the strap; capture only records frames the strap already sent.")
+                Text("These protocol tools are experimental. Deep-data changes persist after permission is off. Broadcast can be turned off separately. Capture records frames the strap already sent.")
             }
         }
 
@@ -1613,6 +1615,18 @@ struct SettingsDetailHost: View {
         }
     }
 
+    private var deepDataPermissionBinding: Binding<Bool> {
+        Binding(
+            get: { self.deepDataEnabled },
+            set: {
+                self.deepDataEnabled = $0
+                self.model.ble.reconcileWhoop5DeepDataPermission($0)
+            }
+        )
+    }
+
+    private var deepDataFlagCount: Int { Whoop5Config.enableR22Sequence.count }
+
     /// The R22 "send enable sequence" button is structurally impossible on macOS — a Mac can't form the
     /// encrypted bond a 5/MG needs to accept the write (BLEManager forms a live-HR-only link there), so it
     /// stays disabled regardless of bond/wear state (#587). On iOS/Android it gates on the real bond + wear.
@@ -1661,14 +1675,19 @@ struct SettingsDetailHost: View {
                 Divider().overlay(StrandPalette.hairline)
 
                 // MARK: R22 deep-data unlock — the one probe that writes to the strap.
-                Toggle(isOn: $deepDataEnabled) {
-                    Text("Unlock WHOOP 5/MG deep data (R22)")
+                Toggle(isOn: deepDataPermissionBinding) {
+                    Text("Allow WHOOP 5/MG deep-data changes")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.ink)
-                Text("WHOOP 5/MG straps hand a fresh app only live heart rate. The official app switches on the deeper streams (high-rate HR + motion + history) by writing a set of feature flags, a sequence two independent projects have documented. With this on, the button below sends that exact sequence to your strap. Unlike everything else here it does write to the strap, but it's reversible (it only changes which data the strap chooses to emit) and is the same thing the official app does. Experimental: it may do nothing on your firmware. iPhone/Android only. A Mac can't write to a 5/MG.")
+                Text("The button below requests persistent deep-data settings documented in official-app captures. These changes may have no effect on your firmware. Requires a secure WHOOP 5/MG connection on iPhone/Android.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(PuffinExperiment.deepDataPermissionDetail)
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1684,12 +1703,12 @@ struct SettingsDetailHost: View {
 
                     // Live R22 telemetry (#174): proof of what the strap is doing right now.
                     if live.r22FlagsAccepted > 0 {
-                        Label(live.r22FlagsAccepted >= 15
-                              ? "Strap accepted all 15 R22 flags"
-                              : "Strap accepted \(live.r22FlagsAccepted)/15 R22 flags…",
-                              systemImage: live.r22FlagsAccepted >= 15 ? "checkmark.seal.fill" : "ellipsis")
+                        Label(live.r22FlagsAccepted >= deepDataFlagCount
+                              ? "Strap accepted all \(deepDataFlagCount) R22 flags"
+                              : "Strap accepted \(live.r22FlagsAccepted)/\(deepDataFlagCount) R22 flags…",
+                              systemImage: live.r22FlagsAccepted >= deepDataFlagCount ? "checkmark.seal.fill" : "ellipsis")
                             .font(StrandFont.caption)
-                            .foregroundStyle(live.r22FlagsAccepted >= 15 ? StrandPalette.statusPositive : StrandPalette.textSecondary)
+                            .foregroundStyle(live.r22FlagsAccepted >= deepDataFlagCount ? StrandPalette.statusPositive : StrandPalette.textSecondary)
                     }
                     if live.deepPacketsThisSession > 0 {
                         Label(live.deepPacketsThisSession == 1
@@ -1698,7 +1717,7 @@ struct SettingsDetailHost: View {
                               systemImage: "clock.arrow.circlepath")
                             .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textSecondary)
-                    } else if live.r22FlagsAccepted >= 15 {
+                    } else if live.r22FlagsAccepted >= deepDataFlagCount {
                         Text("Flags accepted, but the enable sequence doesn't start a separate live stream. The deep records arrive as part of the normal history sync (#494).")
                             .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textTertiary)
@@ -1900,20 +1919,23 @@ struct SettingsDetailHost: View {
     /// "Run now": write an immediate timestamped strap-log drop (with the raw capture beside it, if a
     /// session has recorded one) and tell the user where it landed.
     private func runScheduledExportNow() {
-        model.ble.flushPuffinCaptures()
-        let url = ScheduledDebugExport.runNow(captureURL: live.puffinCaptureURL)
-        if let url {
-            backupAlertTitle = String(localized: "Strap log exported")
-            #if os(iOS)
-            backupAlertMessage = String(localized: "Saved \(url.lastPathComponent) to NOOP's folder in the Files app.")
-            #else
-            backupAlertMessage = String(localized: "Saved \(url.lastPathComponent) to your Documents folder.")
-            #endif
-        } else {
-            backupAlertTitle = String(localized: "Export failed")
-            backupAlertMessage = String(localized: "Couldn't write the strap log right now.")
+        Task {
+            await model.ble.flushPuffinCaptures()
+            await live.flushLogPersistence()
+            let url = await ScheduledDebugExport.runNow(captureURL: live.puffinCaptureURL)
+            if let url {
+                backupAlertTitle = String(localized: "Strap log exported")
+                #if os(iOS)
+                backupAlertMessage = String(localized: "Saved \(url.lastPathComponent) to NOOP's folder in the Files app.")
+                #else
+                backupAlertMessage = String(localized: "Saved \(url.lastPathComponent) to your Documents folder.")
+                #endif
+            } else {
+                backupAlertTitle = String(localized: "Export failed")
+                backupAlertMessage = String(localized: "Couldn't write the strap log right now.")
+            }
+            showBackupAlert = true
         }
-        showBackupAlert = true
     }
 
     /// Export the last 24h of decoded sensor streams for the connected strap to a CSV, then save (macOS
@@ -1970,17 +1992,18 @@ struct SettingsDetailHost: View {
     /// Flush the in-flight capture, then copy it to a user-chosen location (save panel on macOS) or
     /// hand it to the system share sheet (iOS).
     private func exportPuffinCaptures() {
-        model.ble.flushPuffinCaptures()
-        guard let src = live.puffinCaptureURL else { return }
         // Suggest a friendly, timestamped name so a reporter saving several captures gets sortable,
         // non-colliding files (#510) — e.g. noop-raw-capture-260617-1042.json.
         let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
-        do {
-            try FileExport.exportSanitizedCapture(at: src, suggestedName: suggested)
-        } catch {
-            backupAlertTitle = String(localized: "Export failed")
-            backupAlertMessage = error.localizedDescription
-            showBackupAlert = true
+        Task {
+            await model.ble.flushPuffinCaptures()
+            guard let src = live.puffinCaptureURL else { return }
+            do { try await FileExport.exportSanitizedCapture(at: src, suggestedName: suggested) }
+            catch {
+                backupAlertTitle = String(localized: "Export failed")
+                backupAlertMessage = error.localizedDescription
+                showBackupAlert = true
+            }
         }
     }
 
@@ -1989,34 +2012,39 @@ struct SettingsDetailHost: View {
     /// export utilities — `FileExport.exportPair` shares both files in one iOS share sheet, and saves
     /// each via its own NSSavePanel on macOS (no new file plumbing).
     private func exportRawAndLog() {
-        model.ble.flushPuffinCaptures()
-        guard let capture = live.puffinCaptureURL else {
-            backupAlertTitle = String(localized: "Nothing to export")
-            backupAlertMessage = String(localized: "No raw capture has been recorded yet this session.")
-            showBackupAlert = true
-            return
+        Task {
+            await model.ble.flushPuffinCaptures()
+            guard let capture = live.puffinCaptureURL else {
+                backupAlertTitle = String(localized: "Nothing to export")
+                backupAlertMessage = String(localized: "No raw capture has been recorded yet this session.")
+                showBackupAlert = true
+                return
+            }
+            let stamp = FileExport.timestamp()
+            let text = await live.exportableLogTextFlushing()
+            await FileExport.exportPair(
+                file: capture, fileSuggestedName: "noop-raw-capture-\(stamp).json",
+                text: text, textSuggestedName: "noop-strap-log-\(stamp).txt")
         }
-        let stamp = FileExport.timestamp()
-        FileExport.exportPair(
-            file: capture, fileSuggestedName: "noop-raw-capture-\(stamp).json",
-            text: live.exportableLogText(), textSuggestedName: "noop-strap-log-\(stamp).txt")
     }
 
     #if os(macOS)
     /// Flush, then reveal the capture file in Finder so the user can grab it directly.
     private func revealPuffinCaptures() {
-        model.ble.flushPuffinCaptures()
-        guard let source = live.puffinCaptureURL else { return }
-        do {
-            let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
-            let redacted = try FileExport.stagedSanitizedCapture(
-                at: source, suggestedName: suggested
-            )
-            NSWorkspace.shared.activateFileViewerSelecting([redacted])
-        } catch {
-            backupAlertTitle = String(localized: "Export failed")
-            backupAlertMessage = error.localizedDescription
-            showBackupAlert = true
+        Task {
+            await model.ble.flushPuffinCaptures()
+            guard let source = live.puffinCaptureURL else { return }
+            do {
+                let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
+                let redacted = try await Task.detached(priority: .utility) {
+                    try FileExport.stagedSanitizedCapture(at: source, suggestedName: suggested)
+                }.value
+                NSWorkspace.shared.activateFileViewerSelecting([redacted])
+            } catch {
+                backupAlertTitle = String(localized: "Export failed")
+                backupAlertMessage = error.localizedDescription
+                showBackupAlert = true
+            }
         }
     }
     #endif

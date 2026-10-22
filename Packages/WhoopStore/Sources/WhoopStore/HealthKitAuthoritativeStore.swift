@@ -158,9 +158,16 @@ extension WhoopStore {
         toDay: String,
         fromTimestamp: Int,
         toTimestamp: Int,
-        workoutSource: String = "apple-health"
+        workoutSource: String = "apple-health",
+        preserveUnprovenEmptyReads: Bool = false,
+        projectionDeletions _: [HealthKitProjectionDeletion] = []
     ) async throws {
         try syncWrite { db in
+            let protected = preserveUnprovenEmptyReads
+                ? try Self.preserveUnprovenHealthKitProjections(
+                    appleDaily: appleDaily, dailyMetrics: dailyMetrics, metricPoints: metricPoints,
+                    deviceId: deviceId, fromDay: fromDay, toDay: toDay, db: db)
+                : (apple: appleDaily, daily: dailyMetrics, points: metricPoints)
             // `DatabaseWriter.write` already opens the outer transaction. Starting a nested GRDB
             // transaction here would fail on DatabaseQueue, so keep the complete replacement in this
             // one writer closure.
@@ -170,14 +177,19 @@ extension WhoopStore {
                                arguments: [deviceId, fromDay, toDay])
             try db.execute(sql: "DELETE FROM metricSeries WHERE deviceId = ? AND day >= ? AND day <= ?",
                                arguments: [deviceId, fromDay, toDay])
-            try db.execute(sql: """
+            if !preserveUnprovenEmptyReads {
+                try db.execute(sql: """
                     DELETE FROM workout
                     WHERE deviceId = ? AND source = ? AND startTs >= ? AND startTs <= ?
                     """, arguments: [deviceId, workoutSource, fromTimestamp, toTimestamp])
+            }
+            // Guarded reads retain missing workouts too. Indexed timestamps identify the
+            // removed HealthKit object, but cannot prove which projected workout it owned.
+            // Even unique matching windows can belong to an independent XML import.
 
             // Reuse prepared INSERTs across history rows. Recompiling each row
             // dominated the device profile during a multi-year Health catch-up.
-            for row in appleDaily {
+            for row in protected.apple {
                 try db.cachedStatement(sql: """
                     INSERT INTO appleDaily
                         (deviceId, day, steps, activeKcal, basalKcal, vo2max, avgHr, maxHr, walkingHr, weightKg)
@@ -185,7 +197,7 @@ extension WhoopStore {
                     """).execute(arguments: [deviceId, row.day, row.steps, row.activeKcal, row.basalKcal,
                                      row.vo2max, row.avgHr, row.maxHr, row.walkingHr, row.weightKg])
             }
-            for row in dailyMetrics {
+            for row in protected.daily {
                 try db.cachedStatement(sql: """
                     INSERT INTO dailyMetric
                         (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
@@ -199,7 +211,7 @@ extension WhoopStore {
                                      row.skinTempDevC, row.respRateBpm, row.steps, row.activeKcalEst,
                                      row.spo2Red, row.spo2Ir, row.strainVersion])
             }
-            for point in metricPoints {
+            for point in protected.points {
                 try db.cachedStatement(sql: "INSERT INTO metricSeries (deviceId, day, key, value) VALUES (?, ?, ?, ?)").execute(
                                arguments: [deviceId, point.day, point.key, point.value])
             }

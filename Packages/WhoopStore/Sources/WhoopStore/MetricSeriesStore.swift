@@ -28,8 +28,9 @@ extension WhoopStore {
     /// Idempotent: re-upserting the same (deviceId, day, key) updates `value` in place rather than
     /// creating a duplicate.
     @discardableResult
-    public func upsertMetricSeries(_ rows: [MetricPoint], deviceId: String) async throws -> Int {
-        try syncWrite { db in
+    public func upsertMetricSeries(_ rows: [MetricPoint], deviceId: String,
+                                   outputWrites: AnalysisOutputWriteLedger? = nil) async throws -> Int {
+        try syncWrite(outputWrites: outputWrites) { db in
             var n = 0
             let statement = try db.cachedStatement(sql: """
                     INSERT INTO metricSeries
@@ -60,7 +61,8 @@ extension WhoopStore {
         keys: [String],
         from: String,
         to: String,
-        protectedDays: Set<String> = []
+        protectedDays: Set<String> = [],
+        outputWrites: AnalysisOutputWriteLedger? = nil
     ) async throws -> Int {
         let scopedKeys = Set(keys)
         guard !scopedKeys.isEmpty,
@@ -79,7 +81,7 @@ extension WhoopStore {
         }
 
         let desiredByKey = Dictionary(grouping: rows, by: \.key)
-        return try syncWrite { db in
+        return try syncWrite(outputWrites: outputWrites) { db in
             var changed = 0
             for key in scopedKeys.sorted() {
                 let desired = desiredByKey[key] ?? []
@@ -118,12 +120,12 @@ extension WhoopStore {
     /// Delete every row for the supplied metric keys across all device namespaces in one transaction.
     /// Use this for privacy revocation, where stale or unregistered device ids must not retain data.
     @discardableResult
-    public func deleteMetricSeriesGlobally(keys: [String]) async throws -> Int {
+    public func deleteMetricSeriesGlobally(keys: [String], outputWrites: AnalysisOutputWriteLedger? = nil) async throws -> Int {
         let scopedKeys = Set(keys)
         guard !scopedKeys.isEmpty else {
             throw MetricSeriesReconciliationError.invalidScope
         }
-        return try syncWrite { db in
+        return try syncWrite(outputWrites: outputWrites) { db in
             let orderedKeys = scopedKeys.sorted()
             let placeholders = Array(repeating: "?", count: orderedKeys.count)
                 .joined(separator: ",")
@@ -139,14 +141,15 @@ extension WhoopStore {
     /// Sleep-boundary edits use this conservative invalidation because a restored or re-paired database
     /// can retain the derived observation under a namespace that is no longer in the active read set.
     @discardableResult
-    public func deleteMetricSeriesGlobally(keys: [String], onDays days: [String]) async throws -> Int {
+    public func deleteMetricSeriesGlobally(keys: [String], onDays days: [String],
+                                           outputWrites: AnalysisOutputWriteLedger? = nil) async throws -> Int {
         let scopedKeys = Set(keys)
         let scopedDays = Set(days)
         guard !scopedKeys.isEmpty, !scopedDays.isEmpty,
               scopedDays.allSatisfy(isCanonicalMetricDay) else {
             throw MetricSeriesReconciliationError.invalidScope
         }
-        return try syncWrite { db in
+        return try syncWrite(outputWrites: outputWrites) { db in
             let orderedKeys = scopedKeys.sorted()
             let orderedDays = scopedDays.sorted()
             let keyPlaceholders = Array(repeating: "?", count: orderedKeys.count)

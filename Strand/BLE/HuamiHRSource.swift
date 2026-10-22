@@ -64,6 +64,7 @@ public final class HuamiHRSource: NSObject, ObservableObject {
     /// BLE-6: ordered writes with bounded retry.
     private let sink: BatchedRetryingSink<Streams>
     private let deviceId: String
+    private let receiptSession: LiveHeartRateProviderSession
     private let log: (String) -> Void
     private let onBattery: (Int) -> Void
     /// When false (the wizard's discovery-only scanner) this source never writes `LiveState`.
@@ -98,6 +99,7 @@ public final class HuamiHRSource: NSObject, ObservableObject {
                 feedsLive: Bool = true) {
         self.live = live
         self.deviceId = deviceId
+        self.receiptSession = LiveHeartRateProviderSession(live: live, deviceId: deviceId)
         self.persist = persist
         self.sink = BatchedRetryingSink(insert: persist)
         self.log = log
@@ -134,6 +136,7 @@ public final class HuamiHRSource: NSObject, ObservableObject {
     // MARK: - Connecting
 
     public func connect(_ id: UUID) {
+        if feedsLive, peripheral?.identifier != id || peripheral?.state != .connected { receiptSession.end() }
         stopScan()
         needsPairing = nil
         let p = seenPeripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first
@@ -156,6 +159,7 @@ public final class HuamiHRSource: NSObject, ObservableObject {
     }
 
     public func stop() {
+        if feedsLive { receiptSession.end() }
         stopScan()
         pendingConnectID = nil
         if let p = peripheral { central.cancelPeripheralConnection(p) }
@@ -164,13 +168,12 @@ public final class HuamiHRSource: NSObject, ObservableObject {
         enabledAnyHR = false
         batteryPct = nil
         flush()
-        if feedsLive { live.connected = false }
     }
 
     // MARK: - Buffer / persistence
 
-    private func enqueue(hr: Int) {
-        buffer.append((hr: hr, ts: Int(Date().timeIntervalSince1970)))
+    private func enqueue(hr: Int, observedAt: Date) {
+        buffer.append((hr: hr, ts: Int(observedAt.timeIntervalSince1970)))
         if buffer.count >= flushCount || Date().timeIntervalSince(lastFlush) >= flushInterval {
             flush()
         }
@@ -192,17 +195,17 @@ public final class HuamiHRSource: NSObject, ObservableObject {
 
     /// Fold a decoded HR (from either characteristic) into live state + the buffer. Range-gated to the
     /// same physiological window the standard path uses; an out-of-range value is dropped (never shown).
-    private func ingest(hr: Int) {
+    private func ingest(hr: Int, observedAt: Date, source: LiveHeartRateSource?) {
         guard hr >= 30, hr <= 220 else { return }
         if !loggedFirstHR {
             loggedFirstHR = true
             log("Huami: receiving data — first sample \(hr) bpm")
         }
         if feedsLive {
-            live.heartRate = hr
-            live.connected = true
+            guard let source else { return }
+            receiptSession.receive(bpm: hr, observedAt: observedAt, source: source)
         }
-        enqueue(hr: hr)
+        enqueue(hr: hr, observedAt: observedAt)
     }
 }
 
@@ -220,7 +223,7 @@ extension HuamiHRSource: @preconcurrency CBCentralManagerDelegate {
                                            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
             }
         default:
-            if feedsLive { live.connected = false }
+            if feedsLive { receiptSession.end() }
         }
     }
 
@@ -250,6 +253,8 @@ extension HuamiHRSource: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        if feedsLive { receiptSession.begin(peripheralID: peripheral.identifier) }
         log("Huami: connected — discovering services")
         peripheral.delegate = self
         peripheral.discoverServices([Self.stdHeartRateService, Self.huamiService, Self.batteryService])
@@ -257,18 +262,20 @@ extension HuamiHRSource: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state != .connected else { return }
         log("Huami: WARNING failed to connect — \(error?.localizedDescription ?? "unknown error")")
-        if feedsLive { live.connected = false }
+        if feedsLive { receiptSession.end() }
     }
 
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state != .connected else { return }
+        if feedsLive { receiptSession.end() }
         log("Huami: disconnected\(error.map { " — \($0.localizedDescription)" } ?? " (clean)")")
         loggedFirstHR = false
         enabledAnyHR = false
         batteryPct = nil
         flush()
-        if feedsLive { live.connected = false }
         if self.peripheral?.identifier == peripheral.identifier { self.peripheral = nil }
     }
 }
@@ -306,12 +313,15 @@ extension HuamiHRSource: @preconcurrency CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral,
                            didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state == .connected,
+              peripheral.services?.contains(where: { $0 === service }) == true else { return }
         if let error = error {
             log("Huami: WARNING characteristic discovery failed — \(error.localizedDescription)")
             return
         }
         guard let chars = service.characteristics else { return }
         for ch in chars where ch.uuid == Self.batteryLevel {
+            if feedsLive { receiptSession.bind(ch) }
             peripheral.readValue(for: ch)
             if ch.properties.contains(.notify) { peripheral.setNotifyValue(true, for: ch) }
         }
@@ -322,6 +332,7 @@ extension HuamiHRSource: @preconcurrency CBPeripheralDelegate {
             // the characteristic but won't notify without pairing. We try; the disconnect/failure path
             // surfaces the honest message if nothing ever arrives.
             if ch.properties.contains(.notify) || ch.properties.contains(.indicate) {
+                if feedsLive { receiptSession.bind(ch) }
                 peripheral.setNotifyValue(true, for: ch)
                 subscribed = true
                 enabledAnyHR = true
@@ -352,6 +363,10 @@ extension HuamiHRSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value else { return }
+        guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier)
+        if feedsLive, source == nil { return }
+        let observedAt = Date()
         if characteristic.uuid == Self.batteryLevel {
             if let pct = StandardBattery.parse([UInt8](value)) {
                 log("Huami: battery \(pct)%")
@@ -370,7 +385,7 @@ extension HuamiHRSource: @preconcurrency CBPeripheralDelegate {
             return
         }
         guard let hr else { return }   // no usable reading → stay at "—", never fabricate
-        ingest(hr: hr)
+        ingest(hr: hr, observedAt: observedAt, source: source)
     }
 
     /// Record + log the honest "this band needs pairing we can't do yet" outcome (once).

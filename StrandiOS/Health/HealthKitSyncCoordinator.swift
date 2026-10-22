@@ -8,14 +8,36 @@ import WhoopStore
 struct HealthKitSyncWindow: Codable, Equatable, Sendable {
     let start: Date
     let end: Date
+    /// Durable exact-object evidence considered for workout retraction. Daily aggregates retain
+    /// missing/hidden query values because a tombstone does not prove complete contributor visibility.
+    let projectionDeletions: [HealthKitProjectionDeletion]
 
-    init(start: Date, end: Date) {
+    init(start: Date, end: Date, projectionDeletions: [HealthKitProjectionDeletion] = []) {
         self.start = min(start, end)
         self.end = max(start, end)
+        self.projectionDeletions = projectionDeletions
+    }
+
+    private enum CodingKeys: String, CodingKey { case start, end, projectionDeletions }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(start: try values.decode(Date.self, forKey: .start),
+                  end: try values.decode(Date.self, forKey: .end),
+                  projectionDeletions: try values.decodeIfPresent(
+                    [HealthKitProjectionDeletion].self, forKey: .projectionDeletions) ?? [])
     }
 
     func union(_ other: HealthKitSyncWindow) -> HealthKitSyncWindow {
-        HealthKitSyncWindow(start: min(start, other.start), end: max(end, other.end))
+        let evidence = Array(Set(projectionDeletions + other.projectionDeletions)).sorted {
+            if $0.sampleType != $1.sampleType { return $0.sampleType < $1.sampleType }
+            if $0.fromTimestamp != $1.fromTimestamp { return $0.fromTimestamp < $1.fromTimestamp }
+            if $0.toTimestamp != $1.toTimestamp { return $0.toTimestamp < $1.toTimestamp }
+            if $0.fromDay != $1.fromDay { return $0.fromDay < $1.fromDay }
+            return $0.toDay < $1.toDay
+        }
+        return HealthKitSyncWindow(start: min(start, other.start), end: max(end, other.end),
+                                   projectionDeletions: evidence)
     }
 }
 
@@ -62,6 +84,7 @@ enum HealthKitObserverPageCommit {
         importedIdentities: [HealthKitObjectIdentity],
         initialScan: Bool,
         now: Date,
+        sampleTypeIdentifier: String? = nil,
         earliestLocalDate: () async throws -> Date?,
         offer: (HealthKitSyncWindow) throws -> Void,
         saveAnchor: (HKQueryAnchor) throws -> Void,
@@ -89,8 +112,39 @@ enum HealthKitObserverPageCommit {
                 start = min(start, earliest)
             }
             if initialScan && !unknownDeletion { start = max(start, fallback) }
-            let changed = HealthKitSyncWindow(
-                start: Calendar.current.startOfDay(for: start), end: max(now, dates.max() ?? now))
+            let changeStart = Calendar.current.startOfDay(for: start)
+            let changeEnd = max(now, dates.max() ?? now)
+            var deletions: [HealthKitProjectionDeletion] = []
+            if let sampleTypeIdentifier,
+               sampleTypeIdentifier == HKObjectType.workoutType().identifier,
+               !externalDeleted.isEmpty {
+                let calendar = Calendar.current
+                let formatter = DateFormatter()
+                formatter.calendar = calendar
+                formatter.timeZone = calendar.timeZone
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "yyyy-MM-dd"
+                let deletedIDs = Set(externalDeleted)
+                let knownDeleted = inboundIdentities.filter {
+                    deletedIDs.contains($0.objectUUID) && $0.sampleType == sampleTypeIdentifier
+                }
+                let bounds: [(Date, Date)] = knownDeleted.map {
+                    (Date(timeIntervalSince1970: TimeInterval($0.startTs)),
+                     Date(timeIntervalSince1970: TimeInterval($0.endTs)))
+                }
+                // An unknown UUID still triggers the conservative historical requery above. It
+                // cannot authorize clearing banked projections without an indexed contribution window.
+                deletions = bounds.map { lower, upper in
+                    // Daily aggregates have no complete contributor/value provenance. Keep their
+                    // missing values; only a workout's exact indexed row can be considered for removal.
+                    return HealthKitProjectionDeletion(sampleType: sampleTypeIdentifier,
+                        fromDay: formatter.string(from: lower), toDay: formatter.string(from: upper),
+                        fromTimestamp: Int(lower.timeIntervalSince1970),
+                        toTimestamp: Int(upper.timeIntervalSince1970))
+                }
+            }
+            let changed = HealthKitSyncWindow(start: changeStart, end: changeEnd,
+                                              projectionDeletions: deletions)
             try offer(changed)
             window = changed
         }

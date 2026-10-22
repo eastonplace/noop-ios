@@ -1,4 +1,6 @@
 import XCTest
+import Darwin
+import GRDB
 import NoopPhase34Core
 import StrandAnalytics
 import WhoopProtocol
@@ -55,7 +57,8 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     private func makeHarness(days: Int, strapDays: Range<Int>? = nil, lateNights: Set<Int> = [],
                              whoop4: Bool = false, whoop4SwapDay: Int? = nil,
                              whoop4SameIdSwapDay: Int? = nil,
-                             earlierStrapUntil: Int? = nil) async throws -> Harness {
+                             earlierStrapUntil: Int? = nil,
+                             lastNightSkinOffset: Int = 0) async throws -> Harness {
         let store = try await WhoopStore.inMemory()
         if earlierStrapUntil != nil {
             let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
@@ -106,7 +109,8 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                     if let swap = whoop4SwapDay ?? whoop4SameIdSwapDay {
                         raw = (k >= swap ? 1_330 : 1_300) + (ts / 60) % 3
                     } else {
-                        raw = whoop4 ? 1_300 + 2 * k + (ts / 60) % 3 : 3_450 + (k % 5) * 8
+                        raw = whoop4 ? 1_300 + 2 * k + (ts / 60) % 3
+                            : 3_450 + (k % 5) * 8 + (k == days - 1 ? lastNightSkinOffset : 0)
                     }
                     streams.skinTemp.append(SkinTempSample(ts: ts, raw: raw))
                 }
@@ -181,6 +185,178 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             }
         }
         try await body()
+    }
+
+    /// A fresh as-of temperature deviation must feed Charge in the same pass that stores it.
+    /// The two complete fixtures differ only in the final night's temperature; both baseline
+    /// histories, HRV, resting HR, sleep, profile, and analysis time are identical.
+    func testAutomaticChargeUsesCurrentNightSkinDeviation() async throws {
+        try await withRecalibrationEpochsRestored {
+            let regular = try await makeHarness(days: 8)
+            let elevated = try await makeHarness(days: 8, lastNightSkinOffset: 200)
+            let traceKey = "testcentre.active.\(TestDomain.recovery.id)"
+            let oldTrace = UserDefaults.standard.object(forKey: traceKey)
+            defer {
+                if let oldTrace { UserDefaults.standard.set(oldTrace, forKey: traceKey) }
+                else { UserDefaults.standard.removeObject(forKey: traceKey) }
+            }
+            UserDefaults.standard.set(true, forKey: traceKey)
+            var elevatedTrace: [String] = []
+            elevated.engine.diagnosticSink = { line, domain in
+                if domain == .recovery { elevatedTrace.append(line) }
+            }
+            let regularCompleted = await pass(regular, maxDays: 8)
+            let elevatedCompleted = await pass(elevated, maxDays: 8)
+            XCTAssertTrue(regularCompleted)
+            XCTAssertTrue(elevatedCompleted)
+            let regularRows = try await stored(regular)
+            let elevatedRows = try await stored(elevated)
+            let key = try XCTUnwrap(regular.dayKeys.last)
+            let normal = try XCTUnwrap(regularRows[key])
+            let warmer = try XCTUnwrap(elevatedRows[key])
+            XCTAssertEqual(warmer.avgHrv, normal.avgHrv)
+            XCTAssertEqual(warmer.restingHr, normal.restingHr)
+            XCTAssertEqual(warmer.totalSleepMin, normal.totalSleepMin)
+            let normalDeviation = try XCTUnwrap(normal.skinTempDevC)
+            let warmerDeviation = try XCTUnwrap(warmer.skinTempDevC)
+            XCTAssertGreaterThan(warmerDeviation - normalDeviation, 1.9)
+            let normalCharge = try XCTUnwrap(normal.recovery)
+            let warmerCharge = try XCTUnwrap(warmer.recovery)
+            XCTAssertLessThan(warmerCharge, normalCharge,
+                              "Charge must use the same skin deviation persisted for the night")
+            let published = try XCTUnwrap(elevated.engine.results.first { $0.day == key })
+            let skinDriver = try XCTUnwrap(published.drivers.first { $0.term == .skinTemp })
+            XCTAssertEqual(skinDriver.value, warmerDeviation,
+                           "The displayed driver must use the persisted temperature deviation")
+            let driverRows = try await elevated.store.metricSeries(
+                deviceId: elevated.computedId,
+                key: IntelligenceEngine.chargeBreakdownKey(.skinTemp, "value"), from: key, to: key)
+            XCTAssertEqual(driverRows.map(\.value), [warmerDeviation])
+            XCTAssertTrue(elevatedTrace.contains { $0.hasPrefix("charge day=\(key) term skinTempDev ") },
+                          "The Charge trace must include the same final temperature term")
+        }
+    }
+
+    /// Exercise the automatic pass with a real warm cache, mutate only the named non-HR input,
+    /// then require its output to equal a new engine reading the same committed store.
+    private func assertLateInputMatchesColdEngine(
+        _ name: String,
+        mutation: (WhoopStore, Int) async throws -> Void
+    ) async throws {
+        let harness = try await makeHarness(days: 8, whoop4: true)
+        let probe = DerivedInputBundleProbe()
+        harness.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
+            fingerprintLoader: { store, owner, from, to in
+                try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+            },
+            bundleLoader: { store, owner, from, to, limit in
+                await probe.record()
+                return try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
+            }))
+        for _ in 0..<3 {
+            let completed = await pass(harness, maxDays: 8)
+            XCTAssertTrue(completed)
+        }
+        let controlRows = try await stored(harness)
+        let day = try XCTUnwrap(harness.dayKeys.last)
+        XCTAssertNotNil(controlRows[day]?.totalSleepMin, "\(name): fixture needs actual detected sleep")
+        XCTAssertNotNil(controlRows[day]?.avgHrv, "\(name): fixture needs actual scored physiology")
+        await probe.reset()
+        let controlCompleted = await pass(harness, maxDays: 8)
+        let controlReads = await probe.count
+        XCTAssertTrue(controlCompleted)
+        XCTAssertEqual(controlReads, 0, "\(name): control must reach the existing warm-cache path")
+
+        let nightStart = firstDayStart + 7 * 86_400
+        let beforeHR = try await harness.store.hrFingerprint(
+            deviceId: Repository.whoopSource, from: nightStart - 30 * 3_600, to: nightStart + 86_400)
+        try await mutation(harness.store, nightStart)
+        let afterHR = try await harness.store.hrFingerprint(
+            deviceId: Repository.whoopSource, from: nightStart - 30 * 3_600, to: nightStart + 86_400)
+        XCTAssertEqual(beforeHR.count, afterHR.count, "\(name): HR count must not explain invalidation")
+        XCTAssertEqual(beforeHR.maxTs, afterHR.maxTs, "\(name): HR watermark must not explain invalidation")
+        await probe.reset()
+        let changedCompleted = await pass(harness, maxDays: 8)
+        let changedReads = await probe.count
+        XCTAssertTrue(changedCompleted)
+        XCTAssertGreaterThan(changedReads, 0, "\(name): changed input must reach the actual scan")
+        let warm = try await stored(harness)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(harness.store)
+        let cold = Harness(store: harness.store,
+                           engine: IntelligenceEngine(repo: repository, profile: ProfileStore(),
+                                                      deviceId: Repository.whoopSource),
+                           computedId: harness.computedId, reference: harness.reference, dayKeys: harness.dayKeys)
+        let coldCompleted = await pass(cold, maxDays: 8)
+        let coldRows = try await stored(cold)
+        XCTAssertTrue(coldCompleted)
+        XCTAssertEqual(coldRows, warm, "\(name): warm and cold persisted output must agree")
+    }
+
+    func testLateWearEventsReachTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("wear events") { store, midnight in
+            _ = try await store.insert(Streams(events: [
+                WhoopEvent(ts: midnight - 3_600, kind: "WRIST_OFF(10)", payload: [:]),
+                WhoopEvent(ts: midnight + 6 * 3_600, kind: "WRIST_ON(11)", payload: [:]),
+            ]), deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateRespirationReachesTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("respiration") { store, midnight in
+            _ = try await store.insert(Streams(resp: [RespSample(ts: midnight + 7_201, raw: 1_500)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateMotionReachesTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("motion") { store, midnight in
+            _ = try await store.insert(Streams(gravity: [GravitySample(ts: midnight + 7_201, x: 2, y: 1, z: 0)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateTemperatureWithoutAnAnchorChangeReachesTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("temperature") { store, midnight in
+            _ = try await store.insert(Streams(skinTemp: [SkinTempSample(ts: midnight + 7_201, raw: 1_318)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateSpO2ReachesTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("SpO2") { store, midnight in
+            _ = try await store.insert(Streams(spo2: [SpO2Sample(ts: midnight + 7_201, red: 800, ir: 900)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateStepsAndSleepStateReachTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("steps and band sleep state") { store, midnight in
+            _ = try await store.insert(Streams(steps: [StepSample(ts: midnight + 7_201, counter: 250)],
+                                              sleepState: [SleepStateSample(ts: midnight + 7_201, state: 2)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testSameKeyMotionAndHeartRateRepairsReachTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("same-key values") { store, midnight in
+            try await store.registryWriter.write { [sourceID = Repository.whoopSource] db in
+                try db.execute(sql: "UPDATE gravitySample SET x = 2, y = 1, z = 0 WHERE deviceId = ? AND ts = ?",
+                               arguments: [sourceID, midnight + 7_200])
+                try db.execute(sql: "UPDATE hrSample SET bpm = 70 WHERE deviceId = ? AND ts = ?",
+                               arguments: [sourceID, midnight + 7_200])
+            }
+        }
+    }
+
+    func testSameKeyRRQualityRepairsReachTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("R-R quality") { store, midnight in
+            try await store.registryWriter.write { [sourceID = Repository.whoopSource] db in
+                try db.execute(sql: "UPDATE rrInterval SET tsSuspect = 1 WHERE deviceId = ? AND ts >= ? AND ts < ?",
+                               arguments: [sourceID, midnight + 3_600, midnight + 7_200])
+            }
+        }
     }
 
     // MARK: - F3 invariant (with F2 skin and F5 chunk edges)
@@ -832,9 +1008,11 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     /// An afternoon's wear on fixture day `k` from 14:00 to 23:00, with half an hour of exercise at 17:00.
     private func insertAfternoon(_ harness: Harness, day k: Int, deviceId: String) async throws {
         let start = firstDayStart + k * 86_400
+        let exerciseStart: Int = start + 17 * 3_600
+        let exerciseEnd: Int = exerciseStart + 1_800
         var streams = Streams()
         for ts in stride(from: start + 14 * 3_600, to: start + 23 * 3_600, by: 30) {
-            let exercising = ts >= start + 17 * 3_600 && ts < start + 17 * 3_600 + 1_800
+            let exercising: Bool = ts >= exerciseStart && ts < exerciseEnd
             streams.hr.append(HRSample(ts: ts, bpm: exercising ? 125 + ts % 9 : 80 + ts % 7))
             let wobble = Double(ts % 11) * 0.2
             streams.gravity.append(GravitySample(ts: ts, x: wobble, y: 0.3 - wobble, z: 0.8))
@@ -1151,6 +1329,322 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             let coldAgain = try await stepsEstimates(fresh)
             XCTAssertEqual(coldAgain, changed, "a cold read lands on the cached engine's estimates")
         }
+    }
+
+    /// Fixture timing is reported, not asserted. The correctness oracle is the real engine's persisted
+    /// output and 59/60 motion hits after an actual one-day ingest, including the ordinary three-day scan.
+    func testNormalActiveInputCostKeepsSixtyDayMotionReuseAndColdParity() async throws {
+        try await withManualStepsCoefficient(0.05) {
+            let harness = try await makeHarness(days: 60, whoop4: true)
+            let bundleProbe = DerivedInputCostProbe()
+            harness.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
+                fingerprintLoader: { store, owner, from, to in
+                    try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+                },
+                bundleLoader: { store, owner, from, to, limit in
+                    let bundle = try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
+                    await bundleProbe.record(bundle, from: from)
+                    return bundle
+                }))
+            for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+            await bundleProbe.reset()
+            let warmCPU = clock(), warmStart = Date()
+            let beforeWarmHits = harness.engine.stepMotionCacheHits
+            let warmCompleted = await pass(harness, maxDays: 3)
+            let warmSeconds = Date().timeIntervalSince(warmStart)
+            let warmCPUSeconds = Double(clock() - warmCPU) / Double(CLOCKS_PER_SEC)
+            XCTAssertTrue(warmCompleted)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits - beforeWarmHits, 60)
+            let warmBundles = await bundleProbe.snapshot()
+            XCTAssertEqual(warmBundles.misses, 0, "the cost control must first reach full day-bundle reuse")
+            await bundleProbe.reset()
+
+            var incoming = Streams()
+            let busyHour = firstDayStart + 59 * 86_400 + 17 * 3_600
+            for index in 0..<120 {
+                let ts = busyHour + index * 2 + 1
+                incoming.hr.append(HRSample(ts: ts, bpm: 130 + index % 11))
+                incoming.rr.append(RRInterval(ts: ts, rrMs: 900 + index % 7))
+                incoming.gravity.append(GravitySample(ts: ts, x: index % 2 == 0 ? 1.4 : -1.4, y: 0, z: 0.2))
+            }
+            let activeCPU = clock(), activeStart = Date()
+            _ = try await harness.store.insert(incoming, deviceId: Repository.whoopSource)
+            let beforeActiveHits = harness.engine.stepMotionCacheHits
+            let activeCompleted = await pass(harness, maxDays: 3)
+            let activeSeconds = Date().timeIntervalSince(activeStart)
+            let activeCPUSeconds = Double(clock() - activeCPU) / Double(CLOCKS_PER_SEC)
+            XCTAssertTrue(activeCompleted)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits - beforeActiveHits, 59)
+            let activeBundles = await bundleProbe.snapshot()
+            XCTAssertEqual(activeBundles.misses, 1, "a trusted current-day append must preserve both untouched day scans")
+            let reusedOutput = try await stored(harness)
+
+            let repository = Repository(deviceId: Repository.whoopSource)
+            repository.setStoreForTesting(harness.store)
+            let freshEngine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+            let fresh = Harness(store: harness.store, engine: freshEngine, computedId: harness.computedId,
+                                reference: harness.reference, dayKeys: harness.dayKeys)
+            let coldCompleted = await pass(fresh, maxDays: 3)
+            let coldOutput = try await stored(fresh)
+            XCTAssertTrue(coldCompleted)
+            XCTAssertEqual(reusedOutput, coldOutput, "active-input reuse must match a cold engine")
+            print("D6_ENGINE_COST warmSeconds=\(warmSeconds) warmCPUSeconds=\(warmCPUSeconds) "
+                + "activeIngestAndAnalysisSeconds=\(activeSeconds) activeIngestAndAnalysisCPUSeconds=\(activeCPUSeconds) "
+                + "days=60 scanDays=3 incomingRows=360 warmMotionHits=60 activeMotionHits=59 "
+                + "warmBundleMisses=\(warmBundles.misses) activeBundleMisses=\(activeBundles.misses) "
+                + "activeBundleHRRows=\(activeBundles.hrRows) activeBundleRRRows=\(activeBundles.rrRows) "
+                + "activeBundleGravityRows=\(activeBundles.gravityRows) "
+                + "activeBundleWindowStarts=\(activeBundles.windows.sorted().map(String.init).joined(separator: ","))")
+        }
+    }
+
+    private func assertTrustedAppendWindow(
+        _ name: String, lateNights: Set<Int> = [], secondOfLastDay: Int,
+        removeExistingHR: Bool = false, includeGravity: Bool = false, expectedMisses: Int
+    ) async throws {
+        let warm = try await makeHarness(days: 8, lateNights: lateNights, whoop4: true)
+        let cold = try await makeHarness(days: 8, lateNights: lateNights, whoop4: true)
+        let timestamp = firstDayStart + 7 * 86_400 + secondOfLastDay
+        if removeExistingHR {
+            for fixture in [warm, cold] {
+                try await fixture.store.registryWriter.write { db in
+                    try db.execute(sql: "DELETE FROM hrSample WHERE ts=?", arguments: [timestamp])
+                }
+            }
+        }
+        let probe = DerivedInputBundleProbe()
+        warm.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
+            fingerprintLoader: { store, owner, from, to in
+                try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+            },
+            bundleLoader: { store, owner, from, to, limit in
+                await probe.record()
+                return try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
+            }))
+        for _ in 0..<3 {
+            _ = await pass(warm, maxDays: 8)
+            _ = await pass(cold, maxDays: 8)
+        }
+        await probe.reset()
+        let unchanged = await pass(warm, maxDays: 8)
+        _ = await pass(cold, maxDays: 8)
+        let unchangedReads = await probe.count
+        XCTAssertTrue(unchanged)
+        XCTAssertEqual(unchangedReads, 0, "\(name): control must reach actual warm reuse")
+        let priorWarmRows = try await stored(warm)
+        let priorColdRows = try await stored(cold)
+        XCTAssertEqual(priorWarmRows, priorColdRows, "\(name): the independent stores must start alike")
+        var incoming = Streams(hr: [HRSample(ts: timestamp, bpm: 210)])
+        if includeGravity { incoming.gravity = [GravitySample(ts: timestamp, x: 2, y: 1, z: 0)] }
+        _ = try await warm.store.insert(incoming, deviceId: Repository.whoopSource)
+        _ = try await cold.store.insert(incoming, deviceId: Repository.whoopSource)
+        await probe.reset()
+        let completed = await pass(warm, maxDays: 8)
+        let reads = await probe.count
+        XCTAssertTrue(completed)
+        XCTAssertEqual(reads, expectedMisses, "\(name): every actual read interval must participate in precision")
+        let warmRows = try await stored(warm)
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(cold.store)
+        let engine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+        let fresh = Harness(store: cold.store, engine: engine, computedId: cold.computedId,
+                            reference: cold.reference, dayKeys: cold.dayKeys)
+        let coldCompleted = await pass(fresh, maxDays: 8)
+        let coldRows = try await stored(fresh)
+        XCTAssertTrue(coldCompleted)
+        XCTAssertEqual(warmRows, coldRows, "\(name): precise reuse must match a cold engine over identical inputs")
+    }
+
+    func testTrustedAppendAtInclusiveMidnightInvalidatesBothNightWindows() async throws {
+        try await assertTrustedAppendWindow("inclusive midnight", secondOfLastDay: 0,
+                                           removeExistingHR: true, expectedMisses: 2)
+    }
+
+    func testTrustedAppendInTheCycleTailInvalidatesThePriorDay() async throws {
+        try await assertTrustedAppendWindow("cycle tail", lateNights: [7],
+                                           secondOfLastDay: 75 * 60 + 1, expectedMisses: 2)
+    }
+
+    func testTrustedAppendOutsideTheNightReadStillInvalidatesFullDayFallback() async throws {
+        try await assertTrustedAppendWindow("calendar-day fallback", secondOfLastDay: 23 * 3_600 + 1_801,
+                                           includeGravity: true, expectedMisses: 1)
+    }
+
+    func testOwnerChangeAlsoInvalidatesThePriorDayWhenItsCycleBoundaryChanges() async throws {
+        let harness = try await makeHarness(days: 8, whoop4SwapDay: 7)
+        let coldFixture = try await makeHarness(days: 8, whoop4SwapDay: 7)
+        let probe = DerivedInputBundleProbe()
+        harness.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
+            fingerprintLoader: { store, owner, from, to in
+                try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+            },
+            bundleLoader: { store, owner, from, to, limit in
+                await probe.record()
+                return try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
+            }))
+        for _ in 0..<3 {
+            _ = await pass(harness, maxDays: 8)
+            _ = await pass(coldFixture, maxDays: 8)
+        }
+        await probe.reset()
+        let unchanged = await pass(harness, maxDays: 8)
+        _ = await pass(coldFixture, maxDays: 8)
+        let unchangedReads = await probe.count
+        XCTAssertTrue(unchanged)
+        XCTAssertEqual(unchangedReads, 0, "the real two-strap fixture must first reach warm reuse")
+
+        let warmInputs = try await stored(harness)
+        let coldInputs = try await stored(coldFixture)
+        XCTAssertEqual(warmInputs, coldInputs, "both engines must start from identical persisted inputs")
+        let targetDay = harness.dayKeys[6]
+        let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+        try registry.setDayOwner(day: targetDay, deviceId: secondWhoop4Id, locked: true)
+        let coldRegistry = DeviceRegistryStore(dbQueue: coldFixture.store.registryWriter)
+        try coldRegistry.setDayOwner(day: targetDay, deviceId: secondWhoop4Id, locked: true)
+        await probe.reset()
+        let changed = await pass(harness, maxDays: 8)
+        let changedReads = await probe.count
+        XCTAssertTrue(changed)
+        XCTAssertEqual(changedReads, 2, "the changed owner and its prior day's changed Effort boundary must both reload")
+        let reusedRows = try await stored(harness)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(coldFixture.store)
+        let freshEngine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+        let fresh = Harness(store: coldFixture.store, engine: freshEngine, computedId: coldFixture.computedId,
+                            reference: coldFixture.reference, dayKeys: coldFixture.dayKeys)
+        let coldCompleted = await pass(fresh, maxDays: 8)
+        let coldRows = try await stored(fresh)
+        XCTAssertTrue(coldCompleted)
+        XCTAssertEqual(reusedRows, coldRows, "owner and cycle-boundary reuse must match a cold engine")
+    }
+
+    func testIdleTimeFillDoesNotTurnEverySameHourTickIntoAnotherPass() async throws {
+        let harness = try await makeHarness(days: 8, whoop4: true)
+        let offWristStart = firstDayStart + 7 * 86_400 + 18 * 3_600
+        try await harness.store.registryWriter.write { db in
+            try db.execute(sql: "DELETE FROM hrSample WHERE ts >= ?", arguments: [offWristStart])
+            try db.execute(sql: "DELETE FROM gravitySample WHERE ts >= ?", arguments: [offWristStart])
+        }
+        for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+        func tick(_ seconds: TimeInterval) async -> Bool {
+            await harness.engine.analyzeRecent(
+                maxDays: 3, force: false, refreshRepository: false,
+                analysisReference: harness.reference.addingTimeInterval(seconds), analysisCalendar: utcCalendar)
+        }
+        let stable = await tick(0)
+        XCTAssertFalse(stable, "the real scored fixture must first reach an unchanged idle state")
+        let nextHour = await tick(3_601)
+        let firstSameHourTick = await tick(3_661)
+        let secondSameHourTick = await tick(3_721)
+        XCTAssertTrue(nextHour)
+        XCTAssertFalse(firstSameHourTick, "own hourly fill output must not wake the next same-hour idle tick")
+        XCTAssertFalse(secondSameHourTick, "own time-fill writes must not create a perpetual idle loop")
+    }
+
+    func testConcurrentFallbackWritesBeforeBetweenAndAfterOwnedOutputsWakeTheNextIdlePass() async throws {
+        for table in ["dailyMetric", "metricSeries"] {
+            for boundary in ["beforeDaily", "afterDaily", "afterFill"] {
+                let harness = try await makeHarness(days: 8)
+                let offWristStart = firstDayStart + 7 * 86_400 + 18 * 3_600
+                try await harness.store.registryWriter.write { db in
+                    try db.execute(sql: "DELETE FROM hrSample WHERE ts>=?", arguments: [offWristStart])
+                    try db.execute(sql: "DELETE FROM gravitySample WHERE ts>=?", arguments: [offWristStart])
+                }
+                for _ in 0..<3 { _ = await pass(harness, maxDays: 8) }
+                for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+                let unchanged = await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: harness.reference, analysisCalendar: utcCalendar)
+                XCTAssertFalse(unchanged, "the concurrent-output control must first reach stable idle")
+                let start = harness.reference.addingTimeInterval(3_601)
+                let fallbackDay = harness.dayKeys[1]
+                let nightlySkinKey = IntelligenceEngine.nightlySkinMetricKey
+                var mutationCount = 0
+                harness.engine.analysisOutputBoundaryForTesting = { stage in
+                    guard stage == boundary, mutationCount == 0 else { return }
+                    do {
+                        mutationCount = try await harness.store.registryWriter.write { [computedID = harness.computedId] db in
+                            if table == "dailyMetric" {
+                                try db.execute(sql: "UPDATE dailyMetric SET avgHrv=COALESCE(avgHrv,10)+25 WHERE deviceId=? AND day=?",
+                                               arguments: [computedID, fallbackDay])
+                            } else {
+                                try db.execute(sql: "UPDATE metricSeries SET value=value+1 WHERE deviceId=? AND day=? AND key=?",
+                                               arguments: [computedID, fallbackDay, nightlySkinKey])
+                            }
+                            return db.changesCount
+                        }
+                    } catch { XCTFail("fixture mutation failed: \(error)") }
+                }
+                let completed = await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: start, analysisCalendar: utcCalendar)
+                harness.engine.analysisOutputBoundaryForTesting = nil
+                XCTAssertTrue(completed)
+                XCTAssertEqual(mutationCount, 1, "\(table) at \(boundary) must change a real persisted fallback input")
+                let repaired = await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: start, analysisCalendar: utcCalendar)
+                XCTAssertTrue(repaired, "unowned \(table) at \(boundary) must not be acknowledged by own output receipts")
+                let reusedRows = try await stored(harness)
+                let repository = Repository(deviceId: Repository.whoopSource)
+                repository.setStoreForTesting(harness.store)
+                let fresh = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+                let coldCompleted = await fresh.analyzeRecent(
+                    maxDays: 3, force: true, refreshRepository: false,
+                    analysisReference: start, analysisCalendar: utcCalendar)
+                XCTAssertTrue(coldCompleted)
+                let coldRows = try await stored(harness)
+                XCTAssertEqual(reusedRows, coldRows, "repaired idle pass must agree with a cold engine")
+            }
+        }
+    }
+
+    func testCancelledOwnedOutputReceiptsDoNotSuppressTheRetry() async throws {
+        for boundary in ["afterDaily", "afterFill"] {
+            let harness = try await makeHarness(days: 8, whoop4: true)
+            let offWristStart = firstDayStart + 7 * 86_400 + 18 * 3_600
+            try await harness.store.registryWriter.write { db in
+                try db.execute(sql: "DELETE FROM hrSample WHERE ts>=?", arguments: [offWristStart])
+                try db.execute(sql: "DELETE FROM gravitySample WHERE ts>=?", arguments: [offWristStart])
+            }
+            for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+            final class TaskBox { var task: Task<Bool, Never>? }
+            let box = TaskBox()
+            harness.engine.analysisOutputBoundaryForTesting = { stage in
+                if stage == boundary { box.task?.cancel() }
+            }
+            let reference = harness.reference.addingTimeInterval(3_601)
+            box.task = Task { @MainActor in
+                await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: reference, analysisCalendar: utcCalendar)
+            }
+            let completed = await box.task!.value
+            harness.engine.analysisOutputBoundaryForTesting = nil
+            XCTAssertFalse(completed)
+            XCTAssertTrue(box.task!.isCancelled)
+            let retried = await harness.engine.analyzeRecent(
+                maxDays: 3, force: false, refreshRepository: false,
+                analysisReference: reference, analysisCalendar: utcCalendar)
+            XCTAssertTrue(retried, "a cancelled \(boundary) pass cannot publish its output acknowledgment")
+        }
+    }
+
+    func testChangedBaselineOutputsStillRequireAnIdleSettlingPass() async throws {
+        let harness = try await makeHarness(days: 8)
+        for _ in 0..<3 { _ = await pass(harness, maxDays: 8) }
+        let nightStart = firstDayStart + 7 * 86_400
+        try await harness.store.registryWriter.write { db in
+            try db.execute(sql: "UPDATE skinTempSample SET raw=raw+100 WHERE ts>=? AND ts<?",
+                           arguments: [nightStart, nightStart + 6 * 3_600])
+        }
+        let rescored = await pass(harness, maxDays: 8)
+        XCTAssertTrue(rescored)
+        let settled = await harness.engine.analyzeRecent(
+            maxDays: 8, force: false, refreshRepository: false,
+            analysisReference: harness.reference, analysisCalendar: utcCalendar)
+        XCTAssertTrue(settled, "changed skin/baseline output is an input to the next pass, not terminal calorie fill")
     }
 
     /// A grant that is cancelled mid-chunk (the app came back to the foreground) stops at the next checkpoint, reports
@@ -1770,4 +2264,31 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(appleRecoveries.count, RecoveryForecaster.minBaselineNights)
         }
     }
+}
+
+private actor DerivedInputBundleProbe {
+    private(set) var count = 0
+    func record() { count += 1 }
+    func reset() { count = 0 }
+}
+
+/// Counts actual store loads and decoded fixture rows, without replacing any engine/cache decision.
+private actor DerivedInputCostProbe {
+    struct Snapshot: Sendable {
+        var misses = 0
+        var hrRows = 0
+        var rrRows = 0
+        var gravityRows = 0
+        var windows: [Int] = []
+    }
+    private var value = Snapshot()
+    func record(_ bundle: AnalysisDayBundle, from: Int) {
+        value.misses += 1
+        value.hrRows += bundle.hr.count
+        value.rrRows += bundle.rr.count
+        value.gravityRows += bundle.gravity.count
+        value.windows.append(from)
+    }
+    func snapshot() -> Snapshot { value }
+    func reset() { value = Snapshot() }
 }

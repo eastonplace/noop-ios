@@ -406,7 +406,7 @@ struct StorageView: View {
             return
         }
         let prefix = "noop-whoop-quarantine-\(job.receiptId.prefix(8))"
-        let exported = FileExport.exportBundle(entries: [
+        let exported = await FileExport.exportBundle(entries: [
             .init(name: "\(prefix).sqlite-zlib", data: archive.compressedArchive),
             .init(name: "\(prefix).json", data: metadata),
         ], suggestedName: "\(prefix).zip")

@@ -132,4 +132,28 @@ final class LiveSessionEngineTests: XCTestCase {
         XCTAssertNil(out.smoothedBpm)
         XCTAssertNil(out.cue, "we never buzz on a stale stream")
     }
+
+    func test_fresh_reading_after_dropout_requires_new_continuous_dwell() {
+        for receivesStaleTick in [false, true] {
+            var e = LiveSessionEngine(config: cfg(charge: nil), startTs: 0)
+            _ = feed(&e, bpm: 140, fromTs: 0, seconds: 70)
+            _ = feed(&e, bpm: 110, fromTs: 70, seconds: 18)
+            if receivesStaleTick { _ = e.update(now: 150, bpm: nil) }
+
+            let reacquired = e.update(now: 200, bpm: 110)
+            XCTAssertNil(reacquired.cue, "missing signal cannot satisfy continuous dwell")
+            let settling = feed(&e, bpm: 110, fromTs: 201, seconds: 24)
+            XCTAssertTrue(settling.allSatisfy { $0.cue == nil })
+            XCTAssertEqual(e.update(now: 225, bpm: 110).cue, .pushNudge)
+        }
+    }
+
+    func test_missing_signal_does_not_count_toward_ceiling_drift() {
+        var e = LiveSessionEngine(config: cfg(charge: nil), startTs: 0)
+        let before = feed(&e, bpm: 160, fromTs: 0, seconds: 60).last!
+        _ = e.update(now: 200, bpm: 160)
+        let after = e.update(now: 201, bpm: 160)
+        XCTAssertEqual(after.band, before.band,
+                       "a disconnected interval is not evidence of sustained slow drift")
+    }
 }

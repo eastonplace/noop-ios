@@ -22,6 +22,7 @@ on:
       - '.gitignore'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
+      - '.github/ISSUE_TEMPLATE/bug_report.yml'
   push:
     branches: [main]
     paths:
@@ -37,6 +38,7 @@ on:
       - '.gitignore'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
+      - '.github/ISSUE_TEMPLATE/bug_report.yml'
   workflow_dispatch:
 
 concurrency:
@@ -53,11 +55,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install source-audit dependencies
+        shell: bash
+        run: |
+          python3 -m pip install --disable-pip-version-check \
+            --target "$RUNNER_TEMP/noop-source-audit-python" 'PyYAML==6.0.3'
+
       - name: Run all focused source audits
         shell: bash
         env:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PYTHONPATH: ${{ runner.temp }}/noop-source-audit-python
         run: |
           set -uo pipefail
           mkdir -p qa-artifacts/audits
@@ -75,6 +84,7 @@ jobs:
             paper_strings_contract_audit.py
             project_hygiene_audit.py
             test_project_hygiene_audit.py
+            test_bug_report_template.py
             whats_new_release_audit.py
             test_whats_new_release_audit.py
           )
@@ -100,7 +110,9 @@ jobs:
   build-and-test:
     needs: source-audits
     runs-on: macos-26
-    timeout-minutes: 120
+    # Full restored native coverage, UI captures and retained packages share this job.
+    # Keep enough time for every required gate and its result-bundle upload.
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,6 +133,32 @@ jobs:
         run: |
           set -o pipefail
           xcodegen generate 2>&1 | tee qa-artifacts/xcodegen.txt
+
+      - name: Verify source adoption preserves same-strap alarms
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 Tools/qa/test_ble_clock_alarm_isolation.py 2>&1 | tee qa-artifacts/clock-alarm-isolation.txt
+
+      - name: Verify confirmed deep-data queue leases
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 Tools/qa/deep_data_confirmed_queue_harness.py 2>&1 | tee qa-artifacts/deep-data-confirmed-queue.txt
+
+      - name: Verify BLE, diagnostics and foreground ownership regressions
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          for regression in test_ble_data_range_integrity test_ble_response_diagnostics test_ble_connection_result_ownership pending_intents_lifecycle_harness widget_published_assignment_harness test_debug_diagnostic_family smart_alarm_backup_ownership_harness; do
+            echo "::group::$regression"
+            if ! python3 "Tools/qa/$regression.py" 2>&1 | tee "qa-artifacts/$regression.txt"; then
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$status"
 
       - name: Build iPhone app and extensions
         shell: bash
@@ -163,28 +201,48 @@ jobs:
             -scheme NOOPiOS \
             -configuration Debug \
             -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' \
+            -resultBundlePath qa-artifacts/native-tests.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             test 2>&1 | tee qa-artifacts/xcodebuild-test.txt
 
       - name: Run routine and selected-screen UI regressions
+        # Collect UI failures after a native-test failure; either still fails the job.
+        if: ${{ !cancelled() && steps.simulator.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
+          # PR/push checks run 10 focused methods; manual runs cover all 37 cases.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ui_scope=(
+              -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests
+              -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests
+              -only-testing:NOOPCoachUITests/CoachKeyboardLayoutTests
+              -only-testing:NOOPCoachUITests/NotificationSettingsUITests
+              -only-testing:NOOPCoachUITests/NotificationDestinationUITests
+              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests
+            )
+          else
+            ui_scope=(
+              -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests/testSwitchingSavedRoutinesPreviewsThenStartsTheSelectedRoutine
+              -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests/testRoutineEditAndSaveRemainSeparateFromStarting
+              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testTodayNormal
+              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testDashboardSettingsSelectionPersists
+              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testForkAboutAndWhatsNew
+              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testNewLiveEnrollmentOffersOnlyWHOOP
+              -only-testing:NOOPCoachUITests/NotificationDestinationUITests/testWHOOPDeviceNormal
+              -only-testing:NOOPCoachUITests/NotificationDestinationUITests/testSettingsQueuedDismissalNormal
+              -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests/testLiveHRNormal
+              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesAccessibilityXXXL
+            )
+          fi
           xcodebuild \
             -scheme NOOPCoachUI \
             -configuration Debug \
             -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' \
             -parallel-testing-enabled NO \
             -collect-test-diagnostics never \
-            -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests \
-            -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests \
-            -only-testing:NOOPCoachUITests/CoachKeyboardLayoutTests \
-            -only-testing:NOOPCoachUITests/NotificationSettingsUITests \
-            -only-testing:NOOPCoachUITests/NotificationDestinationUITests \
-            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesNormal \
-            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesAccessibilityXXXL \
-            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests \
+            "${ui_scope[@]}" \
             -resultBundlePath qa-artifacts/selected-ui.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \

@@ -19,6 +19,22 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 1.8.0
+
+October 2026: More reliable daily data.
+
+- **Fresh heart rate.** Live sessions use actual readings and detect silent straps.
+- **Device switching.** Readings stay with the strap that recorded them.
+- **Protected history.** Interrupted transfers retry before history cleanup.
+- **Saved broadcast choice.** Reconnect requests your saved broadcast setting.
+- **Local Coach images.** Coach uses images bundled with NOOP.
+- **Apple Health continuity.** Read setup resumes and hidden reads keep saved data.
+- **Apple sleep totals.** Stages share a wake day without double counting.
+- **Complete Charge inputs.** Late readings and final night temperatures reach Charge.
+- **WHOOP pairing.** New live connections focus on WHOOP straps.
+
+Also repairs sport-specific GPS filtering, import and Lab Book ownership, live workout energy corrections, Coach/export persistence, exercise artwork accessibility descriptions, foreground actions, widgets, stale Bluetooth callbacks and alarm backup notification ownership. Existing paired devices and offline history imports remain available. No historical data migration or measured battery improvement is claimed.
+
 ## 1.7.1
 
 WHOOP 4.0 alarm commands use ordered confirmed writes and a delayed readback. Alarm confirmation is scoped to the current strap and request. Missing or negative confirmation ends with an explicit status instead of leaving Arming indefinitely. Existing wake schedules and stored health data are preserved.
