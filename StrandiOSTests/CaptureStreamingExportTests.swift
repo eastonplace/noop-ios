@@ -30,4 +30,21 @@ final class CaptureStreamingExportTests: XCTestCase {
         try Data([0xFF, 0xFE]).write(to: source)
         XCTAssertThrowsError(try FileExport.stagedSanitizedCapture(at: source, suggestedName: "invalid-safe-\(UUID()).jsonl"))
     }
+    func testRecordLimitKeepsExactBoundaryAndRejectsOversizeWithoutPartialOutput() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CaptureLimit-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("source.jsonl")
+        let limit = 1_024 * 1_024
+        let accepted = Data((String(repeating: "!", count: limit - 1) + "\n").utf8)
+        try accepted.write(to: source)
+        let staged = try FileExport.stagedSanitizedCapture(at: source, suggestedName: "boundary.jsonl")
+        defer { try? FileManager.default.removeItem(at: staged.deletingLastPathComponent()) }
+        XCTAssertEqual(try Data(contentsOf: staged), accepted)
+        let oversized = Data((String(repeating: "!", count: limit) + "\n").utf8)
+        try oversized.write(to: source)
+        XCTAssertThrowsError(try FileExport.stagedSanitizedCapture(at: source, suggestedName: "oversize.jsonl"))
+        XCTAssertEqual(try Data(contentsOf: source), oversized)
+    }
+
 }

@@ -26,7 +26,7 @@ final class LocalCoachEngineTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix("source-") }.count, 1)
     }
 
-    func testFutureVersionAndCorruptionAreReportedWithoutOverwriting() throws {
+    func testFutureVersionAndCorruptionAreReportedWithoutOverwriting() async throws {
         let store = LocalCoachPersistence(directory: try directory())
         try store.save(.init(sourceID: "a"))
         let url = store.fileURL(sourceID: "a")
@@ -39,6 +39,7 @@ final class LocalCoachEngineTests: XCTestCase {
         try Data("broken json".utf8).write(to: url)
         let engine = LocalCoachEngine(data: TestCoachData(), persistence: store, model: TestCoachModel(),
                                       source: { .init(storageID: "a", dataSourceID: "a", revision: "1") })
+        await engine.waitForHydration()
         XCTAssertNotNil(engine.errorText)
         engine.newConversation()
         XCTAssertEqual(try Data(contentsOf: url), Data("broken json".utf8))
@@ -48,7 +49,7 @@ final class LocalCoachEngineTests: XCTestCase {
         let data = TestCoachData()
         let model = TestCoachModel()
         model.body = { _, read, _ in _ = try await read("read_sleep", "sleep", 7) }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         await engine.send("How did I sleep?")
         XCTAssertTrue(data.reads.isEmpty)
         XCTAssertNotNil(engine.errorText)
@@ -61,7 +62,7 @@ final class LocalCoachEngineTests: XCTestCase {
             for _ in 0..<4 { _ = try await read("read_sleep", String(repeating: "q", count: 1_000), 50_000) }
             receive("should not finish")
         }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         engine.preferences.usePersonalData = true
         await engine.send("Review sleep")
         XCTAssertEqual(data.reads.count, 3)
@@ -79,7 +80,7 @@ final class LocalCoachEngineTests: XCTestCase {
             await gate.wait()
             receive("late private text")
         }
-        let engine = make(model: model, directory: try directory())
+        let engine = await make(model: model, directory: try directory())
         let task = Task { await engine.send("Hello") }
         await gate.waitUntilEntered()
         engine.preferences.enabled = false
@@ -103,7 +104,7 @@ final class LocalCoachEngineTests: XCTestCase {
             let result = try await read("read_sleep", "", 7)
             receive(result.text)
         }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         engine.preferences.usePersonalData = true
         let task = Task { await engine.send("Sleep") }
         await gate.waitUntilEntered()
@@ -122,6 +123,7 @@ final class LocalCoachEngineTests: XCTestCase {
         model.body = { _, _, receive in await gate.wait(); receive("source a private response") }
         let engine = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: try directory()),
                                       model: model, source: { scope.value })
+        await engine.waitForHydration()
         let task = Task { await engine.send("A question") }
         await gate.waitUntilEntered()
         scope.value = .init(storageID: "b", dataSourceID: "b", revision: "2")
@@ -137,7 +139,7 @@ final class LocalCoachEngineTests: XCTestCase {
         let model = TestCoachModel()
         var requests: [LocalCoachRequest] = []
         model.body = { request, _, receive in requests.append(request); receive("remembered answer") }
-        let engine = make(model: model, directory: try directory())
+        let engine = await make(model: model, directory: try directory())
         engine.preferences.usePersonalData = true
         engine.addMemory(text: "private memory", category: .goals)
         await engine.send("Use my preferences")
@@ -158,6 +160,7 @@ final class LocalCoachEngineTests: XCTestCase {
         }
         let engine = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: try directory()),
                                       model: model, source: { scope.value })
+        await engine.waitForHydration()
         engine.preferences.usePersonalData = true
         engine.addMemory(text: "Private training goal", category: .goals)
         await engine.send("My private question")
@@ -181,6 +184,7 @@ final class LocalCoachEngineTests: XCTestCase {
         model.body = { _, read, _ in _ = try await read("read_sleep", "", 7) }
         let engine = LocalCoachEngine(data: data, persistence: .init(directory: try directory()),
                                       model: model, source: { scope.value })
+        await engine.waitForHydration()
         engine.preferences.usePersonalData = true
         await engine.send("Read my sleep")
         XCTAssertEqual(model.calls, 1, "The model may respond, but cannot read fenced records")
@@ -200,6 +204,7 @@ final class LocalCoachEngineTests: XCTestCase {
         model.body = { _, _, receive in await gate.wait(); receive("Completed general reply") }
         let engine = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: try directory()),
                                       model: model, source: { scope.value })
+        await engine.waitForHydration()
         let task = Task { await engine.send("Explain HRV") }
         await gate.waitUntilEntered()
         scope.value.fenced = false
@@ -222,6 +227,7 @@ final class LocalCoachEngineTests: XCTestCase {
         }
         let engine = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: try directory()),
                                       model: model, source: { scope.value })
+        await engine.waitForHydration()
         await engine.send("Explain HRV")
         XCTAssertEqual(engine.messages.last?.text, "Completed general reply")
         XCTAssertFalse(engine.messages.last?.isInterrupted ?? true)
@@ -231,21 +237,24 @@ final class LocalCoachEngineTests: XCTestCase {
 
     func testConversationEditDeleteAndExportPersist() async throws {
         let root = try directory()
-        let engine = make(directory: root)
+        let engine = await make(directory: root)
         await engine.send("Original question")
         let id = try XCTUnwrap(engine.selectedConversationID)
         engine.renameConversation(id, title: "Training notes")
         engine.editMessage(try XCTUnwrap(engine.messages.first?.id), text: "Edited question")
         XCTAssertTrue(engine.exportConversation().contains("Edited question"))
         XCTAssertFalse(engine.exportConversation().contains("Test answer"), "editing a turn invalidates later answers")
-        let reopened = make(directory: root)
+        await engine.flushPersistence()
+        let reopened = await make(directory: root)
         reopened.selectConversation(id)
         XCTAssertEqual(reopened.messages.first?.text, "Edited question")
         reopened.deleteConversation(id)
-        XCTAssertTrue(make(directory: root).conversations.isEmpty)
+        await reopened.flushPersistence()
+        let deleted = await make(directory: root)
+        XCTAssertTrue(deleted.conversations.isEmpty)
     }
 
-    func testOrphanedEmptyAssistantTurnIsRestoredAsInterrupted() throws {
+    func testOrphanedEmptyAssistantTurnIsRestoredAsInterrupted() async throws {
         let root = try directory()
         let store = LocalCoachPersistence(directory: root)
         var conversation = LocalCoachConversation(title: "Killed", messages: [
@@ -258,11 +267,11 @@ final class LocalCoachEngineTests: XCTestCase {
         state.selectedConversationID = conversation.id
         try store.save(state)
 
-        let engine = make(directory: root)
+        let engine = await make(directory: root)
         XCTAssertEqual(engine.messages.count, 2)
         XCTAssertEqual(engine.messages.last?.isInterrupted, true, "a blank orphaned turn must offer Try again")
 
-        let reselected = make(directory: root)
+        let reselected = await make(directory: root)
         reselected.selectConversation(conversation.id)
         XCTAssertEqual(reselected.messages.last?.isInterrupted, true)
         XCTAssertEqual(LocalCoachEngine.healed([.init(role: .assistant, text: "Real answer")]).last?.isInterrupted, false)
@@ -270,7 +279,7 @@ final class LocalCoachEngineTests: XCTestCase {
 
     func testPlanDraftDoesNotSaveUntilExplicitSave() async throws {
         let data = TestCoachData()
-        let engine = make(data: data, directory: try directory())
+        let engine = await make(data: data, directory: try directory())
         engine.preferences.usePersonalData = true
         await engine.createPlan(focus: "strength", minutes: 45, days: 3)
         XCTAssertNotNil(engine.plan)
@@ -313,7 +322,7 @@ final class LocalCoachEngineTests: XCTestCase {
             _ = try await read("read_sleep", "", 7)               // the same records again: no duplicates
             receive("Answer")
         }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         engine.preferences.usePersonalData = true
         await engine.send("How am I doing?")
         let cards = try XCTUnwrap(engine.messages.last?.cards)
@@ -332,7 +341,7 @@ final class LocalCoachEngineTests: XCTestCase {
             _ = try await read("read_sleep", "", 7)
             receive("Answer")
         }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         engine.preferences.usePersonalData = true
         await engine.send("Readiness")
         XCTAssertEqual(engine.messages.last?.cards?.count, 1)
@@ -343,7 +352,7 @@ final class LocalCoachEngineTests: XCTestCase {
         data.resultCards = LocalCoachCard.previewSamples().readiness
         let model = TestCoachModel()
         model.body = { _, read, _ in _ = try await read("read_sleep", "", 7) }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         await engine.send("How did I sleep?")           // usePersonalData is off
         XCTAssertTrue(data.reads.isEmpty)
         XCTAssertFalse(engine.messages.contains { !($0.cards ?? []).isEmpty })
@@ -358,7 +367,7 @@ final class LocalCoachEngineTests: XCTestCase {
             _ = try await read("metric_explanations", "", 7)
             receive("Definitions")
         }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         await engine.send("What does recovery mean?")
         XCTAssertEqual(data.reads.count, 1)
         XCTAssertNil(engine.messages.last?.cards)
@@ -375,7 +384,7 @@ final class LocalCoachEngineTests: XCTestCase {
             let result = try await read("read_sleep", "", 7)
             receive(result.text)
         }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         engine.preferences.usePersonalData = true
         let task = Task { await engine.send("Sleep") }
         await gate.waitUntilEntered()
@@ -394,7 +403,7 @@ final class LocalCoachEngineTests: XCTestCase {
             _ = try await read("read_sleep", "", 7)
             receive("Answer")
         }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         engine.preferences.usePersonalData = true
         await engine.send("Readiness")
         let export = engine.exportConversation()
@@ -417,12 +426,13 @@ final class LocalCoachEngineTests: XCTestCase {
             _ = try await read("read_sleep", "", 7)
             receive("Answer")
         }
-        let engine = make(data: data, model: model, directory: root)
+        let engine = await make(data: data, model: model, directory: root)
         engine.preferences.usePersonalData = true
         await engine.send("Training")
         let expected = try XCTUnwrap(engine.messages.last?.cards)
         XCTAssertFalse(expected.isEmpty)
-        let reopened = make(directory: root)
+        await engine.flushPersistence()
+        let reopened = await make(directory: root)
         reopened.selectConversation(try XCTUnwrap(engine.selectedConversationID))
         XCTAssertEqual(reopened.messages.last?.cards, expected)
     }
@@ -440,7 +450,7 @@ final class LocalCoachEngineTests: XCTestCase {
         let raw = String(decoding: try Data(contentsOf: store.fileURL(sourceID: "a")), as: UTF8.self)
         XCTAssertFalse(raw.contains("\"cards\""), "Optional nil cards must encode as an absent key, like pre-card builds wrote")
 
-        let engine = make(directory: root)
+        let engine = await make(directory: root)
         XCTAssertNil(engine.errorText, "A legacy state file must stay readable")
         XCTAssertEqual(engine.messages.map(\.text), ["old question", "old answer"])
         XCTAssertTrue(engine.messages.allSatisfy { $0.cards == nil })
@@ -497,7 +507,7 @@ final class LocalCoachEngineTests: XCTestCase {
         state.conversations[100].messages = original
         state.selectedConversationID = state.conversations[100].id
         try store.save(state)
-        let engine = make(directory: root)
+        let engine = await make(directory: root)
         await engine.send("Follow-up")
         let reloaded = try store.load(sourceID: "a")
         XCTAssertEqual(reloaded.conversations.count, 101, "Reading or sending must not delete old conversations.")
@@ -506,7 +516,7 @@ final class LocalCoachEngineTests: XCTestCase {
     }
 
     func testEditingSavedPlanCreatesANewReviewableDraft() async throws {
-        let engine = make(directory: try directory())
+        let engine = await make(directory: try directory())
         engine.preferences.usePersonalData = true
         await engine.createPlan(focus: "Strength", minutes: 45, days: 3)
         await engine.savePlan()
@@ -561,7 +571,7 @@ final class LocalCoachEngineTests: XCTestCase {
         let file = try directory().appendingPathComponent("not-a-directory")
         let original = Data("original contents".utf8)
         try original.write(to: file)
-        let engine = make(directory: file)
+        let engine = await make(directory: file)
         await engine.send("Hello")
         XCTAssertNotNil(engine.errorText)
         XCTAssertEqual(try Data(contentsOf: file), original)
@@ -569,11 +579,13 @@ final class LocalCoachEngineTests: XCTestCase {
 
     func testMasterOffPersistsForAnotherSource() async throws {
         let root = try directory()
-        let first = make(directory: root)
+        let first = await make(directory: root)
         first.preferences.enabled = false
+        await first.flushPersistence()
         let model = TestCoachModel()
         let second = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: root), model: model,
             source: { .init(storageID: "different", dataSourceID: "different", revision: "1") })
+        await second.waitForHydration()
         await second.send("Hello")
         XCTAssertFalse(second.preferences.enabled)
         XCTAssertEqual(second.availability, .disabled)
@@ -582,16 +594,18 @@ final class LocalCoachEngineTests: XCTestCase {
 
     func testPausingPreservesReviewedDraftAcrossRelaunch() async throws {
         let root = try directory()
-        let engine = make(directory: root)
+        let engine = await make(directory: root)
         engine.preferences.usePersonalData = true
         await engine.createPlan(focus: "Strength", minutes: 45, days: 3)
         let draft = try XCTUnwrap(engine.plan)
         engine.preferences.memoryEnabled = false
         engine.preferences.usePersonalData = false
         engine.preferences.enabled = false
+        await engine.flushPersistence()
         let stored = try LocalCoachPersistence(directory: root).load(sourceID: "a")
         XCTAssertEqual(stored.plan?.id, draft.id, "Revoking model access must not delete an already reviewed local draft.")
-        let reopened = make(directory: root)
+        await engine.flushPersistence()
+        let reopened = await make(directory: root)
         reopened.preferences.enabled = true
         reopened.preferences.usePersonalData = true
         XCTAssertEqual(reopened.plan?.id, draft.id)
@@ -601,7 +615,7 @@ final class LocalCoachEngineTests: XCTestCase {
         let data = TestCoachData()
         let model = TestCoachModel()
         model.body = { _, read, _ in _ = try await read("save_workout", "", 7) }
-        let engine = make(data: data, model: model, directory: try directory())
+        let engine = await make(data: data, model: model, directory: try directory())
         engine.preferences.usePersonalData = true
         await engine.send("Save a workout")
         XCTAssertTrue(data.reads.isEmpty)
@@ -618,6 +632,7 @@ final class LocalCoachEngineTests: XCTestCase {
         data.resultText = "Synthetic test record dated 2026-09-26: sleep duration is 7 hours. No other personal records are supplied."
         let engine = LocalCoachEngine(data: data, persistence: .init(directory: try directory()), model: model,
             source: { .init(storageID: "a", dataSourceID: "a", revision: "1") })
+        await engine.waitForHydration()
         engine.preferences.usePersonalData = true
         await engine.send("This is an app test with synthetic records. Use the read_sleep tool to read the latest record, then tell me the recorded sleep duration and record date.")
         if LocalCoachModelAssets.areMissing(engineError: engine.errorText) { throw XCTSkip(LocalCoachModelAssets.skipReason) }
@@ -666,7 +681,7 @@ final class LocalCoachEngineTests: XCTestCase {
     func testModelFailureReachesThePageAsAPlainSentence() async throws {
         let model = TestCoachModel()
         model.body = { _, _, _ in throw CoachSystemError() }
-        let engine = make(model: model, directory: try directory())
+        let engine = await make(model: model, directory: try directory())
         await engine.send("How did I sleep?")
         let raw = try XCTUnwrap(engine.errorText)
         XCTAssertTrue(raw.hasPrefix(LocalCoachErrorPrefix.responseStopped))
@@ -679,7 +694,7 @@ final class LocalCoachEngineTests: XCTestCase {
     func testRecordReadFailureReachesThePageAsAPlainSentence() async throws {
         let data = TestCoachData()
         data.snapshotFailure = CoachSystemError()
-        let engine = make(data: data, directory: try directory())
+        let engine = await make(data: data, directory: try directory())
         engine.preferences.usePersonalData = true
         await engine.refresh()
         let raw = try XCTUnwrap(engine.errorText)
@@ -687,12 +702,13 @@ final class LocalCoachEngineTests: XCTestCase {
         XCTAssertEqual(CoachErrorCopy(raw).message, "Coach could not read your records just now. Try again in a moment.")
     }
 
-    func testUnreadableHistoryReachesThePageAsAPlainSentence() throws {
+    func testUnreadableHistoryReachesThePageAsAPlainSentence() async throws {
         let store = LocalCoachPersistence(directory: try directory())
         try store.save(.init(sourceID: "a"))
         try Data("broken json".utf8).write(to: store.fileURL(sourceID: "a"))
         let engine = LocalCoachEngine(data: TestCoachData(), persistence: store, model: TestCoachModel(),
                                       source: { .init(storageID: "a", dataSourceID: "a", revision: "1") })
+        await engine.waitForHydration()
         let raw = try XCTUnwrap(engine.errorText)
         XCTAssertTrue(raw.hasPrefix(LocalCoachErrorPrefix.historyUnreadable))
         XCTAssertEqual(CoachErrorCopy(raw).message, "Coach could not load your saved conversations. Restart NOOP to try again.")
@@ -717,7 +733,7 @@ final class LocalCoachEngineTests: XCTestCase {
 
     func testSnapshotReadBeforeRecordsLoadRefreshesWhenTheyLand() async throws {
         let repo = Repository(deviceId: "coach-late")
-        let engine = repositoryBacked(repo, directory: try directory())
+        let engine = await repositoryBacked(repo, directory: try directory())
         engine.addMemory(text: "Build strength", category: .goals)
 
         // The page opens before the repository has loaded, so nothing is recorded yet.
@@ -742,7 +758,7 @@ final class LocalCoachEngineTests: XCTestCase {
         let repo = Repository(deviceId: "coach-live")
         repo.loaded = true
         repo.days = [day("2026-09-02", recovery: 71, sleep: 420)]
-        let engine = repositoryBacked(repo, directory: try directory())
+        let engine = await repositoryBacked(repo, directory: try directory())
         let settled = engine.recordContextID
 
         // Publishes, but changes nothing the Coach reads: the page must not re-run its read.
@@ -757,11 +773,12 @@ final class LocalCoachEngineTests: XCTestCase {
     }
 
     /// An engine over a real repository, wired as the app wires it: the production record token and observer.
-    private func repositoryBacked(_ repo: Repository, directory: URL) -> LocalCoachEngine {
+    private func repositoryBacked(_ repo: Repository, directory: URL) async -> LocalCoachEngine {
         let service = LocalCoachDataService(repo: repo, access: { true }, now: { self.readTime })
         let engine = LocalCoachEngine(data: service, persistence: .init(directory: directory), model: nil,
                                       source: { .init(storageID: "a", dataSourceID: repo.deviceId, revision: "1") },
                                       records: { LocalCoachEngine.recordsToken(of: repo) })
+        await engine.waitForHydration()
         engine.observe(repo)
         engine.preferences.usePersonalData = true
         return engine
@@ -785,9 +802,11 @@ final class LocalCoachEngineTests: XCTestCase {
     }
 
     private func make(data: TestCoachData = TestCoachData(), model: TestCoachModel = TestCoachModel(),
-                      directory: URL) -> LocalCoachEngine {
-        LocalCoachEngine(data: data, persistence: .init(directory: directory), model: model,
+                      directory: URL) async -> LocalCoachEngine {
+        let engine = LocalCoachEngine(data: data, persistence: .init(directory: directory), model: model,
                          source: { .init(storageID: "a", dataSourceID: "a", revision: "1") })
+        await engine.waitForHydration()
+        return engine
     }
 }
 
