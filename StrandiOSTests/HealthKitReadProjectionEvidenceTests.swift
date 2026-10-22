@@ -1,0 +1,45 @@
+import HealthKit
+import XCTest
+import WhoopStore
+@testable import NOOP
+
+#if os(iOS)
+@MainActor
+final class HealthKitReadProjectionEvidenceTests: XCTestCase {
+    func testLegacyWindowDecodesWithoutInventingDeletionEvidence() throws {
+        let legacy = Data("{\"start\":1000,\"end\":2000}".utf8)
+        let decoded = try JSONDecoder().decode(HealthKitSyncWindow.self, from: legacy)
+        XCTAssertTrue(decoded.projectionDeletions.isEmpty)
+    }
+
+    func testDeletionEvidenceSurvivesDurableUnionRoundTrip() throws {
+        let evidence = HealthKitProjectionDeletion(sampleType: "HKCategoryTypeIdentifierSleepAnalysis",
+            fromDay: "2026-10-20", toDay: "2026-10-21", fromTimestamp: 1000, toTimestamp: 2000)
+        let pending = HealthKitSyncWindow(start: Date(timeIntervalSince1970: 1000),
+            end: Date(timeIntervalSince1970: 2000), projectionDeletions: [evidence])
+        let union = pending.union(HealthKitSyncWindow(start: Date(timeIntervalSince1970: 500),
+            end: Date(timeIntervalSince1970: 3000)))
+        let replay = try JSONDecoder().decode(HealthKitSyncWindow.self, from: JSONEncoder().encode(union))
+        XCTAssertEqual(replay.projectionDeletions, [evidence])
+    }
+
+    func testObserverAddsDeletionEvidenceOnlyForExternalDeletedObjects() async throws {
+        let type = HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!
+        let start = Date(timeIntervalSince1970: 1_792_454_400)
+        let identity = HealthKitObjectIdentity(sampleType: type.identifier, objectUUID: "external",
+            startTs: Int(start.timeIntervalSince1970), endTs: Int(start.timeIntervalSince1970) + 60)
+        let page = HealthKitAnchorPage(samples: [], deletedObjectUUIDs: ["external", "noop-owned"],
+                                      newAnchor: HKQueryAnchor(fromValue: 1))
+        let offered = try await HealthKitObserverPageCommit.commit(
+            page: page, exportedObjectUUIDs: ["noop-owned"], importedIdentities: [identity],
+            initialScan: false, now: start.addingTimeInterval(86_400),
+            sampleTypeIdentifier: type.identifier, earliestLocalDate: { nil },
+            offer: { _ in }, saveAnchor: { _ in }, retireExports: { _ in })
+        let evidence = try XCTUnwrap(offered).projectionDeletions
+        XCTAssertEqual(evidence.count, 1)
+        XCTAssertEqual(evidence.first?.sampleType, type.identifier)
+        XCTAssertEqual(evidence.first?.fromTimestamp, identity.startTs)
+        XCTAssertEqual(evidence.first?.toTimestamp, identity.endTs)
+    }
+}
+#endif
