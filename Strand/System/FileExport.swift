@@ -129,6 +129,11 @@ enum FileExport {
             .appendingPathComponent(".noop-export-" + UUID().uuidString)
         defer { try? fm.removeItem(at: staged) }
         try fm.copyItem(at: source, to: staged)
+        try installStagedFile(staged, at: destination)
+    }
+
+    /// The caller owns a complete sibling file. Rename commits it without exposing a partial result.
+    static func installStagedFile(_ staged: URL, at destination: URL) throws {
         let status = staged.withUnsafeFileSystemRepresentation { sourcePath in
             destination.withUnsafeFileSystemRepresentation { destinationPath in
                 guard let sourcePath, let destinationPath else { errno = EINVAL; return Int32(-1) }
@@ -187,6 +192,29 @@ enum FileExport {
         func copy(_ source: URL, to destination: URL) throws {
             try FileExport.copyAtomically(source, to: destination)
         }
+        func scheduled(_ directory: URL, stamp: String, header: [String], capture: URL?) throws -> URL {
+            try Task.checkCancellation()
+            let log = directory.appendingPathComponent("noop-strap-log-\(stamp).txt")
+            try LiveState.scheduledExportText(extraHeaderLines: header).write(to: log, atomically: true, encoding: .utf8)
+            try Task.checkCancellation()
+            // The companion remains best-effort, as before. Stream its scrubbed bytes directly to an
+            // atomic destination replacement; never materialize a whole capture Data/String/Data trio.
+            if let capture, FileManager.default.fileExists(atPath: capture.path) {
+                do {
+                    let staged = try FileExport.stagedSanitizedCapture(at: capture, suggestedName: capture.lastPathComponent)
+                    defer { FileExport.removeStaged(staged) }
+                    try Task.checkCancellation()
+                    try FileExport.copyAtomically(staged, to: directory.appendingPathComponent("noop-raw-capture-\(stamp).json"))
+                } catch is CancellationError { throw CancellationError() }
+                catch { /* A missing/corrupt optional capture does not discard the durable log. */ }
+            }
+            try Task.checkCancellation()
+            return log
+        }
+    }
+
+    static func saveScheduledExport(to directory: URL, stamp: String, extraHeaderLines: [String], captureURL: URL?) async throws -> URL {
+        try await io.scheduled(directory, stamp: stamp, header: extraHeaderLines, capture: captureURL)
     }
 
     /// Keep only the already-scrubbed tail required by the existing bundle budget. The stream is

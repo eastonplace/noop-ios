@@ -1919,20 +1919,23 @@ struct SettingsDetailHost: View {
     /// "Run now": write an immediate timestamped strap-log drop (with the raw capture beside it, if a
     /// session has recorded one) and tell the user where it landed.
     private func runScheduledExportNow() {
-        model.ble.flushPuffinCaptures()
-        let url = ScheduledDebugExport.runNow(captureURL: live.puffinCaptureURL)
-        if let url {
-            backupAlertTitle = String(localized: "Strap log exported")
-            #if os(iOS)
-            backupAlertMessage = String(localized: "Saved \(url.lastPathComponent) to NOOP's folder in the Files app.")
-            #else
-            backupAlertMessage = String(localized: "Saved \(url.lastPathComponent) to your Documents folder.")
-            #endif
-        } else {
-            backupAlertTitle = String(localized: "Export failed")
-            backupAlertMessage = String(localized: "Couldn't write the strap log right now.")
+        Task {
+            await model.ble.flushPuffinCaptures()
+            await live.flushLogPersistence()
+            let url = await ScheduledDebugExport.runNow(captureURL: live.puffinCaptureURL)
+            if let url {
+                backupAlertTitle = String(localized: "Strap log exported")
+                #if os(iOS)
+                backupAlertMessage = String(localized: "Saved \(url.lastPathComponent) to NOOP's folder in the Files app.")
+                #else
+                backupAlertMessage = String(localized: "Saved \(url.lastPathComponent) to your Documents folder.")
+                #endif
+            } else {
+                backupAlertTitle = String(localized: "Export failed")
+                backupAlertMessage = String(localized: "Couldn't write the strap log right now.")
+            }
+            showBackupAlert = true
         }
-        showBackupAlert = true
     }
 
     /// Export the last 24h of decoded sensor streams for the connected strap to a CSV, then save (macOS
@@ -1989,12 +1992,12 @@ struct SettingsDetailHost: View {
     /// Flush the in-flight capture, then copy it to a user-chosen location (save panel on macOS) or
     /// hand it to the system share sheet (iOS).
     private func exportPuffinCaptures() {
-        model.ble.flushPuffinCaptures()
-        guard let src = live.puffinCaptureURL else { return }
         // Suggest a friendly, timestamped name so a reporter saving several captures gets sortable,
         // non-colliding files (#510) — e.g. noop-raw-capture-260617-1042.json.
         let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
         Task {
+            await model.ble.flushPuffinCaptures()
+            guard let src = live.puffinCaptureURL else { return }
             do { try await FileExport.exportSanitizedCapture(at: src, suggestedName: suggested) }
             catch {
                 backupAlertTitle = String(localized: "Export failed")
@@ -2009,15 +2012,15 @@ struct SettingsDetailHost: View {
     /// export utilities — `FileExport.exportPair` shares both files in one iOS share sheet, and saves
     /// each via its own NSSavePanel on macOS (no new file plumbing).
     private func exportRawAndLog() {
-        model.ble.flushPuffinCaptures()
-        guard let capture = live.puffinCaptureURL else {
-            backupAlertTitle = String(localized: "Nothing to export")
-            backupAlertMessage = String(localized: "No raw capture has been recorded yet this session.")
-            showBackupAlert = true
-            return
-        }
-        let stamp = FileExport.timestamp()
         Task {
+            await model.ble.flushPuffinCaptures()
+            guard let capture = live.puffinCaptureURL else {
+                backupAlertTitle = String(localized: "Nothing to export")
+                backupAlertMessage = String(localized: "No raw capture has been recorded yet this session.")
+                showBackupAlert = true
+                return
+            }
+            let stamp = FileExport.timestamp()
             let text = await live.exportableLogTextFlushing()
             await FileExport.exportPair(
                 file: capture, fileSuggestedName: "noop-raw-capture-\(stamp).json",
@@ -2028,9 +2031,9 @@ struct SettingsDetailHost: View {
     #if os(macOS)
     /// Flush, then reveal the capture file in Finder so the user can grab it directly.
     private func revealPuffinCaptures() {
-        model.ble.flushPuffinCaptures()
-        guard let source = live.puffinCaptureURL else { return }
         Task {
+            await model.ble.flushPuffinCaptures()
+            guard let source = live.puffinCaptureURL else { return }
             do {
                 let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
                 let redacted = try await Task.detached(priority: .utility) {

@@ -457,14 +457,17 @@ struct TestCentreView: View {
     }
 
     private func runScheduledExportNow() {
-        model.ble.flushPuffinCaptures()
-        let url = ScheduledDebugExport.runNow(captureURL: live.puffinCaptureURL)
-        if let url {
-            showToast("Saved \(url.lastPathComponent)")
-        } else {
-            infoTitle = String(localized: "Export failed")
-            infoMessage = String(localized: "Couldn't write the strap log right now.")
-            showInfo = true
+        Task {
+            await model.ble.flushPuffinCaptures()
+            await live.flushLogPersistence()
+            let url = await ScheduledDebugExport.runNow(captureURL: live.puffinCaptureURL)
+            if let url {
+                showToast("Saved \(url.lastPathComponent)")
+            } else {
+                infoTitle = String(localized: "Export failed")
+                infoMessage = String(localized: "Couldn't write the strap log right now.")
+                showInfo = true
+            }
         }
     }
 

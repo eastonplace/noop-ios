@@ -655,7 +655,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private lazy var puffinDeepBufferLog = PuffinDeepBufferLog()
 
     /// Force the puffin capture buffer to disk so the Settings export/reveal targets a current file.
-    public func flushPuffinCaptures() { puffinRecorder.flush() }
+    public func flushPuffinCaptures() async { await puffinRecorder.flushAndWait() }
 
     // MARK: CoreBluetooth
     private var central: CBCentralManager!
