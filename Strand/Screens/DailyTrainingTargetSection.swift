@@ -183,7 +183,7 @@ enum DailyTrainingTargetCopy {
         switch result.unavailableReason {
         case .needsRecovery: return String(localized: "Your target appears once today’s Recovery is ready.")
         case .needsSleep: return String(localized: "Your target appears once last night’s sleep is in.")
-        case .needsSleepNeed: return String(localized: "Sync your sleep and today’s target will appear.")
+        case .needsSleepNeed: return String(localized: "Your target appears once today’s sleep need is calculated.")
         case .needsRecentHistory: return String(localized: "Your target needs about a week of recent Strain days.")
         case .invalidHistory, .invalidDay, nil: return String(localized: "Today’s target is paused because some records look off.")
         }
