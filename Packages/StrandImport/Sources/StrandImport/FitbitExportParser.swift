@@ -23,6 +23,8 @@ enum FitbitExportParser {
     static func parse(_ files: [String: Data]) -> (days: [WearableDailyRow], sleeps: [WearableSleepSession]) {
         var byDay: [String: WearableDailyRow] = [:]
         var sleeps: [WearableSleepSession] = []
+        var stepTotals: [String: Int] = [:]
+        var invalidStepDays = Set<String>()
         func day(_ key: String) -> WearableDailyRow { byDay[key] ?? WearableDailyRow(day: key) }
 
         for (name, data) in files {
@@ -52,19 +54,24 @@ enum FitbitExportParser {
                     var row = day(key); row.restingHr = rhr; byDay[key] = row
                 }
             } else if base.hasPrefix("steps") || base.contains("steps") {
-                // A per-day file holds intraday step events; the daily total is their sum.
-                var totals: [String: Int] = [:]
+                // Sum all fragments together. An unrepresentable aggregate makes this day's steps
+                // unknown; keep its other metrics, but never publish a partial/capped step total.
                 for e in WearableJSON.array(data)?.compactMap({ $0 as? [String: Any] }) ?? [] {
                     guard let key = dayKey(WearableJSON.str(e, "dateTime")),
-                          let v = WearableJSON.int(e, "value"), v >= 0 else { continue }
-                    totals[key, default: 0] += v
-                }
-                for (key, total) in totals where total > 0 {
-                    var row = day(key)
-                    row.steps = (row.steps ?? 0) + total
-                    byDay[key] = row
+                          let v = WearableJSON.int(e, "value"), v >= 0,
+                          !invalidStepDays.contains(key) else { continue }
+                    let (total, overflow) = stepTotals[key, default: 0].addingReportingOverflow(v)
+                    if overflow {
+                        invalidStepDays.insert(key)
+                        stepTotals.removeValue(forKey: key)
+                    } else { stepTotals[key] = total }
                 }
             }
+        }
+        for (key, total) in stepTotals where total > 0 {
+            var row = day(key)
+            row.steps = total
+            byDay[key] = row
         }
         return (Array(byDay.values), sleeps)
     }
