@@ -179,7 +179,24 @@ final class CentreHost: ViewHost {
             if !condition { failures += 1 }
         }
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(1.4)) }
+        for malformed: Any in ["true", "YES", 1, 2, 1.0] {
+            defaults.set(malformed, forKey: PuffinExperiment.deepDataKey)
+            check(!PuffinExperiment.deepDataEnabled, "malformed consent rejected: \(malformed)")
+        }
+        defaults.removeObject(forKey: PuffinExperiment.deepDataKey)
+        defaults.register(defaults: [PuffinExperiment.deepDataKey: true])
+        check(!PuffinExperiment.deepDataEnabled, "registered fallback does not authorize config")
+        consent(false)
+        let disabled = Manager(); disabled.enableWhoop5DeepData(); settle()
+        check(disabled.sentCommands.isEmpty, "permission OFF emits no config")
         consent(true)
+        let otherFamily = Manager(); otherFamily.selectedModel.deviceFamily = .whoop4
+        otherFamily.enableWhoop5DeepData(); settle()
+        check(otherFamily.sentCommands.isEmpty, "WHOOP4 stays outside deep-data experiment")
+        let earlyRevoked = Manager()
+        earlyRevoked.enableWhoop5DeepData()
+        consent(false); earlyRevoked.reconcileWhoop5DeepDataPermission(false); consent(true); settle()
+        check(earlyRevoked.sentCommands.isEmpty, "OFF to ON cancels delayed pre-enqueue callbacks")
         let normal = Manager()
         normal.enableWhoop5DeepData(); settle()
         check(normal.sentCommands.filter { $0 == 0x78 }.count == 16, "normal sequence traverses actual serial queue")
