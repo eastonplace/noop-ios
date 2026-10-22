@@ -9,8 +9,8 @@ options:
 
 settings:
   base:
-    MARKETING_VERSION: "1.8.1"
-    CURRENT_PROJECT_VERSION: "241"
+    MARKETING_VERSION: "2.0.0"
+    CURRENT_PROJECT_VERSION: "243"
     SWIFT_EMIT_LOC_STRINGS: YES
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: "479HYY24G2"
@@ -105,8 +105,8 @@ targets:
         NSLocationWhenInUseUsageDescription: "NOOP records your route during an outdoor workout to show distance, pace, and a map, and keeps recording while the screen is off. The route stays on your device. Nothing leaves it."
         NSHealthShareUsageDescription: "NOOP reads your own Apple Health data on-device to compute recovery, strain, and sleep. Nothing leaves your device."
         NSHealthUpdateUsageDescription: "NOOP writes the metrics it computes from your strap back into Apple Health, on-device and only when you allow it."
-        NSMicrophoneUsageDescription: "NOOP uses your microphone only when you tap the Coach microphone. Your spoken question is transcribed on this iPhone."
-        NSSpeechRecognitionUsageDescription: "NOOP transcribes Coach questions on this iPhone. It does not send recordings to a speech server."
+        NSMicrophoneUsageDescription: "NOOP uses your microphone only when you tap a microphone in Coach or Journal. Speech is transcribed on this iPhone."
+        NSSpeechRecognitionUsageDescription: "NOOP transcribes Coach questions and journal entries on this iPhone. It does not send recordings to a speech server."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UIFileSharingEnabled: true

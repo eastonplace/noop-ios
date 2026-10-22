@@ -19,6 +19,24 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 2.0.0
+
+Staged combined release. Phone installation and publication remain on hold until Easton calls the batch ready. This entry accumulates implemented work from PR68 onward; the tentative endpoint is PR77 and may change. Unmerged features are not listed as delivered.
+
+- **Daily training targets.** Today suggests a daily Strain range from measured recent history, Recovery and sleep. Preview planned Strain and sleep without replacing observed metrics. Missing trailing days retain the load model's civil-day decay.
+- **Reviewed Lift progression.** Review suggested weights, reps or sets before the next session. Explicit acceptance applies to that session; saved routines, completed history and active-workout ownership remain protected.
+- **Voice Journal.** Type or explicitly start on-device dictation, review matched catalog answers, then save atomically. Stale callbacks, changed catalogs and database replacement cannot publish an obsolete review.
+- **Workout type review.** Review the proposed type and evidence before saving a detected interval. Source ownership and overlap checks run in the transaction; a failed save retains the selection for retry.
+- **Reliable daily scores.** Reconciles missing or invalid score inputs, RR ordering, sleep movement and wake-day evidence, late Charge inputs, workout energy corrections and civil-week totals. No physiological threshold or measured energy-saving claim is added.
+- **Steady strap readings.** Live readings keep their recording source and clock, repeated equal BPM remains fresh until actual silence, reconnects honor broadcast choices, stale callbacks stay fenced, and new live enrollment focuses on WHOOP.
+- **Protected history and background work.** Interrupted transfers retain durable commit/acknowledgment ownership. Restore, import, protected pruning, Lab Book writes, GPS filtering, Coach/export persistence and test reports preserve the correct data owner and completion state.
+- **Apple Health continuity.** Complete sleep episodes share the correct wake day without double counting. Read setup resumes; cancelled synchronization and cleanup preserve saved recovery evidence.
+- **Complete widgets and diagnostics.** Daily widgets retain complete-day coverage. Foreground intents and alarm-backup ownership remain scoped to the current operation, and missing artwork announces an unavailable illustration instead of describing the wrong image.
+
+CI work in PR76 removes duplicate package testing and selects checks by change type. It changes developer validation, not app behavior. Prior 1.8.x release history remains below.
+
+- **Strap alarm confirmation (#69):** ordered WHOOP 4 writes and current-request readback confirm the wake time; missing confirmation ends with an explicit status.
+
 ## 1.8.1
 
 October 2026: Steadier readings and scores.

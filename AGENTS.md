@@ -5,6 +5,16 @@ open-source NOOP, forked at upstream 9.0.1 in July 2026. Its own version history
 
 ## Versions and releases
 
+**Active shared 2.0 batch, authorized by Easton on 2026-10-22:** PRs from #68 onward are being
+combined into one 2.0.0 release, tentatively through #77. Easton may change the endpoint. While
+`docs/releases/2.0-batch.json` is `staging`, keep `MARKETING_VERSION` at `2.0.0` across participating
+PRs and increase `CURRENT_PROJECT_VERSION` for each app change. Update the single cumulative 2.0.0
+What's New entry and CHANGELOG with implemented work from #68 onward. Preserve earlier release history;
+do not describe unmerged work as shipped. This explicitly replaces the one-version-per-PR rule below
+for this batch only. **Do not install on any phone or publish/tag an app release until Easton calls
+the combined batch ready.** Then qualify the exact complete release candidate before publication
+or installation. Merging an individual batch PR does not authorize either action.
+
 Every PR that changes what a user sees or how the app behaves ships a version bump and a What's New entry.
 
 1. **Pick the version** (semver on `MARKETING_VERSION` in `project.yml`):
@@ -29,7 +39,9 @@ Settings → About → What's new.
 
 **Enforced in CI.** `Tools/qa/whats_new_release_audit.py` runs in the `source-audits` job and fails a PR when the
 newest What's New entry doesn't match `MARKETING_VERSION`, the fallback literal is stale, or app source changed
-without raising both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` above the exact PR base. The initial
+without the required version/build update. The shared 2.0 exception requires the held staging policy on both
+the exact base and head, a higher build, and updated cumulative release notes. Outside that batch, both values
+must rise above the exact PR base. The initial
 upstream 9.x to fork 1.x marketing-version reset is allowed; build numbers still increase. CI checks use complete
 history and fail if the PR comparison is unavailable.
 

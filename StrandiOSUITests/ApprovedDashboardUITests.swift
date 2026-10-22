@@ -227,9 +227,28 @@ final class ApprovedDashboardUITests: XCTestCase {
         XCTAssertEqual(heroVersions, [displayedVersion], "What's New shows the running version from About")
         try requireExists(app.buttons["Continue"], in: app)
         capture(app, "fork-whats-new")
-        let enrollment = element("whatsNew.feature.Correct weekly totals", in: app)
-        try reveal(enrollment, in: app, needsHitTarget: false)
-        XCTAssertTrue(enrollment.label.contains("Week boundaries keep workouts in the right week."))
+        // Current features use an eager VStack; earlier releases have no feature rows until opened.
+        // Snapshot every current row before scrolling, then bind the final row by its stable identifier.
+        let featurePrefix = "whatsNew.feature."
+        let currentFeatures = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", featurePrefix)
+        ).allElementsBoundByIndex
+        XCTAssertGreaterThanOrEqual(currentFeatures.count, 3, "The current release exposes its full feature list")
+        let lastSnapshot = try XCTUnwrap(currentFeatures.last)
+        let lastIdentifier = lastSnapshot.identifier
+        let lastLabel = lastSnapshot.label
+        let title = String(lastIdentifier.dropFirst(featurePrefix.count))
+        XCTAssertNotEqual(lastIdentifier, currentFeatures.first?.identifier, "The scroll proof targets the final row, not the first")
+        XCTAssertFalse(title.isEmpty)
+        XCTAssertTrue(lastLabel.hasPrefix(title), "The row label includes its feature title")
+        let detail = String(lastLabel.dropFirst(title.count))
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        XCTAssertFalse(detail.isEmpty, "The final feature includes its detail, not only a title")
+        let lastFeature = element(lastIdentifier, in: app)
+        let viewport = app.scrollViews.firstMatch
+        try reveal(lastFeature, in: app, needsHitTarget: false, viewport: viewport)
+        XCTAssertTrue(viewport.frame.intersection(app.frame).contains(lastFeature.frame), "The entire final feature is reachable")
+        XCTAssertEqual(lastFeature.label, lastLabel, "The final feature's complete title and detail remain intact after scrolling")
         capture(app, "fork-whats-new-last-feature")
         app.buttons["Continue"].tap()
         try requireExists(app.buttons["What's new"], in: app)
@@ -339,7 +358,7 @@ final class ApprovedDashboardUITests: XCTestCase {
 
         let title = element("today.health.title", in: app)
         let viewport = app.scrollViews.firstMatch
-        let anchors = size == .normal ? todayScrollAnchors(in: app) : []
+        let anchors = todayScrollAnchors(in: app)
         try reveal(title, in: app, needsHitTarget: false, viewport: viewport, scrollAnchors: anchors)
         XCTAssertEqual(title.label, "Health Monitor", "The M1 heading has no metric count")
         let health = element("today.health.monitor", in: app)
@@ -736,9 +755,12 @@ final class ApprovedDashboardUITests: XCTestCase {
     private enum ScrollDirection { case up, down }
 
     private func todayScrollAnchors(in app: XCUIApplication) -> [XCUIElement] {
-        // These section headings sit outside both chart scrub regions. Resolve their actual
-        // frames each time: changing Stress copy can move its ribbon over a fixed drag point.
-        [element("today.health.title", in: app), app.staticTexts["Today’s Stress"]]
+        // Resolve visible text outside chart scrub regions at either text size. The large-text
+        // training target changes where the HR chart lands; a fixed gutter drag can stop there.
+        // HR's heading and footer labels bridge that card without starting on its trace.
+        [element("today.health.title", in: app), app.staticTexts["Today’s Stress"],
+         app.staticTexts.matching(NSPredicate(format: "label ==[cd] %@", "Live Heart Rate")).firstMatch,
+         app.staticTexts["LOW"], app.staticTexts["AVG"], app.staticTexts["PEAK"]]
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,
@@ -795,7 +817,7 @@ final class ApprovedDashboardUITests: XCTestCase {
             }
             if surface.elementType == .scrollView || viewport != nil {
                 // Default to the gutter outside charts and native row controls. For Today,
-                // a fully visible section heading provides a start outside chart gestures.
+                // a visible section heading provides a start outside chart gestures.
                 // Bound both endpoints to the visible intersection, including partially clipped views.
                 let surfaceFrame = surface.frame
                 guard usableScrollFrame(surfaceFrame) else {
@@ -811,18 +833,23 @@ final class ApprovedDashboardUITests: XCTestCase {
                     print("[health-gesture] attempt=\(attempt) explicitViewport=\(viewport != nil) surfaceType=\(surface.elementType.rawValue) surfaceID=\(surface.identifier) gestureFrame=\(gestureFrame)")
                 }
                 let origin = app.coordinate(withNormalizedOffset: .zero)
-                let anchorFrames = scrollAnchors.compactMap { anchor -> CGRect? in
+                let anchorPoints = scrollAnchors.compactMap { anchor -> CGPoint? in
                     guard anchor.exists else { return nil }
                     let frame = anchor.frame
-                    guard usableScrollFrame(frame), gestureFrame.contains(frame),
-                          scrollUp ? frame.midY > gestureFrame.minY + 44 : frame.midY < gestureFrame.maxY - 44
-                    else { return nil }
-                    return frame
+                    guard usableScrollFrame(frame) else { return nil }
+                    let visible = frame.intersection(gestureFrame)
+                    // A partly clipped heading is still a safe start on its visible text. Requiring
+                    // its entire frame discarded it and fell back onto the chart beneath it.
+                    guard usableScrollFrame(visible), visible.height >= min(frame.height, 16) else { return nil }
+                    let inset = min(8, visible.height / 2)
+                    let y = scrollUp ? visible.maxY - inset : visible.minY + inset
+                    guard scrollUp ? y > gestureFrame.minY + 44 : y < gestureFrame.maxY - 44 else { return nil }
+                    return CGPoint(x: visible.midX, y: y)
                 }
-                let anchor = scrollUp ? anchorFrames.max(by: { $0.midY < $1.midY })
-                    : anchorFrames.min(by: { $0.midY < $1.midY })
-                let x = (anchor?.midX ?? (gestureFrame.minX + gestureFrame.width * 0.02)) - appFrame.minX
-                let startY = anchor?.midY ?? (gestureFrame.minY + gestureFrame.height * (scrollUp ? 0.8 : 0.2))
+                let anchor = scrollUp ? anchorPoints.max(by: { $0.y < $1.y })
+                    : anchorPoints.min(by: { $0.y < $1.y })
+                let x = (anchor?.x ?? (gestureFrame.minX + gestureFrame.width * 0.02)) - appFrame.minX
+                let startY = anchor?.y ?? (gestureFrame.minY + gestureFrame.height * (scrollUp ? 0.8 : 0.2))
                 let defaultEndY = gestureFrame.minY + gestureFrame.height * (scrollUp ? 0.2 : 0.8)
                 let endY = anchor == nil ? defaultEndY
                     : (scrollUp ? min(defaultEndY, startY - 44) : max(defaultEndY, startY + 44))

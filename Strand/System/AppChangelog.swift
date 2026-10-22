@@ -10,7 +10,7 @@ enum AppChangelog {
     /// MARKETING_VERSION) instead of a third hand-maintained copy that drifted; the literal is only the
     /// fallback outside an app bundle. Add the matching entry to `releases` when the version changes.
     static let currentVersion: String =
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.8.1"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.0.0"
 
     struct Release: Identifiable {
         let version: String
@@ -48,6 +48,17 @@ enum AppChangelog {
 
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
+        .fork("2.0.0", "NOOP 2.0", "October 2026", [
+            Feature("flame.fill", .strain, "Daily training targets", "Preview a plan from your recent load and recovery."),
+            Feature("dumbbell.fill", .strain, "Reviewed Lift progression", "Review suggested weights before your next session."),
+            Feature("mic.fill", .journal, "Voice Journal", "Dictate a note and review answers before saving."),
+            Feature("figure.walk", .accent, "Workout type review", "Check a detected workout's type before saving."),
+            Feature("waveform.path.ecg", .hrv, "Reliable daily scores", "Cleaner daily scores, weekly totals and widget readings."),
+            Feature("heart.fill", .heart, "Steady strap readings", "Fresh readings stay with the strap that recorded them."),
+            Feature("checkmark.shield.fill", .accent, "Protected history", "Background sync, imports and reports keep saved data."),
+            Feature("heart.text.square.fill", .sleep, "Apple Health continuity", "Sync and cleanup preserve saved sleep and recovery."),
+            Feature("alarm.fill", .sleep, "Confirmed strap alarms", "Wake times check the current strap's reply."),
+        ]),
         .fork("1.8.1", "Steadier readings and scores", "October 2026", [
             Feature("antenna.radiowaves.left.and.right", .accent, "Connection control", "Disconnect and Forget keep your strap released."),
             Feature("heart.fill", .heart, "Steady live sessions", "Equal heart-rate readings stay fresh until silence."),

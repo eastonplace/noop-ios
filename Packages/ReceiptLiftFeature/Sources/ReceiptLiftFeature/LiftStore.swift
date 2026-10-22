@@ -165,6 +165,7 @@ final class LiftStore: ObservableObject {
   private var databaseTask: Task<Void, Error>?
   private var databaseInvalidated = false
   private var applyingReviewedRoutines = false
+  private let progressionStoreID = UUID()
   private var finishDate: Date?
   private let persistence: LiftPersistenceIO
   private let saveDebounceInterval: TimeInterval
@@ -382,13 +383,48 @@ final class LiftStore: ObservableObject {
     await loadTask?.value
   }
 
-  func startRoutine(_ routine: LiftRoutine?) {
-    guard canStartSession(), !databaseInvalidated else { status = "Finish your current NOOP workout before starting Lift."; return }
+  func progressionReview(for routine: LiftRoutine, now: Date = Date()) -> LiftProgressionReview {
+    LiftProgressionReview.make(
+      storeID: progressionStoreID, routine: routine, exercises: exercises,
+      sessions: sessions, unit: weightUnit, now: now
+    )
+  }
+
+  func progressionReviewIsCurrent(_ review: LiftProgressionReview, now: Date = Date()) -> Bool {
+    guard didFinishLoad, !databaseInvalidated,
+          let routine = routines.first(where: { $0.id == review.routine.id }) else { return false }
+    return review.isCurrent(comparedWith: progressionReview(for: routine, now: now))
+  }
+
+  @discardableResult
+  func startRoutine(
+    _ routine: LiftRoutine?,
+    progression review: LiftProgressionReview? = nil,
+    now: Date = Date()
+  ) -> Bool {
+    guard didFinishLoad, !databaseInvalidated else {
+      status = "The workout store changed. Reopen Lift before starting."
+      return false
+    }
+    guard activeSession == nil, !isFinishing, !applyingReviewedRoutines, canStartSession() else {
+      status = "Finish your current NOOP workout before starting Lift."
+      return false
+    }
+    if let routine, routines.first(where: { $0.id == routine.id }) != routine {
+      status = "This routine changed. Review the current plan before starting."
+      return false
+    }
+    if let review {
+      guard review.routine == routine, review.hasTargets, progressionReviewIsCurrent(review, now: now) else {
+        status = "These suggestions changed or expired. Refresh and review them before applying."
+        return false
+      }
+    }
     activeSession = LiftSession(
       id: UUID(),
       routineID: routine?.id,
       title: routine?.name ?? "Open Lift",
-      startedAt: Date(),
+      startedAt: now,
       endedAt: nil,
       sets: []
     )
@@ -399,10 +435,21 @@ final class LiftStore: ObservableObject {
     activePlanOverrides = (routine?.exercisePlans ?? []).reduce(into: [:]) { snapshot, plan in
       snapshot[plan.exerciseID] = plan
     }
+    if let review {
+      for row in review.rows {
+        guard let target = row.decision.target,
+              var plan = activePlanOverrides[row.exerciseID] else { continue }
+        plan.targetWeightPounds = target.weightPounds
+        plan.sets = String(target.sets)
+        plan.reps = target.repsText
+        activePlanOverrides[row.exerciseID] = plan
+      }
+    }
     activeSupersetGroups = [:]
     status = "Started \(activeSession?.title ?? "lift")"
     save()
     syncLiveActivity()
+    return true
   }
 
   @discardableResult
@@ -832,11 +879,27 @@ final class LiftStore: ObservableObject {
   }
 
   func suggestedWeight(for exerciseID: UUID) -> Double {
-    sets(for: exerciseID, includeActive: true).first?.weight ?? defaultWeight(for: exerciseID)
+    if let set = latestActiveWorkingSet(for: exerciseID) { return set.weight }
+    if let target = activePlan(for: exerciseID)?.targetWeightPounds,
+       target.isFinite, target >= 0 { return target }
+    return latestCompletedWorkingSet(for: exerciseID)?.weight ?? defaultWeight(for: exerciseID)
   }
 
   func suggestedReps(for exerciseID: UUID) -> Int {
-    sets(for: exerciseID, includeActive: true).first?.reps ?? 8
+    if let set = latestActiveWorkingSet(for: exerciseID) { return set.reps }
+    if let plan = activePlan(for: exerciseID), plan.targetWeightPounds != nil,
+       let reps = LiftProgressionEngine.prescribedReps(plan.reps) { return reps }
+    return latestCompletedWorkingSet(for: exerciseID)?.reps ?? 8
+  }
+
+  private func latestActiveWorkingSet(for exerciseID: UUID) -> LiftSet? {
+    activeSession?.sets.last { $0.exerciseID == exerciseID && !$0.isWarmup }
+  }
+
+  private func latestCompletedWorkingSet(for exerciseID: UUID) -> LiftSet? {
+    sessions.filter { $0.endedAt != nil }.flatMap(\.sets)
+      .filter { $0.exerciseID == exerciseID && !$0.isWarmup }
+      .max { $0.completedAt < $1.completedAt }
   }
 
   func previousBestEstimatedOneRepMax(for exerciseID: UUID) -> Double {
