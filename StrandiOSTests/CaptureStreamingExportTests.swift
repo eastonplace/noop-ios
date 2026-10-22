@@ -91,4 +91,24 @@ final class CaptureStreamingExportTests: XCTestCase {
         XCTAssertNil(missing)
     }
 
+    func testExportCopyFailurePreservesExistingChosenFileAndSuccessReplacesIt() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ExportCopy-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("chosen.json")
+        let original = Data("existing user file".utf8)
+        try original.write(to: destination)
+        XCTAssertThrowsError(try FileExport.copyAtomically(
+            directory.appendingPathComponent("missing-source"), to: destination))
+        XCTAssertEqual(try Data(contentsOf: destination), original)
+        let source = directory.appendingPathComponent("safe-source")
+        let safe = Data("redacted capture".utf8)
+        try safe.write(to: source)
+        try FileExport.copyAtomically(source, to: destination)
+        XCTAssertEqual(try Data(contentsOf: destination), safe)
+        XCTAssertEqual(try Data(contentsOf: source), safe)
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: directory.path)),
+                       ["chosen.json", "safe-source"])
+    }
+
 }
