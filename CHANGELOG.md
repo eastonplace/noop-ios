@@ -19,6 +19,10 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 2.0.0
+
+NOOP 2.0. A daily training target based on your recent load, with a preview before you commit. Lift suggests your next weights and shows what changed since your last session. Write or dictate a journal note and review how NOOP read it before saving. Workout suggestions you can save in one tap, with the type changed first if it guessed wrong.
+
 ## 1.7.1
 
 WHOOP 4.0 alarm commands use ordered confirmed writes and a delayed readback. Alarm confirmation is scoped to the current strap and request. Missing or negative confirmation ends with an explicit status instead of leaving Arming indefinitely. Existing wake schedules and stored health data are preserved.
