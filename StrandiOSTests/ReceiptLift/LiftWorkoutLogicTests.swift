@@ -127,7 +127,7 @@ struct LiftWorkoutLogicTests {
     #expect(reloaded.activePlanOverrides == before.activePlanOverrides)
     #expect(reloaded.completedExerciseIDs == before.completedExerciseIDs)
     #expect(reloaded.activeSupersetGroups == before.activeSupersetGroups)
-    #expect(reloaded.activeSession == active)
+    #expect(reloaded.activeSession == before.activeSession)
   }
 
   @Test func swappingToANewExerciseTransfersOnlyTheSourcePrescription() async throws {
@@ -145,6 +145,7 @@ struct LiftWorkoutLogicTests {
     )
     defer { fixture.remove() }
     fixture.store.setSuperset(first.id, with: partner.id)
+    let recorded = fixture.store.activeSession
 
     fixture.store.replaceActiveExercise(first.id, with: replacement.id)
 
@@ -153,7 +154,7 @@ struct LiftWorkoutLogicTests {
     #expect(fixture.store.activePlan(for: replacement.id)?.sets == firstPlan.sets)
     #expect(fixture.store.activePlan(for: replacement.id)?.rest == firstPlan.rest)
     #expect(fixture.store.supersetPartners(for: replacement.id).map(\.id) == [partner.id])
-    #expect(fixture.store.activeSession == active, "logged sets keep their original exercise")
+    #expect(fixture.store.activeSession == recorded, "logged sets keep their original exercise")
   }
 
   @Test func estimatedMinutesReturnsZeroForEmptyOrAllInvalidPlans() {
