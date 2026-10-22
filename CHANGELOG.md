@@ -19,6 +19,17 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 1.7.2
+
+October 2026: More reliable sync.
+
+- **Fresh heart rate.** Readings update promptly and clear with the stream.
+- **Device switching.** Readings stay with the strap that recorded them.
+- **Protected history.** Interrupted transfers retry before history cleanup.
+- **Saved broadcast choice.** Reconnect requests your saved broadcast setting.
+- **Private Coach images.** Coach uses images bundled with NOOP.
+- **Background Health sync.** Adds support for Apple Health background delivery.
+
 ## 1.7.1
 
 WHOOP 4.0 alarm commands use ordered confirmed writes and a delayed readback. Alarm confirmation is scoped to the current strap and request. Missing or negative confirmation ends with an explicit status instead of leaving Arming indefinitely. Existing wake schedules and stored health data are preserved.

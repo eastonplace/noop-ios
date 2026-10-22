@@ -122,6 +122,12 @@ jobs:
           set -o pipefail
           xcodegen generate 2>&1 | tee qa-artifacts/xcodegen.txt
 
+      - name: Verify source adoption preserves same-strap alarms
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 Tools/qa/test_ble_clock_alarm_isolation.py 2>&1 | tee qa-artifacts/clock-alarm-isolation.txt
+
       - name: Build iPhone app and extensions
         shell: bash
         run: |

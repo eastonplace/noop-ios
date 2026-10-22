@@ -11,6 +11,7 @@ final class SourceCoordinatorTransitionRegressionTests: XCTestCase {
         var starts = 0
         var stops = 0
         var writeTarget = "my-whoop"
+        var events: [String] = []
     }
 
     private func makeHarness() async throws -> (SourceCoordinator, Effects) {
@@ -31,10 +32,10 @@ final class SourceCoordinatorTransitionRegressionTests: XCTestCase {
             registry: registry,
             live: LiveState(),
             storeHandle: { store },
-            startWhoop: { effects.starts += 1 },
-            stopWhoop: { effects.stops += 1 },
-            setWhoopPreferredPeripheral: { _ in },
-            setWhoopActiveDeviceId: { effects.writeTarget = $0 },
+            startWhoop: { effects.starts += 1; effects.events.append("start") },
+            stopWhoop: { effects.stops += 1; effects.events.append("stop") },
+            setWhoopPreferredPeripheral: { _ in effects.events.append("target") },
+            setWhoopActiveDeviceId: { effects.writeTarget = $0; effects.events.append("owner:\($0)") },
             connectedPeripheralUUID: Empty<String?, Never>().eraseToAnyPublisher())
         return (coordinator, effects)
     }
@@ -77,5 +78,14 @@ final class SourceCoordinatorTransitionRegressionTests: XCTestCase {
         coordinator.activeDeviceChanged(to: "my-whoop")
         XCTAssertEqual(effects.starts, 1)
         XCTAssertEqual(effects.writeTarget, "my-whoop")
+    }
+
+    func testPhysicalSwitchDisconnectsBeforeChangingTargetOrOwner() async throws {
+        let (coordinator, effects) = try await makeHarness()
+        coordinator.activeDeviceChanged(to: "my-whoop")
+        effects.events.removeAll()
+        coordinator.activeDeviceChanged(to: "second-whoop")
+        XCTAssertEqual(effects.events, ["stop", "target", "owner:second-whoop", "start"],
+                       "The old link and its pending alarm must end before physical retargeting")
     }
 }

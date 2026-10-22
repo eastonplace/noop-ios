@@ -1733,7 +1733,7 @@ public final class BLEManager: NSObject, ObservableObject {
             isConnected: state.connected && peripheral?.state == .connected)
         let previousCollectorClock = collector?.clockRef
         if changed, !retainsPhysicalClock {
-            resetClockRecoveryForConnection()
+            resetClockRecoveryState()
             clockRef = nil
             clockRefPeripheralID = nil
             clockRefIsApproximate = false
@@ -6664,6 +6664,12 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
 
     private func resetClockRecoveryForConnection() {
         cancelWhoop4AlarmTransaction()
+        resetClockRecoveryState()
+    }
+
+    /// A logical source adoption can invalidate the clock while retaining the same physical link.
+    /// Only the connection reset above may cancel that link's in-flight alarm transaction.
+    private func resetClockRecoveryState() {
         clockRecoveryTimeout?.cancel()
         clockRecoveryTimeout = nil
         clockRecovery.reset()

@@ -10,7 +10,7 @@ enum AppChangelog {
     /// MARKETING_VERSION) instead of a third hand-maintained copy that drifted; the literal is only the
     /// fallback outside an app bundle. Add the matching entry to `releases` when the version changes.
     static let currentVersion: String =
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.7.1"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.7.2"
 
     struct Release: Identifiable {
         let version: String
@@ -48,6 +48,14 @@ enum AppChangelog {
 
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
+        .fork("1.7.2", "More reliable sync", "October 2026", [
+            Feature("heart.fill", .heart, "Fresh heart rate", "Readings update promptly and clear with the stream."),
+            Feature("arrow.triangle.2.circlepath", .accent, "Device switching", "Readings stay with the strap that recorded them."),
+            Feature("checkmark.shield.fill", .hrv, "Protected history", "Interrupted transfers retry before history cleanup."),
+            Feature("antenna.radiowaves.left.and.right", .accent, "Saved broadcast choice", "Reconnect requests your saved broadcast setting."),
+            Feature("lock.shield.fill", .journal, "Private Coach images", "Coach uses images bundled with NOOP."),
+            Feature("heart.text.square.fill", .heart, "Background Health sync", "Adds support for Apple Health background delivery."),
+        ]),
         .fork("1.7.1", "Clearer alarm confirmation", "October 2026", [
             Feature("alarm.fill", .sleep, "Ordered alarm delivery", "WHOOP 4.0 alarm commands wait for each write."),
             Feature("checkmark.circle", .accent, "Confirmed wake time", "Alarm status checks the current strap's reply."),
