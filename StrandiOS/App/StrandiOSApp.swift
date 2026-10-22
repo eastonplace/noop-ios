@@ -743,6 +743,9 @@ struct StrandiOSApp: App {
                     await drainCommittedHealthScoring()
                     await externalPublicationWorker.signal()
                     #if DEBUG
+                    if CommandLine.arguments.contains("--noop-whoop4-alarm-test") {
+                        await DebugWhoop4AlarmProbe.run(model: model)
+                    }
                     if CommandLine.arguments.contains("--component41-live-qa") {
                         await liveActivity.startComponent41QA(
                             paused: CommandLine.arguments.contains("--component41-live-qa-paused"))
