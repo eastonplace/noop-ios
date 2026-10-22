@@ -161,6 +161,38 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         }
     }
 
+    func testOneIndexedObjectCannotDeleteSameWindowDifferentSportProjections() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("health-workout-sport-ambiguity-\(UUID().uuidString).sqlite").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let store = try await WhoopStore(path: path)
+        let timestamp = start + 10 * 3600
+        _ = try await store.upsertWorkouts(["Running", "Cycling"].map { sport in
+            WorkoutRow(startTs: timestamp, endTs: timestamp + 3600, sport: sport,
+                source: "apple-health", durationS: 3600, energyKcal: nil,
+                avgHr: nil, maxHr: nil, strain: nil, distanceM: nil, zonesJSON: nil, notes: nil)
+        }, deviceId: "apple-health")
+        // The XML Cycling projection has no object-index identity. One indexed Running
+        // object cannot establish which sport owns the matching projected window.
+        try await store.upsertHealthKitObjectIdentities([
+            .init(sampleType: "HKWorkoutTypeIdentifier", objectUUID: "deleted-running",
+                  startTs: timestamp, endTs: timestamp + 3600)
+        ], deviceId: "apple-health")
+        let evidence = HealthKitProjectionDeletion(sampleType: "HKWorkoutTypeIdentifier",
+            fromDay: day, toDay: day, fromTimestamp: timestamp, toTimestamp: timestamp + 3600)
+        try await replace(store, evidence: [evidence])
+        let after = try await store.workouts(deviceId: "apple-health", from: start,
+                                             to: start + 2 * 86_400, limit: 10)
+        XCTAssertEqual(Set(after.map(\.sport)), ["Running", "Cycling"])
+        try await store.close()
+        let reopened = try await WhoopStore(path: path)
+        try await replace(reopened, evidence: [evidence])
+        let replayed = try await reopened.workouts(deviceId: "apple-health", from: start,
+                                                  to: start + 2 * 86_400, limit: 10)
+        XCTAssertEqual(Set(replayed.map(\.sport)), ["Running", "Cycling"])
+        try await reopened.close()
+    }
+
     func testAmbiguousSleepTombstonePreservesAdjacentBankedNightsOnHiddenReadReplay() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("health-sleep-tombstone-\(UUID().uuidString).sqlite").path
