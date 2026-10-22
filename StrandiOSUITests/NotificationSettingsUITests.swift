@@ -47,7 +47,7 @@ final class NotificationSettingsUITests: XCTestCase {
         try requireExists(notificationsBar, in: app, timeout: 60)
         try assertHeader("Delivery status", in: app)
         let permission = text("Notification permission", in: app)
-        try reveal(permission, in: app)
+        try reveal(permission, in: app, needsHitTarget: false)
         let permissionStates = [
             "Allowed", "Quiet delivery", "Temporary permission", "Off in system settings",
             "Not requested", "Unavailable",
@@ -67,8 +67,15 @@ final class NotificationSettingsUITests: XCTestCase {
         XCTAssertTrue(useEssentials.isEnabled, "The preview offers the explicitly confirmed preset")
         capture(app, "notifications-\(size)-essentials-preview")
         let cancel = app.buttons["Cancel"]
-        try requireExists(cancel, in: app)
-        cancel.tap()
+        if cancel.exists {
+            cancel.tap()
+        } else {
+            // Native popovers omit the cancel-role row and expose a dismissal region instead.
+            XCTAssertTrue(app.popovers.firstMatch.exists)
+            let dismissRegion = app.otherElements["PopoverDismissRegion"]
+            try requireExists(dismissRegion, in: app)
+            dismissRegion.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.18)).tap()
+        }
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: useEssentials)
         XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed,
                        "Cancel closes the preview without applying Essentials")
@@ -154,7 +161,7 @@ final class NotificationSettingsUITests: XCTestCase {
     }
 
     private func assertHeader(_ label: String, in app: XCUIApplication) throws {
-        try reveal(text(label, in: app), in: app)
+        try reveal(text(label, in: app), in: app, needsHitTarget: false)
     }
 
     @discardableResult
@@ -181,14 +188,22 @@ final class NotificationSettingsUITests: XCTestCase {
         }
     }
 
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication, allowOversizedText: Bool = false) throws {
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, allowOversizedText: Bool = false,
+                        needsHitTarget: Bool = true) throws {
         // Native List creates rows lazily. Each checkpoint is visited in display order;
         // use small bounded swipes so an AX row cannot be skipped by a full-screen fling.
         for _ in 0..<40 {
-            if element.exists && element.isHittable && app.frame.contains(element.frame) { return }
-            let surface = app.collectionViews.allElementsBoundByIndex.first(where: \.isHittable)
-                ?? app.tables.allElementsBoundByIndex.first(where: \.isHittable)
-                ?? app.scrollViews.allElementsBoundByIndex.first(where: \.isHittable)
+            if element.exists && !element.frame.isEmpty && app.frame.contains(element.frame)
+                && (!needsHitTarget || element.isHittable) { return }
+            // The native collection's empty center can report non-hittable while visible rows work.
+            // Use its visible geometry for drags; every interactive row still has to pass hit testing.
+            let isVisible: (XCUIElement) -> Bool = { candidate in
+                candidate.exists && candidate.frame.intersection(app.frame).height > 100
+                    && candidate.frame.intersection(app.frame).width > 100
+            }
+            let surface = app.collectionViews.allElementsBoundByIndex.first(where: isVisible)
+                ?? app.tables.allElementsBoundByIndex.first(where: isVisible)
+                ?? app.scrollViews.allElementsBoundByIndex.first(where: isVisible)
             guard let surface else {
                 fail("No native settings list was available to scroll", in: app)
                 throw HarnessError.unreachable("Missing settings list")

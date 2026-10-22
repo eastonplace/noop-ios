@@ -376,8 +376,11 @@ final class ApprovedDashboardUITests: XCTestCase {
         if element("todayDashboard.settings", in: app).exists { return }
         if !app.buttons["settings.done"].exists {
             let profile = app.buttons["app.settings"]
-            try reveal(profile, in: app, direction: .down)
-            profile.tap()
+            // Pinned chrome can expose a false AX hit-test result above the clipped scroll sibling.
+            // Require its full visible touch target, deliver a real touch, then verify the Settings route.
+            try reveal(profile, in: app, direction: .down, needsHitTarget: false)
+            XCTAssertGreaterThanOrEqual(profile.frame.height + targetDimensionRoundingTolerance, 44)
+            profile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             try requireExists(app.buttons["settings.done"], in: app)
         }
         try returnToSettingsRoot(in: app)
