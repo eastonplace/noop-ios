@@ -52,7 +52,7 @@ def main() -> int:
         "private func removeAllBackupNotificationsIfCurrent(\n",
     ]
     extracted = {key: member(source, key) for key in type_signatures + signatures}
-    template = (repo / "Tools/qa/smart_alarm_backup_ownership_fixture.swift").read_text()
+    template = pathlib.Path(__file__).with_name("smart_alarm_backup_ownership_fixture.swift").read_text()
     generated = template.replace("/* PRODUCTION_TYPES */", "\n\n".join(extracted[key] for key in type_signatures))
     generated = generated.replace("/* PRODUCTION_MEMBERS */", "\n\n".join(extracted[key] for key in signatures))
     swift_file = output / "SmartAlarmBackupOwnershipProbe.swift"

@@ -285,9 +285,14 @@ final class Checks {
         let unrelated = UNNotificationRequest(identifier: "noop.notifications.unrelated", content: content,
             trigger: .init(dateMatching: DateComponents(hour: 10), repeats: true))
         try! await center.add(unrelated)
+        let legacyID = "smart-alarm-wake-backup-00000000-0000-0000-0000-000000000001-d2"
+        try! await center.add(.init(identifier: legacyID, content: content,
+            trigger: .init(dateMatching: DateComponents(hour: 7), repeats: true)))
         let runtime = SmartAlarmRuntimeController()
         runtime.reconcileImmediately(trigger: .foreground)
         await runtime.notificationTask?.value
+        expect(center.stored[legacyID] == nil && center.stored["noop.notifications.unrelated"] != nil,
+               "replacement retires a legacy configuration-only backup without removing unrelated requests")
         runtime.reconcileImmediately(trigger: .foreground)
         await runtime.notificationTask?.value
         runtime.change(enabled: false)
