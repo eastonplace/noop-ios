@@ -1719,16 +1719,19 @@ struct TodayView: View {
         refreshScreenSnapshot()
     }
 
-    /// Today's sections: dials and glance, the current-day training target, Live Heart Rate,
+    /// Today's sections: dials and glance, a workout suggestion when there is one, the current-day training target, Live Heart Rate,
     /// Stress and Health Monitor. Exactly one hairline sits between each adjacent pair and none after the last;
     /// every separator shows the same visible gap above and below (see `TodaySectionSeparator`). The
-    /// conditional cards above (alert banner, auto workout, active workout, syncing note) are outside this rule
+    /// conditional cards above (alert banner, active workout, syncing note) are outside this rule
     /// and keep the column's normal spacing.
     @ViewBuilder
     private var paperSections: some View {
         if screenSnapshot != nil {
             VStack(alignment: .leading, spacing: 0) {
                 paperPillarCard
+                // Below the rings and "Today at a glance", so a suggestion never pushes the scores down. It draws
+                // its own leading hairline, so there is no gap when there is nothing to suggest.
+                autoWorkoutSuggestion
                 if selectedDayOffset == 0 && selectedDayKey == Repository.logicalDayKey(Date()) {
                     TodaySectionSeparator(above: 12, below: 13.3)
                     DailyTrainingTargetSection()
@@ -1741,6 +1744,17 @@ struct TodayView: View {
                 paperHealthMonitorCard
             }
         }
+    }
+
+    @ViewBuilder
+    private var autoWorkoutSuggestion: some View {
+        #if DEBUG
+        // `--demo-auto-workout`: a synthetic suggestion, so the card can be captured without a strap.
+        AutoWorkoutCard(demoCandidate: ProcessInfo.processInfo.arguments.contains("--demo-auto-workout")
+            ? Self.demoAutoWorkout : nil)
+        #else
+        AutoWorkoutCard()
+        #endif
     }
 
     @ViewBuilder
@@ -2085,13 +2099,6 @@ struct TodayView: View {
                           today: Repository.logicalDay(Date())) { notificationSelectedDayKey = nil; selectedDayOffset = $0 }
                 #endif
                 HealthAlertBanner()
-                #if DEBUG
-                // `--demo-auto-workout`: a synthetic suggestion, so the card can be captured without a strap.
-                AutoWorkoutCard(demoCandidate: ProcessInfo.processInfo.arguments.contains("--demo-auto-workout")
-                    ? Self.demoAutoWorkout : nil)
-                #else
-                AutoWorkoutCard()
-                #endif
                 // Keeps an empty Recovery honest while a historical offload is still writing: only when the displayed
                 // day has no Recovery yet (the header spinner covers an ordinary sync).
                 if displayDay?.recovery == nil { SyncingHistoryNoteIfBackfilling() }

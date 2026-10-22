@@ -53,35 +53,26 @@ struct AutoWorkoutCard: View {
         #endif
     }
 
+    /// A flat Today section like its neighbours: a hairline, an eyebrow, a title, one detail line, and plain-text actions.
     private func card(for suggestion: AutoWorkoutSuggestion) -> some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                Label("Workout suggestion", systemImage: symbol(for: state.selectedType))
+        VStack(alignment: .leading, spacing: 0) {
+            TodaySectionSeparator(above: 12, below: 13.3)
+            VStack(alignment: .leading, spacing: 6) {
+                SectionEyebrow("Workout suggestion", systemImage: symbol(for: state.selectedType), tint: .strain)
+                    .padding(.bottom, 4)
+                Text(verbatim: titleText(suggestion.window))
                     .font(StrandFont.headline)
                     .foregroundStyle(StrandPalette.textPrimary)
-
-                HStack(alignment: .firstTextBaseline) {
-                    Text(WorkoutSource.displaySport(state.selectedType))
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    Text(confidenceText(suggestion))
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-
-                Text(promptText(suggestion.window))
-                    .font(StrandFont.footnote)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: detailText(suggestion))
+                    .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                    ForEach(Array(suggestion.prediction.evidence.enumerated()), id: \.offset) { item in
-                        Text(evidenceText(item.element))
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                if let reason = suggestion.prediction.evidence.first {
+                    Text(verbatim: evidenceText(reason))
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if state.saveResult == .failed {
@@ -92,34 +83,41 @@ struct AutoWorkoutCard: View {
                         .accessibilityIdentifier("autoWorkout.saveError")
                 }
 
-                // The one primary action. Everything else is plain text.
-                Button { save(suggestion) } label: {
-                    if state.saving {
-                        HStack(spacing: NoopMetrics.space2) { ProgressView(); Text("Saving…") }
-                    } else {
-                        Text("Save")
-                    }
-                }
-                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-                .disabled(state.saving || isDemo)
-                .accessibilityIdentifier("autoWorkout.save")
-
                 // Side by side when they fit, stacked when large text would squeeze them.
                 ViewThatFits(in: .horizontal) {
-                    HStack {
+                    HStack(spacing: NoopMetrics.space5) {
+                        saveButton(suggestion)
                         changeTypeMenu(suggestion)
                         Spacer(minLength: NoopMetrics.space3)
                         dismissButton(suggestion)
                     }
                     VStack(alignment: .leading, spacing: 0) {
+                        saveButton(suggestion)
                         changeTypeMenu(suggestion)
                         dismissButton(suggestion)
                     }
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("autoWorkout.card")
+    }
+
+    private func saveButton(_ suggestion: AutoWorkoutSuggestion) -> some View {
+        Button { save(suggestion) } label: {
+            if state.saving {
+                HStack(spacing: NoopMetrics.space2) { ProgressView(); Text("Saving…") }
+            } else {
+                Text("Save")
+            }
+        }
+        .font(StrandFont.subhead.weight(.semibold))
+        .foregroundStyle(StrandPalette.accent)
+        .frame(minHeight: 44, alignment: .leading)
+        .buttonStyle(.plain)
+        .disabled(state.saving)
+        .accessibilityIdentifier("autoWorkout.save")
     }
 
     private func changeTypeMenu(_ suggestion: AutoWorkoutSuggestion) -> some View {
@@ -132,8 +130,8 @@ struct AutoWorkoutCard: View {
             }
         } label: {
             Text("Change type")
-                .font(StrandFont.subhead.weight(.semibold))
-                .foregroundStyle(StrandPalette.accent)
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
                 .frame(minHeight: 44, alignment: .leading)
         }
         .buttonStyle(.plain)
@@ -144,12 +142,12 @@ struct AutoWorkoutCard: View {
     private func dismissButton(_ suggestion: AutoWorkoutSuggestion) -> some View {
         Button { dismiss(suggestion) } label: {
             Text("Dismiss")
-                .font(StrandFont.subhead.weight(.semibold))
-                .foregroundStyle(StrandPalette.textSecondary)
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textTertiary)
                 .frame(minHeight: 44, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .disabled(state.saving || isDemo)
+        .disabled(state.saving)
         .accessibilityLabel("Dismiss this workout suggestion")
         .accessibilityIdentifier("autoWorkout.dismiss")
     }
@@ -198,17 +196,23 @@ struct AutoWorkoutCard: View {
         }
     }
 
-    private func promptText(_ window: DetectedWorkout) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(window.startSec))
-        let start = Self.timeFmt.string(from: date)
-        let end = Self.timeFmt.string(from: Date(timeIntervalSince1970: TimeInterval(window.endSec)))
-        if Calendar.current.isDateInToday(date) {
-            return String(localized: "Around \(start)-\(end), \(window.durationMin) min, average heart rate \(window.avgBpm).")
+    /// "Walking · 10:50–11:25 AM". Yesterday and older windows say which day first.
+    private func titleText(_ window: DetectedWorkout) -> String {
+        let start = Date(timeIntervalSince1970: TimeInterval(window.startSec))
+        let end = Date(timeIntervalSince1970: TimeInterval(window.endSec))
+        let range = Self.rangeFmt.string(from: start, to: end)
+        let sport = WorkoutSource.displaySport(state.selectedType)
+        if Calendar.current.isDateInToday(start) { return "\(sport) · \(range)" }
+        if Calendar.current.isDateInYesterday(start) {
+            return String(localized: "\(sport) · Yesterday, \(range)")
         }
-        if Calendar.current.isDateInYesterday(date) {
-            return String(localized: "Yesterday around \(start)-\(end), \(window.durationMin) min, average heart rate \(window.avgBpm).")
-        }
-        return String(localized: "On \(Self.dateFmt.string(from: date)), around \(start)-\(end), \(window.durationMin) min, average heart rate \(window.avgBpm).")
+        return "\(sport) · \(Self.dateFmt.string(from: start)), \(range)"
+    }
+
+    /// "35 min · avg HR 112 · Likely".
+    private func detailText(_ suggestion: AutoWorkoutSuggestion) -> String {
+        let window = suggestion.window
+        return String(localized: "\(window.durationMin) min · avg HR \(window.avgBpm) · \(confidenceText(suggestion))")
     }
 
     private func reload() async {
@@ -223,7 +227,9 @@ struct AutoWorkoutCard: View {
     }
 
     private func save(_ suggestion: AutoWorkoutSuggestion) {
-        guard !isDemo, let save = state.beginSave() else { return }
+        // The demo fixture has no strap behind it: saving just closes the card, so every control stays live.
+        if isDemo { state.clear(); return }
+        guard let save = state.beginSave() else { return }
         let type = state.selectedType
         Task {
             let result = await repo.saveWorkoutSuggestion(suggestion, type: type)
@@ -237,13 +243,13 @@ struct AutoWorkoutCard: View {
     }
 
     private func dismiss(_ suggestion: AutoWorkoutSuggestion) {
-        guard !isDemo else { return }
+        if isDemo { state.clear(); return }
         if repo.dismissWorkoutSuggestion(suggestion) { state.clear() }
         else { Task { await reload() } }
     }
 
-    private static let timeFmt: DateFormatter = {
-        let formatter = DateFormatter()
+    private static let rangeFmt: DateIntervalFormatter = {
+        let formatter = DateIntervalFormatter()
         formatter.locale = .current
         formatter.timeStyle = .short
         formatter.dateStyle = .none
