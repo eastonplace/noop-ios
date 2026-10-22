@@ -1378,6 +1378,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
 
     func testOwnerChangeAlsoInvalidatesThePriorDayWhenItsCycleBoundaryChanges() async throws {
         let harness = try await makeHarness(days: 8, whoop4SwapDay: 7)
+        let coldFixture = try await makeHarness(days: 8, whoop4SwapDay: 7)
         let probe = DerivedInputBundleProbe()
         harness.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
             fingerprintLoader: { store, owner, from, to in
@@ -1387,16 +1388,25 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 await probe.record()
                 return try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
             }))
-        for _ in 0..<3 { _ = await pass(harness, maxDays: 8) }
+        for _ in 0..<3 {
+            _ = await pass(harness, maxDays: 8)
+            _ = await pass(coldFixture, maxDays: 8)
+        }
         await probe.reset()
         let unchanged = await pass(harness, maxDays: 8)
+        _ = await pass(coldFixture, maxDays: 8)
         let unchangedReads = await probe.count
         XCTAssertTrue(unchanged)
         XCTAssertEqual(unchangedReads, 0, "the real two-strap fixture must first reach warm reuse")
 
+        let warmInputs = try await stored(harness)
+        let coldInputs = try await stored(coldFixture)
+        XCTAssertEqual(warmInputs, coldInputs, "both engines must start from identical persisted inputs")
         let targetDay = harness.dayKeys[6]
         let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
         try registry.setDayOwner(day: targetDay, deviceId: secondWhoop4Id, locked: true)
+        let coldRegistry = DeviceRegistryStore(dbQueue: coldFixture.store.registryWriter)
+        try coldRegistry.setDayOwner(day: targetDay, deviceId: secondWhoop4Id, locked: true)
         await probe.reset()
         let changed = await pass(harness, maxDays: 8)
         let changedReads = await probe.count
@@ -1405,10 +1415,10 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         let reusedRows = try await stored(harness)
 
         let repository = Repository(deviceId: Repository.whoopSource)
-        repository.setStoreForTesting(harness.store)
+        repository.setStoreForTesting(coldFixture.store)
         let freshEngine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
-        let fresh = Harness(store: harness.store, engine: freshEngine, computedId: harness.computedId,
-                            reference: harness.reference, dayKeys: harness.dayKeys)
+        let fresh = Harness(store: coldFixture.store, engine: freshEngine, computedId: coldFixture.computedId,
+                            reference: coldFixture.reference, dayKeys: coldFixture.dayKeys)
         let coldCompleted = await pass(fresh, maxDays: 8)
         let coldRows = try await stored(fresh)
         XCTAssertTrue(coldCompleted)
