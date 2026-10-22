@@ -286,9 +286,9 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         let unchanged = await tick()
         XCTAssertTrue(first)
         XCTAssertFalse(unchanged)
-        try await harness.store.registryWriter.write { db in
+        try await harness.store.registryWriter.write { [sourceID = Repository.whoopSource] db in
             try db.execute(sql: "UPDATE hrSample SET bpm = 75 WHERE deviceId = ? AND ts = ?",
-                           arguments: [Repository.whoopSource, ts])
+                           arguments: [sourceID, ts])
         }
         let changed = await tick()
         XCTAssertTrue(changed, "Same-key value repairs must wake the idle gate")
@@ -316,7 +316,7 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
             let unchanged = await tick()
             XCTAssertTrue(first)
             XCTAssertFalse(unchanged)
-            try await harness.store.registryWriter.write { db in
+            try await harness.store.registryWriter.write { [sourceID = Repository.whoopSource] db in
                 if controlMutation {
                     try db.execute(sql: "INSERT INTO liftStrainControl(scope,disabled,updatedAt) VALUES('global',1,0)")
                 } else {
@@ -325,7 +325,7 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
                             formulaVersion,bodyweightKg,dose,volume,muscularLoad,workingSets,warmupSets,
                             countedSets,skippedJSON,unmappedSets,computedAt,updatedAt)
                         VALUES(?, 'late-lift', ?, 'strength', ?, 1,75,10,100,10,1,0,1,'{}',0,0,0)
-                        """, arguments: [Repository.whoopSource, liftTs,
+                        """, arguments: [sourceID, liftTs,
                                          liftDay])
                 }
             }
@@ -414,11 +414,11 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         let unchanged = await tick()
         XCTAssertTrue(first)
         XCTAssertFalse(unchanged)
-        try await harness.store.registryWriter.write { db in
+        try await harness.store.registryWriter.write { [sourceID = Repository.whoopSource] db in
             try db.execute(sql: """
                 INSERT INTO sleepRecoveryDailyOverride(deviceId,day,sessionStartTs,recovery,updatedAt)
                 VALUES(?,?,?,75,0)
-                """, arguments: [Repository.whoopSource + "-noop", day, sessionStart])
+                """, arguments: [sourceID + "-noop", day, sessionStart])
         }
         let changed = await tick()
         XCTAssertTrue(changed, "protected recovered-sleep controls are input even without any daily/series mutation")

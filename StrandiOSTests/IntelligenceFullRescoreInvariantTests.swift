@@ -341,20 +341,20 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
 
     func testSameKeyMotionAndHeartRateRepairsReachTheAutomaticPass() async throws {
         try await assertLateInputMatchesColdEngine("same-key values") { store, midnight in
-            try await store.registryWriter.write { db in
+            try await store.registryWriter.write { [sourceID = Repository.whoopSource] db in
                 try db.execute(sql: "UPDATE gravitySample SET x = 2, y = 1, z = 0 WHERE deviceId = ? AND ts = ?",
-                               arguments: [Repository.whoopSource, midnight + 7_200])
+                               arguments: [sourceID, midnight + 7_200])
                 try db.execute(sql: "UPDATE hrSample SET bpm = 70 WHERE deviceId = ? AND ts = ?",
-                               arguments: [Repository.whoopSource, midnight + 7_200])
+                               arguments: [sourceID, midnight + 7_200])
             }
         }
     }
 
     func testSameKeyRRQualityRepairsReachTheAutomaticPass() async throws {
         try await assertLateInputMatchesColdEngine("R-R quality") { store, midnight in
-            try await store.registryWriter.write { db in
+            try await store.registryWriter.write { [sourceID = Repository.whoopSource] db in
                 try db.execute(sql: "UPDATE rrInterval SET tsSuspect = 1 WHERE deviceId = ? AND ts >= ? AND ts < ?",
-                               arguments: [Repository.whoopSource, midnight + 3_600, midnight + 7_200])
+                               arguments: [sourceID, midnight + 3_600, midnight + 7_200])
             }
         }
     }
