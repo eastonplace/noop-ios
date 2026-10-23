@@ -60,29 +60,6 @@ final class NotificationRoutingTests: XCTestCase {
         XCTAssertEqual(SettingsRouteCatalog.search("quiet hours").map(\.route), [.notificationsAlerts])
     }
 
-    func testJournalNotificationDateDoesNotDriftAcrossMidnightBeforeWrite() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let parser = ISO8601DateFormatter()
-        let selected = "2026-10-19"
-        let before = try XCTUnwrap(parser.date(from: "2026-10-20T23:59:00Z"))
-        let after = try XCTUnwrap(parser.date(from: "2026-10-21T00:01:00Z"))
-        XCTAssertEqual(JournalLogCard.entryDayKey(selectedDayKey: selected, dayOffset: 1, now: before, calendar: calendar), selected)
-        XCTAssertEqual(JournalLogCard.entryDayKey(selectedDayKey: selected, dayOffset: 1, now: after, calendar: calendar), selected)
-        XCTAssertNotEqual(JournalLogCard.entryDayKey(selectedDayKey: nil, dayOffset: 1, now: after, calendar: calendar), selected)
-    }
-
-    func testJournalNotificationKeepsCivilDayAfterTimezoneChange() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-20T01:00:00Z"))
-        let selected = "2026-10-20"
-        XCTAssertEqual(JournalLogCard.entryDayKey(selectedDayKey: selected, dayOffset: 0, now: now, calendar: calendar), selected)
-        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
-        XCTAssertEqual(JournalLogCard.entryDayKey(selectedDayKey: selected, dayOffset: 0, now: now, calendar: calendar), selected)
-        XCTAssertEqual(JournalLogCard.entryDayKey(selectedDayKey: nil, dayOffset: 0, now: now, calendar: calendar), "2026-10-19")
-    }
-
     func testDelayedLiftRestorationKeepsTapQueuedUntilKnownIdle() {
         let router = NavRouter()
         router.handleNotificationDestination(.plannedWorkout(id: "plan-1"))

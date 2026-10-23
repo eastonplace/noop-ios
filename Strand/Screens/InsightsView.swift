@@ -230,11 +230,6 @@ struct InsightsView: View {
                     // analysis. Keep them usable on the first frame while the derived sections refine.
                     whatMovesYouLink
                 }
-                JournalLogCard(importedQuestions: importedQuestions,
-                               answers: dayAnswers,
-                               numericAnswers: dayNumeric,
-                               dayOffset: $journalDayOffset,
-                               onChanged: { Task { await load() } })
                 MindSection()
                 CaffeineLogCard()
                 if !focusedJournal {

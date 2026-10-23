@@ -28585,46 +28585,6 @@
         }
       }
     },
-    "Answers are about the night and day leading into this morning, the same attribution a WHOOP export uses, so logged and imported days line up.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Antworten beziehen sich auf die Nacht und den Tag vor diesem Morgen, dieselbe Zuordnung wie in einem WHOOP-Export, damit erfasste und importierte Tage übereinstimmen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las respuestas se refieren a la noche y el día previos a esta mañana, la misma atribución que usa una exportación de WHOOP, para que los días registrados e importados coincidan."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le risposte riguardano la notte e il giorno che portano a questa mattina, la stessa attribuzione usata da un'esportazione WHOOP, così i giorni registrati e importati si allineano."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "As respuestas se refieren à noite e el dia previos a esta amanhã, a mesma atribución que usa uma exportação de WHOOP, para que os dias registados e importados coincidan."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回答涉及的是通向今天早晨的这个夜晚和白天，与 WHOOP 导出所用的归属方式相同，因此记录的日期和导入的日期能够对齐。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回答涉及的是通向今天早晨的這個夜晚和白天，與 WHOOP 匯出所用的歸屬方式相同，因此記錄的日期和匯入的日期能夠對齊。"
-          }
-        }
-      }
-    },
     "Any OpenAI-compatible server: Ollama, LM Studio, llama.cpp, or your own gateway. Stays on your network; nothing leaves %@.": {
       "localizations": {
         "de": {
@@ -56570,46 +56530,6 @@
         }
       }
     },
-    "Delete %@": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ löschen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elimina %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eliminar %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删除 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "刪除 %@"
-          }
-        }
-      }
-    },
     "Delete (%lld)": {
       "localizations": {
         "de": {
@@ -78748,86 +78668,6 @@
         }
       }
     },
-    "Hidden": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ausgeblendet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oculto"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nascosto"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oculto"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已隐藏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已隱藏"
-          }
-        }
-      }
-    },
-    "Hide %@": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ocultar %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nascondi %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ocultar %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "隐藏 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "隱藏 %@"
-          }
-        }
-      }
-    },
     "Hide data source detail": {
       "localizations": {
         "de": {
@@ -95377,46 +95217,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已於 %@ 記錄起床時間。"
-          }
-        }
-      }
-    },
-    "Logging ahead for tomorrow: today's activities inform tomorrow's recovery, just as yesterday's are reflected in today's. Tomorrow's answers line up with tomorrow's morning.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorausschauend für morgen erfasst: Die heutigen Aktivitäten fließen in die morgige Erholung ein, so wie die gestrigen in die heutige. Die Antworten von morgen richten sich nach dem morgigen Morgen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registrando por adelantado para mañana: las actividades de hoy informan la recuperación de mañana, igual que las de ayer se reflejan en la de hoy. Las respuestas de mañana se alinean con la mañana de mañana."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registrazione in anticipo per domani: le attività di oggi influenzano il recupero di domani, proprio come quelle di ieri si riflettono in oggi. Le risposte di domani arrivano con la mattina di domani."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "a registar por adelantado para amanhã: as atividades de hoje informan a recuperação de amanhã, igual que as de ontem se reflejan na de hoje. As respuestas de amanhã se alinean com a amanhã de amanhã."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "为明天提前记录：今天的活动会影响明天的恢复，正如昨天的活动反映在今天一样。明天的回答与明天早晨对齐。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "為明天提前記錄：今天的活動會影響明天的恢復，正如昨天的活動反映在今天一樣。明天的回答與明天早晨對齊。"
           }
         }
       }
@@ -212560,17 +212360,6 @@
         }
       }
     },
-    "Opening journal…": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opening journal…"
-          }
-        }
-      }
-    },
     "Notification update": {
       "extractionState": "manual",
       "localizations": {
@@ -213299,39 +213088,6 @@
         }
       }
     },
-    "Custom questions, groups and numbers": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Custom questions, groups and numbers"
-          }
-        }
-      }
-    },
-    "Questions that are on appear in the Journal. Turning one off changes nothing about your history or What Moves You.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questions that are on appear in the Journal. Turning one off changes nothing about your history or What Moves You."
-          }
-        }
-      }
-    },
-    "Rename or add questions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rename or add questions"
-          }
-        }
-      }
-    },
     "What the Journal asks": {
       "extractionState": "manual",
       "localizations": {
@@ -213713,6 +213469,226 @@
           "stringUnit": {
             "state": "translated",
             "value": "Logged %@"
+          }
+        }
+      }
+    },
+    "Turn a question off to stop being asked. Tap one to rename it, move it or change its answer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn a question off to stop being asked. Tap one to rename it, move it or change its answer."
+          }
+        }
+      }
+    },
+    "Yes / No": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes / No"
+          }
+        }
+      }
+    },
+    "Number": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number"
+          }
+        }
+      }
+    },
+    "Group": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group"
+          }
+        }
+      }
+    },
+    "Answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer"
+          }
+        }
+      }
+    },
+    "Show in Journal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Journal"
+          }
+        }
+      }
+    },
+    "Delete question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete question"
+          }
+        }
+      }
+    },
+    "Keep question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep question"
+          }
+        }
+      }
+    },
+    "Delete this question?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this question?"
+          }
+        }
+      }
+    },
+    "Your past answers are kept, but the Journal stops asking it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your past answers are kept, but the Journal stops asking it."
+          }
+        }
+      }
+    },
+    "Turn it off to stop being asked. Your history stays.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn it off to stop being asked. Your history stays."
+          }
+        }
+      }
+    },
+    "History stays under the original question so WHOOP imports still line up.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History stays under the original question so WHOOP imports still line up."
+          }
+        }
+      }
+    },
+    "Opens this question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens this question"
+          }
+        }
+      }
+    },
+    "Sleep setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep setup"
+          }
+        }
+      }
+    },
+    "Fuel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuel"
+          }
+        }
+      }
+    },
+    "Training & activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training & activity"
+          }
+        }
+      }
+    },
+    "Recovery & stress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery & stress"
+          }
+        }
+      }
+    },
+    "Supplements & medication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supplements & medication"
+          }
+        }
+      }
+    },
+    "More Insights": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Insights"
+          }
+        }
+      }
+    },
+    "Mind check-ins, the caffeine log and what your journal moves": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mind check-ins, the caffeine log and what your journal moves"
           }
         }
       }
