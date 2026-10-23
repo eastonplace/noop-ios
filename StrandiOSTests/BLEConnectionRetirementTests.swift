@@ -94,6 +94,54 @@ final class BLEConnectionRetirementTests: XCTestCase {
         manager.disconnect()
     }
 
+    func testRadioLossPreservesAFutureRetryDeadlineWithoutSendingTheRetiredHello() {
+        let manager = BLEManager(state: LiveState(), collector: nil, receiveBluetoothCallbacks: false)
+        defer { manager.disconnect() }
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        let deadline = Date().addingTimeInterval(60)
+        var written: [Whoop5SecureSessionID] = []
+        manager.whoop5HelloWriteForTesting = { written.append($0) }
+        manager.holdWhoop5ClientHelloForTesting(session, until: deadline)
+
+        manager.handleBluetoothUnavailable(.poweredOff)
+
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting)
+        XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting)
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, deadline)
+        manager.beginPendingReconnectForTesting(holdHandshakeUntil: nil)
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, deadline,
+                       "a reconnect before the deadline keeps the remaining secure delay")
+
+        // Even a late notification cannot release the retired attempt through the connected-write seam.
+        manager.noteStrapNotification(now: deadline.addingTimeInterval(1))
+        XCTAssertTrue(written.isEmpty)
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting)
+        XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting)
+    }
+
+    func testReconnectDiscardsAnExpiredRetryDeadlineAfterRadioRetirement() {
+        let manager = BLEManager(state: LiveState(), collector: nil, receiveBluetoothCallbacks: false)
+        defer { manager.disconnect() }
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        var written: [Whoop5SecureSessionID] = []
+        manager.whoop5HelloWriteForTesting = { written.append($0) }
+        // Model an elapsed deadline whose main-queue timer has not run yet. Retirement is synchronous.
+        manager.holdWhoop5ClientHelloForTesting(session, until: Date().addingTimeInterval(-1))
+
+        manager.handleBluetoothUnavailable(.resetting)
+        manager.noteStrapNotification()
+        manager.beginPendingReconnectForTesting(holdHandshakeUntil: nil)
+
+        XCTAssertNil(manager.whoop5HandshakeHoldForTesting,
+                     "an expired delay must not block the next reconnect")
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting)
+        XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting)
+        XCTAssertTrue(written.isEmpty)
+    }
+
     func testRadioLossPreservesAReplacementProviderAndItsFreshReceipt() {
         let state = LiveState()
         let manager = BLEManager(state: state, collector: nil)

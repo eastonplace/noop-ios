@@ -2,8 +2,8 @@
   "reviewed_at_utc": "2026-10-23T14:30:19.339630+00:00",
   "base_commit": "a7ade2598d439d33cd20816d69ccc991b29322fc",
   "branch": "audit/noop-2-release-hardening-20261023",
-  "scope": "Changed production/test Swift, privacy manifests, project/release metadata, reviewed QA callback harness and workout benchmark; documentation artifacts are covered in prose rather than this source hash manifest.",
-  "unresolved_confirmed_findings": 0,
+  "scope": "Changed production/test Swift, privacy manifests, project/release metadata, reviewed QA callback harness, workout benchmark and calendar reproduction script. Current supplementary documentation hashes are recorded in documentation_followup; earlier metadata hashes remain dated historical evidence.",
+  "unresolved_confirmed_findings": 1,
   "independent_findings_resolved": [
     "R1 per-attempt Coach request admission",
     "R2 bootstrap registry snapshot source epoch"
@@ -71,8 +71,8 @@
     },
     {
       "path": "Strand/BLE/BLEManager.swift",
-      "bytes": 440490,
-      "sha256": "3d2217a0c2ea007c6de43fa596536cb9254ca2069d3f5a1f2b7fe1e334a503dc"
+      "bytes": 440777,
+      "sha256": "9ca5e429845b45ab42d3615ecfce2577dff835576986eae7af9b1785f7536cad"
     },
     {
       "path": "Strand/BLE/HrBroadcaster.swift",
@@ -150,9 +150,14 @@
       "sha256": "1e1555fcc75c522f8bfd7d6c2a03520fe2f24cfeaeab6d67623cc688ecee06a4"
     },
     {
+      "path": "StrandiOSTests/BLEBackgroundReconnectHandoffTests.swift",
+      "bytes": 20841,
+      "sha256": "071cd11237b03ed854dfe3df01cd1799af62602de67df7dfdf1ff96414553a2f"
+    },
+    {
       "path": "StrandiOSTests/BLEConnectionRetirementTests.swift",
-      "bytes": 6593,
-      "sha256": "88d804e0d40f678f8b3bfe1b5efa2092bca970d58d664fe706c99a874a5c302f"
+      "bytes": 9349,
+      "sha256": "184bfef9271bc60b9308376efdc02cf81f68f976a1a4b93a3f67695b18fe5e29"
     },
     {
       "path": "StrandiOSTests/BLEFallbackPublicationTests.swift",
@@ -220,6 +225,11 @@
       "sha256": "a957accf333bc61b5a1c13f342a92139a0abca299930bdaa6c32d4dca9b2232a"
     },
     {
+      "path": "docs/qa/noop-2-release-hardening/calendar-key-probe.py",
+      "bytes": 7490,
+      "sha256": "6a98d1cc1f298613e3dd54832b6ae5c00918891564c8f558c69818094ae65e61"
+    },
+    {
       "path": "project.yml",
       "bytes": 8881,
       "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6"
@@ -283,5 +293,114 @@
     "diff_check_passed": true,
     "native_validation_status": "unchanged; no native result inferred or added by metadata review",
     "unresolved_confirmed_findings": 0
+  },
+  "qualification_status": "blocked pending corrected final-head native/UI gates, resolution and qualification of inherited P1 F16, and the combined candidate release gates",
+  "native_fixture_followup": {
+    "reviewed_at_utc": "2026-10-23T15:16:20.543091+00:00",
+    "reviewed_since_commit": "26e150d2bbd1fcdf14a65de06e834e8b0841d5da",
+    "initial_native_run": 39971271690,
+    "initial_native_tested_commit": "f0fa85d1d8eea0b8564a41df5991398a543ad641",
+    "initial_native_result": "failed; 3321 XCTest cases, 3316 passed, 4 skipped, 1 hold-deadline failure; UI withheld",
+    "failure": "BLEBackgroundReconnectHandoffTests.testTheHoldDeadlineEndsTheBackgroundTask",
+    "diagnosis": "The retained native failure is consistent with the source-traced radio-retirement path: an unsolicited simulator callback can cancel the synthetic held attempt, timer and background task while preserving its reconnect-series deadline. The native log does not directly timestamp the callback; the exact interleaving is not claimed as an instrumented observation. Deterministic retirement controls cover that competing lifecycle, and existing reconnect admission discards expired dates.",
+    "change": "Default-true callback opt-out in the internal testing/preview initializer; existing timer test opts out and keeps its assertions; two explicit radio-retirement controls added.",
+    "changed_files": [
+      {
+        "path": "Strand/BLE/BLEManager.swift",
+        "previous_sha256": "3d2217a0c2ea007c6de43fa596536cb9254ca2069d3f5a1f2b7fe1e334a503dc",
+        "sha256": "9ca5e429845b45ab42d3615ecfce2577dff835576986eae7af9b1785f7536cad"
+      },
+      {
+        "path": "StrandiOSTests/BLEBackgroundReconnectHandoffTests.swift",
+        "previous_sha256": null,
+        "sha256": "071cd11237b03ed854dfe3df01cd1799af62602de67df7dfdf1ff96414553a2f"
+      },
+      {
+        "path": "StrandiOSTests/BLEConnectionRetirementTests.swift",
+        "previous_sha256": "88d804e0d40f678f8b3bfe1b5efa2092bca970d58d664fe706c99a874a5c302f",
+        "sha256": "184bfef9271bc60b9308376efdc02cf81f68f976a1a4b93a3f67695b18fe5e29"
+      }
+    ],
+    "independent_byte_checks": {
+      "public_production_initializer_unchanged": true,
+      "hold_timer_background_release_cancellation_methods_unchanged": true,
+      "connection_retirement_and_radio_handler_unchanged": true,
+      "handshake_hold_admission_unchanged": true,
+      "reconnect_policy_unchanged": true,
+      "original_deadline_test_body_identical_except_setup_and_comments": true
+    },
+    "default_receives_bluetooth_callbacks": true,
+    "nil_central_introduced": false,
+    "fixed_test_native_execution": "pending; parse and source review do not establish a native pass",
+    "independent_diff_check_passed": true,
+    "unresolved_confirmed_source_review_findings": 0
+  },
+  "unresolved_introduced_patch_findings": 0,
+  "known_unresolved_release_findings": [
+    {
+      "id": "F16 / DL-05",
+      "severity": "P1",
+      "status": "confirmed, unfixed, inherited from original base",
+      "title": "Non-Gregorian calendar settings split persisted day identity",
+      "independent_reproduction": "Nine unchanged production helper declarations compile and reproduce the retained five-calendar output; synthetic SQLite checks reproduce missing reads, a journal collision and timestamp-heal deletion.",
+      "introduced_by_reviewed_patch": false,
+      "required_resolution": "Coordinated Gregorian storage-key producers/readers and preservation-aware, restart-safe migration of existing derived and manual records; native integration and existing DL-05 assertion must pass before release qualification.",
+      "limits": "No full native calendar integration, live user database or migration implementation was executed."
+    }
+  ],
+  "documentation_followup": {
+    "reviewed_at_utc": "2026-10-23T15:20:23.119344+00:00",
+    "reviewed_since_commit": "26e150d2bbd1fcdf14a65de06e834e8b0841d5da",
+    "reviewed_documentation_files": [
+      {
+        "path": "docs/qa/noop-2-release-hardening/README.md",
+        "bytes": 38878,
+        "sha256": "6355e88660b42675e0bfd370bed6e68f65bd584ff86a84742bec4d572667eefa"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/native-ci-initial-result.json",
+        "bytes": 6358,
+        "sha256": "7efcbb81c27741617b40d2e35705dfee96b77fd9c5cf8344d8e8c72815e10954"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/source-evidence-index.json",
+        "bytes": 2927,
+        "sha256": "e51fb732def4238c3d146fc1976f9dcfcc450db12e2d941c1b770a923c3b8219"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/changed-swift-parse.json",
+        "bytes": 3989,
+        "sha256": "a2296f09391042444c63db8fc7986289ceca83ef0f723a1bdc79b67b529fa894"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/calendar-key-migration-proposal.md",
+        "bytes": 16784,
+        "sha256": "9385c5bdc9c9bb37fd74555c4f2dca879c0449580b5cd3356aed6e5b441c5dcd"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/calendar-key-probe-results.json",
+        "bytes": 2890,
+        "sha256": "29fdab92c287642da8abcf2e1cb816c663550015c152a90a1007aaca09228027"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/calendar-key-probe-source-manifest.json",
+        "bytes": 1974,
+        "sha256": "3164ebc0602335e01cc12c597232d07573f9a601c66c87a24469b55971248a2a"
+      }
+    ],
+    "historical_metadata_followup_hashes_preserved": true,
+    "source_evidence_index_locations_checked": true,
+    "initial_native_failure_preserved": true,
+    "callback_timing_directly_observed_in_native_log": false,
+    "independent_calendar_probe_exit_code": 0,
+    "independent_calendar_probe_result_matches_recorded_json": true,
+    "independent_calendar_probe_source_manifest_matches_recorded_json": true,
+    "calendar_helper_declarations_unchanged_since_original_base": 9,
+    "calendar_production_or_skip_changes": false,
+    "unresolved_introduced_patch_findings": 0,
+    "unresolved_known_release_findings": [
+      "F16 / DL-05"
+    ],
+    "qualification_limits": "Corrected BLE fixture native execution remains pending. Calendar evidence is extracted-helper execution, synthetic SQLite contracts and inspected production call paths, not native end-to-end migration qualification. External dependency research and native package execution were not independently repeated in this documentation follow-up."
   }
 }

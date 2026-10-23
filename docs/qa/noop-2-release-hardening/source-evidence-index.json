@@ -4,11 +4,11 @@
     "F01": [
       {
         "file": "Strand/BLE/BLEManager.swift",
-        "line": 5197
+        "line": 5200
       },
       {
         "file": "Strand/BLE/BLEManager.swift",
-        "line": 5327
+        "line": 5330
       }
     ],
     "F02": [
@@ -20,7 +20,7 @@
     "F03": [
       {
         "file": "Strand/BLE/BLEManager.swift",
-        "line": 7056
+        "line": 7059
       }
     ],
     "F04": [
@@ -117,6 +117,26 @@
       {
         "file": "Strand/BLE/HrBroadcaster.swift",
         "line": 126
+      }
+    ]
+  },
+  "unresolved_references": {
+    "F16": [
+      {
+        "file": "Strand/Data/IntelligenceEngine.swift",
+        "line": 391
+      },
+      {
+        "file": "Strand/Data/IntelligenceAnalysisCoordinator.swift",
+        "line": 836
+      },
+      {
+        "file": "Strand/Data/Repository.swift",
+        "line": 1152
+      },
+      {
+        "file": "StrandiOSTests/IntelligenceTimestampSafetyTests.swift",
+        "line": 82
       }
     ]
   }

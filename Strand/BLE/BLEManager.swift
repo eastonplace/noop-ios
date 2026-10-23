@@ -1147,7 +1147,9 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     /// Designated initializer for testing and preview use: accepts a pre-built Collector.
-    init(state: LiveState, deviceId: String = "my-whoop", collector: Collector?) {
+    /// Timer-only tests can opt out of unsolicited radio callbacks while retaining a real central.
+    init(state: LiveState, deviceId: String = "my-whoop", collector: Collector?,
+         receiveBluetoothCallbacks: Bool = true) {
         self.state = state
         self.deviceId = deviceId
         self.router = FrameRouter(state: state)
@@ -1158,11 +1160,12 @@ public final class BLEManager: NSObject, ObservableObject {
         // so a restored manager matches by identifier; only exercised by tests/previews).
         #if os(iOS)
         UIDevice.current.isBatteryMonitoringEnabled = true
-        central = CBCentralManager(delegate: self, queue: .main,
-                                   options: [CBCentralManagerOptionRestoreIdentifierKey: BLEManager.restoreID])
+        central = CBCentralManager(delegate: receiveBluetoothCallbacks ? self : nil, queue: .main,
+                                   options: receiveBluetoothCallbacks
+                                    ? [CBCentralManagerOptionRestoreIdentifierKey: BLEManager.restoreID] : nil)
         #else
         // Strand (macOS desktop): no state-restoration identifier (iOS background feature).
-        central = CBCentralManager(delegate: self, queue: .main)
+        central = CBCentralManager(delegate: receiveBluetoothCallbacks ? self : nil, queue: .main)
         #endif
         // Strap-as-clock: an incoming EVENT packet kicks a rate-limited catch-up sync.
         router.onSyncTrigger = { [weak self] in self?.requestSync(.strap) }

@@ -130,6 +130,11 @@
     "output": ""
   },
   {
+    "file": "StrandiOSTests/BLEBackgroundReconnectHandoffTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
     "file": "StrandiOSTests/BLEConnectionRetirementTests.swift",
     "exit": 0,
     "output": ""
