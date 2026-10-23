@@ -14,7 +14,7 @@ enum HeadsUpPresentation {
 
     static func tone(_ phase: HeadsUpSnapshot.Phase) -> Color {
         switch phase {
-        case .off: return StrandPalette.textTertiary
+        case .off, .unavailable: return StrandPalette.textTertiary
         case .learning: return StrandPalette.accent
         case .scored(let level): return tone(level)
         }
@@ -91,8 +91,12 @@ enum HeadsUpPresentation {
     /// A signed number with a real minus sign: "+6", "−22", "0".
     static func signed(_ value: Double, fractionDigits: Int) -> String {
         let scale = fractionDigits == 0 ? 1.0 : 10.0
+        guard value.isFinite else { return WidgetMetrics.missingValue }
         let rounded = (value * scale).rounded() / scale
-        let magnitude = fractionDigits == 0 ? String(Int(abs(rounded))) : String(format: "%.1f", abs(rounded))
+        guard rounded.isFinite, let wholeMagnitude = Int(exactly: abs(rounded).rounded()) else {
+            return WidgetMetrics.missingValue
+        }
+        let magnitude = fractionDigits == 0 ? String(wholeMagnitude) : String(format: "%.1f", abs(rounded))
         if rounded > 0 { return "+" + magnitude }
         if rounded < 0 { return "\u{2212}" + magnitude }
         return magnitude
@@ -100,33 +104,38 @@ enum HeadsUpPresentation {
 
     /// The change against the person's usual and its unit: "+6" bpm, "−22%", "+0.7°", "+0.5" rpm.
     static func delta(_ signal: HeadsUpSnapshot.Signal) -> (text: String, unit: String?) {
-        guard signal.z != nil, let latest = signal.latest, let usual = signal.usual else {
-            return (WidgetMetrics.missingValue, nil)
+        guard let z = signal.z, z.isFinite, let latest = signal.latest, latest.isFinite,
+              let usual = signal.usual, usual.isFinite else { return (WidgetMetrics.missingValue, nil) }
+        func formatted(_ value: Double, digits: Int, suffix: String = "", unit: String? = nil) -> (String, String?) {
+            let text = signed(value, fractionDigits: digits)
+            return text == WidgetMetrics.missingValue ? (text, nil) : (text + suffix, unit)
         }
         switch signal.kind {
         case .restingHR:
-            return (signed(latest - usual, fractionDigits: 0), String(localized: "bpm"))
+            return formatted(latest - usual, digits: 0, unit: String(localized: "bpm"))
         case .hrv:
             guard usual > 0 else { return (WidgetMetrics.missingValue, nil) }
-            return (signed((latest / usual - 1) * 100, fractionDigits: 0) + "%", nil)
+            return formatted((latest / usual - 1) * 100, digits: 0, suffix: "%")
         case .skinTemp:
-            return (signed(latest, fractionDigits: 1) + "°", nil)
+            return formatted(latest, digits: 1, suffix: "°")
         case .respiration:
-            return (signed(latest - usual, fractionDigits: 1), String(localized: "rpm"))
+            return formatted(latest - usual, digits: 1, unit: String(localized: "rpm"))
         }
     }
 
     /// A value in its units: "58 bpm", "48 ms", "+0.7 °C", "15.6 rpm".
     static func value(_ kind: HeadsUpSnapshot.SignalKind, _ value: Double) -> String {
+        guard value.isFinite, let whole = Int(exactly: value.rounded()) else { return WidgetMetrics.missingValue }
         switch kind {
-        case .restingHR: return String(localized: "\(Int(value.rounded())) bpm")
-        case .hrv: return String(localized: "\(Int(value.rounded())) ms")
+        case .restingHR: return String(localized: "\(whole) bpm")
+        case .hrv: return String(localized: "\(whole) ms")
         case .skinTemp: return signed(value, fractionDigits: 1) + " °C"
         case .respiration: return String(localized: "\(String(format: "%.1f", value)) rpm")
         }
     }
 
-    static func stateWord(_ signal: HeadsUpSnapshot.Signal) -> String {
+    static func stateWord(_ signal: HeadsUpSnapshot.Signal, phase: HeadsUpSnapshot.Phase? = nil) -> String {
+        if phase == .unavailable, signal.latest != nil { return String(localized: "No comparison") }
         guard let z = signal.z else {
             return signal.latest == nil ? String(localized: "No data") : String(localized: "Building")
         }
@@ -156,6 +165,7 @@ enum HeadsUpPresentation {
         guard let latest = signal.latest else { return String(localized: "No reading in the last 2 nights") }
         let now = value(signal.kind, latest)
         if case .learning = phase { return String(localized: "\(now) lately") }
+        if case .unavailable = phase { return String(localized: "\(now) lately") }
         switch signal.kind {
         case .skinTemp:
             guard let band = signal.normalBand else { return now }
@@ -251,17 +261,25 @@ enum HeadsUpPresentation {
     // MARK: Elsewhere today
 
     static func contextRecovery(_ recovery: Double?) -> String {
-        recovery.map { "\(Int($0.rounded()))%" } ?? WidgetMetrics.missingValue
+        guard let recovery, recovery.isFinite, let whole = Int(exactly: recovery.rounded()) else {
+            return WidgetMetrics.missingValue
+        }
+        return "\(whole)%"
     }
 
     /// Today's own Sleep duration text, so "Elsewhere today" can never round differently from the tile.
     static func contextSleep(_ minutes: Double?) -> String {
-        minutes.map { TodayView.sleepDurationText(minutes: $0) } ?? WidgetMetrics.missingValue
+        guard let minutes, minutes.isFinite, Int(exactly: minutes.rounded()) != nil else {
+            return WidgetMetrics.missingValue
+        }
+        return TodayView.sleepDurationText(minutes: minutes)
     }
 
     /// Strain on the display scale, one decimal, like the Strain ring.
     static func contextStrain(_ stored: Double?) -> String {
-        stored.map { String(format: "%.1f", StrainScale.displayValue(fromStored: $0)) } ?? WidgetMetrics.missingValue
+        guard let stored, stored.isFinite else { return WidgetMetrics.missingValue }
+        let displayed = StrainScale.displayValue(fromStored: stored)
+        return displayed.isFinite ? String(format: "%.1f", displayed) : WidgetMetrics.missingValue
     }
 
     // MARK: Today card
@@ -281,6 +299,10 @@ enum HeadsUpPresentation {
                 line: String(localized: "Getting to know your normal · \(nights) of \(needed) nights"),
                 lineIsPrimary: false,
                 content: .progress(fraction: Double(nights) / Double(needed)))
+        case .unavailable:
+            return HeadsUpCardModel(pill: String(localized: "No reading"), tone: color,
+                                    line: String(localized: "Waiting for recent nights and a stable usual."),
+                                    lineIsPrimary: false, content: .unavailable)
         case .scored(let level):
             return HeadsUpCardModel(
                 pill: pill(level, snapshot), tone: color, line: line(level, snapshot),
@@ -365,6 +387,7 @@ enum HeadsUpPresentation {
         switch snapshot.phase {
         case .off: return String(localized: "Heads-Up · Off")
         case .learning: return String(localized: "Heads-Up · Learning")
+        case .unavailable: return String(localized: "Heads-Up · No reading")
         case .scored(let level):
             let day = date(snapshot.day).map { $0.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)) }
             let window = level == .alreadyUnwell ? String(localized: "rest mode") : String(localized: "last 2 nights")
@@ -376,6 +399,7 @@ enum HeadsUpPresentation {
         switch phase {
         case .off: return "bell"
         case .learning: return "hourglass"
+        case .unavailable: return "pause.circle"
         case .scored(let level):
             switch level {
             case .quiet: return "checkmark"
@@ -391,6 +415,7 @@ enum HeadsUpPresentation {
         switch snapshot.phase {
         case .off: return String(localized: "Spot a rough patch early")
         case .learning: return String(localized: "Learning your normal")
+        case .unavailable: return String(localized: "No reliable read yet")
         case .scored(let level):
             switch level {
             case .quiet: return String(localized: "All clear")
@@ -416,6 +441,8 @@ enum HeadsUpPresentation {
             return String(localized: "Heads-Up reads four overnight signals together and tells you when they drift from your normal at the same time, sometimes a day or two before you feel it.")
         case .learning:
             return String(localized: "Heads-Up compares your last 2 nights with your own usual, so it needs to see \(HeadsUpSnapshot.nightsNeeded) nights of you first. The newest 3 nights stay out of your usual, so a rough patch can’t blend into it. Keep wearing your strap to bed.")
+        case .unavailable:
+            return String(localized: "Heads-Up cannot make a reliable comparison right now. Keep wearing your strap to bed while recent readings and your usual settle.")
         case .scored(let level):
             switch level {
             case .quiet:
@@ -446,9 +473,11 @@ enum HeadsUpPresentation {
     }
 
     static func meterNote(_ snapshot: HeadsUpSnapshot) -> String? {
-        guard let raw = snapshot.rawScore else { return nil }
+        guard let raw = snapshot.rawScore, raw.isFinite, snapshot.score.isFinite,
+              let rawWhole = Int(exactly: raw.rounded()),
+              let softenedWhole = Int(exactly: snapshot.score.rounded()) else { return nil }
         let causes = joined(orderedCauses(snapshot.causes).map(causePhrase))
-        return String(localized: "Raw reading was \(Int(raw.rounded())). Softened to \(Int(snapshot.score.rounded())) because you logged \(causes).")
+        return String(localized: "Raw reading was \(rawWhole). Softened to \(softenedWhole) because you logged \(causes).")
     }
 
     static func historyBars(_ snapshot: HeadsUpSnapshot) -> [HeadsUpHistoryBar] {
@@ -705,6 +734,8 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
                 }
             case .learning(let nights):
                 learningProgress(nights)
+            case .unavailable:
+                EmptyView()
             case .scored:
                 HeadsUpStrengthMeter(score: snapshot.score, rawScore: snapshot.rawScore, tone: tone,
                                      note: HeadsUpPresentation.meterNote(snapshot))
@@ -747,7 +778,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
         switch snapshot.phase {
         case .off: return "What it reads"
         case .learning: return "Your signals so far"
-        case .scored: return "Your signals"
+        case .scored, .unavailable: return "Your signals"
         }
     }
 
@@ -755,6 +786,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
         switch snapshot.phase {
         case .off: return "Uses whatever your wearable records overnight. Missing signals are skipped, never guessed."
         case .learning: return "Lines fill in as nights are recorded. The normal band appears once Heads-Up knows your usual."
+        case .unavailable: return "Recorded values are shown without a comparison until a reliable read is available."
         case .scored: return "Two weeks of nights. The shaded band is your normal range; the bright end is the last 2 nights."
         }
     }
@@ -814,7 +846,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
                                     .foregroundStyle(StrandPalette.textTertiary)
                             }
                         }
-                        Text(verbatim: HeadsUpPresentation.stateWord(signal))
+                        Text(verbatim: HeadsUpPresentation.stateWord(signal, phase: snapshot.phase))
                             .font(StrandFont.caption)
                             .foregroundStyle(ink ?? StrandPalette.textTertiary)
                     }

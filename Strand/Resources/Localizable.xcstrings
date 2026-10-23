@@ -1,6 +1,72 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "No comparison": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No comparison"
+          }
+        }
+      }
+    },
+    "Waiting for recent nights and a stable usual.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for recent nights and a stable usual."
+          }
+        }
+      }
+    },
+    "Heads-Up · No reading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heads-Up · No reading"
+          }
+        }
+      }
+    },
+    "No reliable read yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reliable read yet"
+          }
+        }
+      }
+    },
+    "Heads-Up cannot make a reliable comparison right now. Keep wearing your strap to bed while recent readings and your usual settle.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heads-Up cannot make a reliable comparison right now. Keep wearing your strap to bed while recent readings and your usual settle."
+          }
+        }
+      }
+    },
+    "Recorded values are shown without a comparison until a reliable read is available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded values are shown without a comparison until a reliable read is available."
+          }
+        }
+      }
+    },
     "Recent updates": {
       "localizations": {
         "de": {

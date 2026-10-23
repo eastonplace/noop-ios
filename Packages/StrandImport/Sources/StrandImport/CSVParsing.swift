@@ -461,21 +461,29 @@ enum WhoopTime {
         if s.hasPrefix("+") { s.removeFirst() }
         else if s.hasPrefix("-") { sign = -1; s.removeFirst() }
 
-        // Accept HH:MM or HHMM.
+        // Accept HH:MM or HHMM, but validate before any arithmetic. CSV timezone cells are
+        // untrusted; an individually representable hour can still overflow when multiplied by 60.
         let comps = s.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        var hours = 0, minutes = 0
+        let hours: Int
+        let minutes: Int
         if comps.count == 2 {
-            hours = Int(comps[0]) ?? 0
-            minutes = Int(comps[1]) ?? 0
+            guard let h = Int(comps[0]), let m = Int(comps[1]) else { return 0 }
+            hours = h
+            minutes = m
         } else {
-            let digits = String(s.prefix(while: { $0.isNumber }))
-            if digits.count >= 3 {
-                hours = Int(digits.prefix(digits.count - 2)) ?? 0
-                minutes = Int(digits.suffix(2)) ?? 0
+            guard !s.isEmpty, s.allSatisfy({ $0.isASCII && $0.isNumber }) else { return 0 }
+            if s.count >= 3 {
+                guard let h = Int(s.dropLast(2)), let m = Int(s.suffix(2)) else { return 0 }
+                hours = h
+                minutes = m
             } else {
-                hours = Int(digits) ?? 0
+                guard let h = Int(s) else { return 0 }
+                hours = h
+                minutes = 0
             }
         }
+        guard (0...18).contains(hours), (0...59).contains(minutes),
+              hours < 18 || minutes == 0 else { return 0 }
         return sign * (hours * 60 + minutes)
     }
 
@@ -486,6 +494,8 @@ enum WhoopTime {
     /// (e.g. `2024-01-02 03:04:05+0000`); when present that wins.
     static func parse(_ raw: String?, offsetMinutes: Int) -> Date? {
         guard let s0 = raw?.trimmingCharacters(in: .whitespaces), !s0.isEmpty else { return nil }
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
 
         // 1) ISO-8601 with embedded offset (e.g. "...T...Z", "...+01:00").
         if let d = isoFormatter.date(from: s0) { return d }
@@ -493,11 +503,11 @@ enum WhoopTime {
 
         // 2) Plain "YYYY-MM-DD HH:MM:SS" or with a 'T'.
         let normalized = s0.replacingOccurrences(of: "T", with: " ")
-        // Reuse one formatter (allocating a DateFormatter per CSV row was a measurable cost on
-        // imports with tens of thousands of rows). Imports run on a single thread, so the shared
-        // mutable formatter is safe; only timeZone/dateFormat are set per parse.
+        // Reuse one formatter without letting concurrent imports interleave its zone/pattern changes.
+        // Validate direct callers too, before converting minutes to seconds.
         let fmt = plainFormatter
-        fmt.timeZone = TimeZone(secondsFromGMT: offsetMinutes * 60) ?? TimeZone(identifier: "UTC")!
+        let safeOffset = (-1_080...1_080).contains(offsetMinutes) ? offsetMinutes : 0
+        fmt.timeZone = TimeZone(secondsFromGMT: safeOffset * 60) ?? TimeZone(identifier: "UTC")!
         for pattern in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] {
             fmt.dateFormat = pattern
             if let d = fmt.date(from: normalized) { return d }
@@ -511,10 +521,14 @@ enum WhoopTime {
     /// be interpreted in a chosen timezone (used by the Hevy lifting importer, #649).
     static func parseISOWithOffset(_ raw: String?) -> Date? {
         guard let s = raw?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
         if let d = isoFormatter.date(from: s) { return d }
         if let d = isoFormatterFractional.date(from: s) { return d }
         return nil
     }
+
+    private static let formatterLock = NSLock()
 
     private static let plainFormatter: DateFormatter = {
         let f = DateFormatter()

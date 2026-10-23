@@ -8,30 +8,31 @@ extension Repository {
     func journalDayValues(day: String) async -> (native: JournalQuickLog.DayValues, imported: JournalQuickLog.DayValues) {
         guard let store = await storeHandle() else { return (.init(), .init()) }
         let nativeRows = (try? await store.journalEntries(deviceId: Self.journalDeviceId, from: day, to: day)) ?? []
-        var imported = JournalQuickLog.DayValues()
+        var importedRows: [JournalEntry] = []
         for owner in importedReadIds {
-            let rows = (try? await store.journalEntries(deviceId: owner, from: day, to: day)) ?? []
-            imported = JournalQuickLog.merged(native: imported, imported: JournalQuickLog.values(from: rows, day: day))
+            importedRows += (try? await store.journalEntries(deviceId: owner, from: day, to: day)) ?? []
         }
-        return (JournalQuickLog.values(from: nativeRows, day: day), imported)
+        let imported = Self.mergeJournal(imported: importedRows, native: [])
+        return (JournalQuickLog.values(from: nativeRows, day: day), JournalQuickLog.values(from: imported, day: day))
     }
 }
 
 extension Repository {
     /// The questions the Journal asks: the active members of the "Daily fundamentals" set. A question that has no
-    /// membership yet joins it as active, so a newly added one is asked straight away. Empty means no set could be
-    /// read, and the page then asks every question.
+    /// membership yet joins it as active, so a newly added one is asked straight away. Unavailable reads fall back
+    /// to the catalog keys; a successfully read empty set means the person turned every question off.
     func activeCoachingQuestions(for items: [JournalCatalogItem]) async -> Set<String> {
-        guard let store = await storeHandle() else { return [] }
+        let fallback = Set(items.map(\.canonical))
+        guard let store = await storeHandle() else { return fallback }
         let defaults = items.enumerated().map { index, item in
             CoachingBehaviorMembership(setId: "daily-fundamentals", canonicalQuestion: item.canonical,
                                        coachingGroup: coachingPresentationGroup(for: item).rawValue,
                                        sortIndex: index, isActive: true, isQuickAdd: index < 6)
         }
         guard let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) else {
-            return []
+            return fallback
         }
-        let memberships = (try? await store.coachingMemberships(setId: set.id)) ?? []
+        guard let memberships = try? await store.coachingMemberships(setId: set.id) else { return fallback }
         return Set(memberships.filter(\.isActive).map(\.canonicalQuestion))
     }
 }

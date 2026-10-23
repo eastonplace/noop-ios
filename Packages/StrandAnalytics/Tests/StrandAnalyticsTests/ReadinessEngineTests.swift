@@ -125,6 +125,30 @@ final class ReadinessEngineTests: XCTestCase {
         XCTAssertNotEqual(ReadinessEngine.evaluate(days: days).level, .insufficient)
     }
 
+    func testPhysiologyBaselineDoesNotReachBackAcrossLongWearGap() {
+        var days = baseline(todayHrv: 72, todayRhr: 46, todayStrain: 10, todayResp: 18)
+        days.append(DailyMetric(day: "2024-06-01", totalSleepMin: nil, efficiency: nil,
+            deepMin: nil, remMin: nil, lightMin: nil, disturbances: nil,
+            restingHr: 46, avgHrv: 72, recovery: nil, strain: nil, exerciseCount: nil, respRateBpm: 18))
+        let result = ReadinessEngine.evaluate(days: days, today: "2024-06-01")
+        XCTAssertEqual(result.level, .insufficient)
+        XCTAssertTrue(result.signals.isEmpty)
+    }
+
+    func testPhysiologyBaselineIncludesDayThirtyButExcludesDayThirtyOne() {
+        let history = (1...7).map { d($0, hrv: Double(58 + $0 % 3), rhr: 50 + $0 % 3, strain: nil) }
+        func evaluate(on target: String) -> ReadinessEngine.Readiness {
+            let current = DailyMetric(day: target, totalSleepMin: nil, efficiency: nil,
+                deepMin: nil, remMin: nil, lightMin: nil, disturbances: nil,
+                restingHr: 46, avgHrv: 72, recovery: nil, strain: nil, exerciseCount: nil)
+            return ReadinessEngine.evaluate(days: history + [current], today: target)
+        }
+        // Mar 1 is 30 days before Mar 31, and 31 days before Apr 1. Losing this row leaves
+        // only six valid baseline nights, below the seven-night coverage gate.
+        XCTAssertTrue(evaluate(on: "2024-03-31").signals.contains { $0.key == "hrv" })
+        XCTAssertTrue(evaluate(on: "2024-04-01").signals.isEmpty)
+    }
+
     func testStatsHelpers() {
         XCTAssertEqual(ReadinessEngine.mean([2, 4, 6]), 4)
         XCTAssertEqual(ReadinessEngine.sampleSD([2, 4, 6])!, 2.0, accuracy: 0.0001)

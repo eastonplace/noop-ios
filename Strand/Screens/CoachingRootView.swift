@@ -17,6 +17,7 @@ struct CoachingRootView: View {
     @StateObject private var log = JournalQuickLogModel()
 
     @State private var importedQuestions: [String] = []
+    @State private var catalogRevision = 0
     /// The day the page is on, as the journal stores it: the morning the answers affect. The page opens on Yesterday,
     /// which is this morning's key.
     @State private var dayKey = JournalBehaviorDay.yesterdayStorageKey()
@@ -46,7 +47,9 @@ struct CoachingRootView: View {
 
     private var isCurrentDayLoaded: Bool { loadedDay == dayKey }
     private var words: JournalBehaviorDay.Words { JournalBehaviorDay.words(forStorageKey: dayKey, today: todayKey) }
-    private var loadKey: String { "\(repo.refreshSeq)|\(dayKey)" }
+    private var loadKey: String {
+        "\(repo.refreshSeq)|\(repo.journalRevision)|\(repo.journalEntrySourceContext)|\(dayKey)|\(catalogRevision)"
+    }
 
     var body: some View {
         NavigationStack {
@@ -87,6 +90,9 @@ struct CoachingRootView: View {
             #endif
         }
         .tint(StrandPalette.journalAccent)
+        .onReceive(NotificationCenter.default.publisher(for: .init("noop.notificationJournalDidChange"))) { _ in
+            catalogRevision &+= 1
+        }
         .sheet(item: $composingEntry) { entry in
             JournalEntryComposer(catalog: catalog, presentation: entry,
                                  importedQuestions: importedQuestions, currentDay: entry.day,
@@ -268,6 +274,9 @@ struct CoachingRootView: View {
     // MARK: Load
 
     @MainActor private func load() async {
+        catalog.reloadFromDefaults()
+        let catalogItems = catalog.items
+        let sourceIdentity = repo.journalEntrySourceIdentity
         let day = dayKey
         let epoch = log.changeEpoch
         let earlierDay = JournalBehaviorDay.shifted(day, by: -1) ?? day
@@ -313,7 +322,8 @@ struct CoachingRootView: View {
             details.mood = await repo.mood(day: day)
         }
         // The person may have switched day while this was reading; the newer load owns the page.
-        guard day == dayKey else { return }
+        guard !Task.isCancelled, day == dayKey, catalog.items == catalogItems,
+              !repo.verifiedExternalSurfaceFenced, sourceIdentity == repo.journalEntrySourceIdentity else { return }
         todayKey = Repository.localDayKey(Date())
         importedQuestions = questions
         stacks = loadedStacks
@@ -330,21 +340,31 @@ struct CoachingRootView: View {
         loaded = true
     }
 
-    /// Every tap is stored under the immutable catalog key for the day it was made on. Nothing reloads afterwards: the
-    /// grid already shows what was tapped, and the dots read it from there.
+    /// Every tap uses the immutable day and source captured when its answers loaded. Durable revisions reconcile
+    /// revisited days; the model keeps those reads from replacing answers still being saved.
     private var writer: JournalQuickLogModel.Writer {
         let repo = repo
+        let sourceContext = repo.journalEntrySourceContext
+        let allowed: @MainActor () -> Bool = {
+            !repo.verifiedExternalSurfaceFenced && sourceContext == repo.journalEntrySourceContext
+        }
         return .init(
             save: { day, write in
+                guard allowed() else { return }
                 switch write {
                 case .answer(let question, let yes):
-                    await repo.saveJournalAnswer(day: day, question: question, answeredYes: yes)
+                    await repo.saveJournalAnswer(day: day, question: question, answeredYes: yes,
+                                                 expectedSourceContext: sourceContext)
                 case .amount(let question, let value):
-                    await repo.saveJournalNumeric(day: day, question: question, value: value)
+                    await repo.saveJournalNumeric(day: day, question: question, value: value,
+                                                  expectedSourceContext: sourceContext)
                 }
             },
-            clear: { day, question in await repo.clearJournalAnswer(day: day, question: question) },
-            canWrite: { true },
+            clear: { day, question in
+                guard allowed() else { return }
+                await repo.clearJournalAnswer(day: day, question: question, expectedSourceContext: sourceContext)
+            },
+            canWrite: allowed,
             didWrite: {})
     }
 }

@@ -143,6 +143,48 @@ struct LiftProgressMathTests {
     #expect(store.progressSnapshotComputationCount == 2)
   }
 
+  @MainActor
+  @Test("Repeated receipt reads reuse PR history and completed workouts invalidate it")
+  func storeHistoricalPersonalRecordMemoization() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("LiftHistoricalPRCacheTests-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = LiftStore(dataURL: directory.appendingPathComponent("lift-data.json"), saveDebounceInterval: 0)
+    await store.loadAndWait()
+    let exercise = try #require(store.exercises.first)
+    #expect(store.startRoutine(nil, now: date(2026, 1, 12, 8)))
+    #expect(store.logSet(exercise: exercise, weight: 100, reps: 5, rpe: 8, isWarmup: false) != nil)
+    #expect(store.finishActiveSession() != nil)
+
+    let baseline = LiftProgressMath.historicalPersonalRecords(sessions: store.sessions)
+    for _ in 0..<50 {
+      #expect(store.historicalPersonalRecords() == baseline)
+    }
+    #expect(store.historicalPersonalRecordComputationCount == 1)
+
+    // Live logging and other store notifications do not change completed PR history.
+    #expect(store.startRoutine(nil, now: date(2026, 1, 13, 8)))
+    let improvement = try #require(store.logSet(exercise: exercise, weight: 120, reps: 5, rpe: 8, isWarmup: false))
+    store.setDefaultRestSeconds(120)
+    #expect(store.historicalPersonalRecords() == baseline)
+    #expect(store.historicalPersonalRecordComputationCount == 1)
+
+    #expect(store.finishActiveSession() != nil)
+    let updated = store.historicalPersonalRecords()
+    #expect(updated == LiftProgressMath.historicalPersonalRecords(sessions: store.sessions))
+    #expect(updated[improvement.set.id] != nil)
+    #expect(store.historicalPersonalRecordComputationCount == 2)
+    #expect(store.historicalPersonalRecords() == updated)
+    #expect(store.historicalPersonalRecordComputationCount == 2)
+
+    // Loading saved history also invalidates an empty ledger read before the load finished.
+    let restored = LiftStore(dataURL: directory.appendingPathComponent("lift-data.json"), saveDebounceInterval: 0)
+    #expect(restored.historicalPersonalRecords().recordsBySetID.isEmpty)
+    await restored.loadAndWait()
+    #expect(restored.historicalPersonalRecords() == updated)
+    #expect(restored.historicalPersonalRecordComputationCount == 2)
+  }
+
   @Test("Calendar ranges are aligned and never include future sessions")
   func alignedWindows() throws {
     let calendar = fixedCalendar

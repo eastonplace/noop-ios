@@ -3,7 +3,7 @@ import Foundation
 import StrandAnalytics
 
 // `--demo-heads-up <state>` (DEBUG only): a fixed Heads-Up read, so the Today card and the detail page can be captured
-// in every state without a strap or weeks of nights. States: off, learning, clear, mild, raised, explained, unwell.
+// in every state without a strap or weeks of nights. States: off, learning, unavailable, clear, mild, raised, explained, unwell.
 // The numbers are consistent with the engine (each fired signal's z clears its threshold, the scores follow its
 // formula), but they are a QA fixture: production never reads this.
 extension HeadsUpSnapshot {
@@ -64,6 +64,10 @@ extension HeadsUpSnapshot {
         case "learning":
             return HeadsUpSnapshot(phase: .learning(nights: 9), day: dayKey(0), score: 0, rawScore: nil,
                                    signals: signals([0.4, -0.3, 0.6, 0.2], building: true), causes: [],
+                                   confidence: nil, history: [], unwellDay: nil)
+        case "unavailable":
+            return HeadsUpSnapshot(phase: .unavailable, day: dayKey(0), score: 0, rawScore: nil,
+                                   signals: signals([4.0, -4.0, 2.7, 0.2], building: true), causes: [],
                                    confidence: nil, history: [], unwellDay: nil)
         case "clear":
             return scored(.quiet, score: 0, z: [0.5, 0.4, 0.3, -0.2],

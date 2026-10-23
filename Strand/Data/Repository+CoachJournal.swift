@@ -25,12 +25,12 @@ extension Repository {
     func coachJournalSnapshot(day: String) async throws -> CoachJournalSnapshot {
         guard LocalCoachWindow.date(day) != nil else { throw JournalEntryReviewError.invalidValues }
         let context = try await journalEntryContext()
-        let owners = Array(Set(importedReadIds)).sorted()
+        let owners = importedReadIds
         guard owners.count <= 8 else { throw JournalEntryReviewError.unavailable }
         func check() throws {
             try Task.checkCancellation()
             guard !verifiedExternalSurfaceFenced, journalEntrySourceContext == context,
-                  Array(Set(importedReadIds)).sorted() == owners else {
+                  importedReadIds == owners else {
                 throw JournalEntryReviewError.contextChanged
             }
         }
@@ -53,13 +53,14 @@ extension Repository {
         let questions = Array(labels.sorted().prefix(256))
         let answers = review.existing.mapValues(\.answeredYes)
         let numbers = review.existing.compactMapValues(\.numericValue)
-        var imported = JournalQuickLog.DayValues()
+        var importedRows: [JournalEntry] = []
         for owner in owners {
             let rows = try await store.journalEntries(deviceId: owner, from: day, to: day)
             try check()
-            imported = JournalQuickLog.merged(native: imported, imported: JournalQuickLog.values(from: rows, day: day))
+            importedRows += rows
         }
         try check()
+        let imported = JournalQuickLog.values(from: Self.mergeJournal(imported: importedRows, native: []), day: day)
         return .init(day: day, sourceContext: context, importedQuestions: questions,
                      answers: answers, numericAnswers: numbers, details: details,
                      catalogWasTruncated: truncated,

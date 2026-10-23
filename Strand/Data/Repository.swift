@@ -3035,6 +3035,38 @@ final class Repository: ObservableObject {
         return await unionDailyMetrics(store: store, from: fromDay, to: toDay)
     }
 
+    /// Canonical vitals for bounded Heads-Up reads outside the dashboard's 30-day cache. Heads-Up only
+    /// consumes vitals, so the dashboard's user-edited sleep override and activity steps are not needed here.
+    /// A failed or superseded read is nil, distinct from an honestly empty history.
+    func headsUpHistory(fromDay: String, toDay: String) async -> [DailyMetric]? {
+        guard !Task.isCancelled, WhoopStore.isValidJournalDay(fromDay), WhoopStore.isValidJournalDay(toDay), fromDay <= toDay,
+              let store = await ensureStore() else { return nil }
+        guard !Task.isCancelled else { return nil }
+        let sourceContext = notificationSourceContext
+        let openGeneration = storeOpenGeneration
+        let importedIds = importedReadIds
+        let computedIds = computedReadIds
+        do {
+            try Task.checkCancellation()
+            let imported = try await requiredUnionDailyMetricsWithSource(
+                store: store, ids: importedIds, from: fromDay, to: toDay).map(\.metric)
+            try Task.checkCancellation()
+            let computed = try await requiredUnionDailyMetricsWithSource(
+                store: store, ids: computedIds, from: fromDay, to: toDay).map(\.metric)
+            try Task.checkCancellation()
+            let apple = try await store.dailyMetrics(deviceId: Self.appleHealthSource, from: fromDay, to: toDay)
+            try Task.checkCancellation()
+            let hasRMSSD = try await store.hasDailyHrv(deviceIds: importedIds + computedIds)
+            guard !Task.isCancelled, openGeneration == storeOpenGeneration, sourceContext == notificationSourceContext,
+                  !restoreStoreAdmissionBlocked else { return nil }
+            return Self.mergeDaily(
+                imported: Self.mergeDaily(imported: imported, computed: computed),
+                computed: Self.appleFallbackDaily(apple, hasRMSSDSource: hasRMSSD))
+        } catch {
+            return nil
+        }
+    }
+
     func hrSamples(from: Int, to: Int, limit: Int = 8000) async -> [HRSample] {
         guard let store = await ensureStore() else { return [] }
         // UNION the active strap + canonical so the HR trend renders whether the landed day's raw sits under
@@ -4514,10 +4546,18 @@ final class Repository: ObservableObject {
 
     /// Logged behaviours (imported WHOOP journal ∪ native noop-journal) for correlation insights.
     func journalEntries(days: Int = 4000) async -> [JournalEntry] {
-        guard let store = await ensureStore() else { return [] }
         let now = Date()
         let from = Self.dayString(Self.dateByAddingCalendarDays(-max(0, days), to: now))
         let to = Self.dayString(Self.dateByAddingCalendarDays(1, to: now))
+        return await journalEntries(from: from, to: to)
+    }
+
+    /// Read an inclusive range of stored morning keys, including the historical replay window.
+    func journalEntries(from: String, to: String) async -> [JournalEntry] {
+        guard from <= to,
+              let fromDate = Self.dayFormatter.date(from: from), Self.dayString(fromDate) == from,
+              let toDate = Self.dayFormatter.date(from: to), Self.dayString(toDate) == to,
+              let store = await ensureStore() else { return [] }
         var imported: [JournalEntry] = []
         for id in importedReadIds { imported += (try? await store.journalEntries(deviceId: id, from: from, to: to)) ?? [] }
         let native = (try? await store.journalEntries(deviceId: Self.journalDeviceId,
@@ -4558,18 +4598,24 @@ final class Repository: ObservableObject {
         return out
     }
 
-    /// Union; the NATIVE row wins per (day, question) , the in-app answer is the user's most recent
-    /// explicit action and stays editable, unlike the immutable imported history.
+    /// Shared Journal precedence: imported rows arrive in `importedReadIds` order, so the active strap wins
+    /// overlaps and canonical history fills gaps. A native answer always overrides every imported owner.
     nonisolated static func mergeJournal(imported: [JournalEntry], native: [JournalEntry]) -> [JournalEntry] {
         var byKey: [String: JournalEntry] = [:]
-        for e in imported { byKey[e.day + "\u{1F}" + e.question] = e }
+        for e in imported {
+            let key = e.day + "\u{1F}" + e.question
+            if byKey[key] == nil { byKey[key] = e }
+        }
         for e in native { byKey[e.day + "\u{1F}" + e.question] = e }
         return byKey.values.sorted { ($0.day, $0.question) < ($1.day, $1.question) }
     }
 
     /// Write one native answer (day per the importer's wake-day convention).
-    func saveJournalAnswer(day: String, question: String, answeredYes: Bool, notes: String? = nil) async {
-        guard let store = await ensureStore() else { return }
+    func saveJournalAnswer(day: String, question: String, answeredYes: Bool, notes: String? = nil,
+                           expectedSourceContext: String? = nil) async {
+        guard canCommitJournalWrite(expectedSourceContext: expectedSourceContext),
+              let store = await ensureStore(),
+              canCommitJournalWrite(expectedSourceContext: expectedSourceContext) else { return }
         _ = try? await store.upsertJournal(
             [JournalEntry(day: day, question: question, answeredYes: answeredYes, notes: notes)],
             deviceId: Self.journalDeviceId)
@@ -4589,8 +4635,11 @@ final class Repository: ObservableObject {
     /// BehaviorInsights with/without split treats a positive log as "behaviour occurred" and a logged zero
     /// as an explicit none, while the value is carried for dose-response. Day per the importer's wake-day
     /// convention.
-    func saveJournalNumeric(day: String, question: String, value: Double, notes: String? = nil) async {
-        guard let store = await ensureStore() else { return }
+    func saveJournalNumeric(day: String, question: String, value: Double, notes: String? = nil,
+                            expectedSourceContext: String? = nil) async {
+        guard canCommitJournalWrite(expectedSourceContext: expectedSourceContext),
+              let store = await ensureStore(),
+              canCommitJournalWrite(expectedSourceContext: expectedSourceContext) else { return }
         _ = try? await store.upsertJournal(
             [JournalEntry(day: day, question: question, answeredYes: value > 0, notes: notes,
                           numericValue: value)],
@@ -4613,10 +4662,19 @@ final class Repository: ObservableObject {
     }
 
     /// Clear one native answer (never touches imported rows , scoped to the dedicated source id).
-    func clearJournalAnswer(day: String, question: String) async {
-        guard let store = await ensureStore() else { return }
+    func clearJournalAnswer(day: String, question: String, expectedSourceContext: String? = nil) async {
+        guard canCommitJournalWrite(expectedSourceContext: expectedSourceContext),
+              let store = await ensureStore(),
+              canCommitJournalWrite(expectedSourceContext: expectedSourceContext) else { return }
         _ = try? await store.deleteJournal(deviceId: Self.journalDeviceId, day: day, question: question)
         journalDidChange()
+    }
+
+    /// Delayed quick-log work may write only to the source it captured, including after the store-open suspension.
+    /// Callers without a captured context keep the existing API behavior.
+    private func canCommitJournalWrite(expectedSourceContext: String?) -> Bool {
+        guard let expectedSourceContext else { return true }
+        return !verifiedExternalSurfaceFenced && expectedSourceContext == journalEntrySourceContext
     }
 
     /// Log one coaching stack without creating a parallel behavior path. Checked items fan out through

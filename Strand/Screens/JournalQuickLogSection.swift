@@ -45,6 +45,8 @@ final class JournalQuickLogModel: ObservableObject {
     private(set) var changeEpoch = 0
     private var generation = 0
     private var inFlight = 0
+    /// Accepted actions keep their order across day changes. A newer tap must follow the whole older bulk action.
+    private var writeTail: Task<Void, Never>?
 
     var effective: JournalQuickLog.DayValues { JournalQuickLog.merged(native: native, imported: imported) }
     var total: Int { tiles.count }
@@ -179,18 +181,22 @@ final class JournalQuickLogModel: ObservableObject {
         changeEpoch += 1
         if !wasComplete && isComplete { completionTick += 1 } else { tapTick += 1 }
         let run = generation
+        let writer = writer
+        let previous = writeTail
         inFlight += 1
-        Task { @MainActor in
+        writeTail = Task { @MainActor in
+            await previous?.value
             for step in steps {
-                // A day switch ends the run: what was already written stays, the rest is dropped.
-                guard run == self.generation else { break }
+                // Accepted answers belong to the captured day and writer even after the page moves.
+                // Each host writer still enforces its consent and source checks before persistence.
                 switch step {
-                case .save(let write): await self.writer.save(day, write)
-                case .clear(let question): await self.writer.clear(day, question)
+                case .save(let write): await writer.save(day, write)
+                case .clear(let question): await writer.clear(day, question)
                 }
             }
-            if run == self.generation { self.inFlight -= 1 }
-            self.writer.didWrite()
+            guard run == self.generation else { return }
+            self.inFlight -= 1
+            writer.didWrite()
         }
     }
 

@@ -88,8 +88,8 @@ public enum FTMSDecode {
 
     // MARK: - Little-endian readers (bounds-checked over UNTRUSTED input)
 
-    /// A forward cursor over the byte buffer. Every read advances `idx` only on success; on a short
-    /// buffer the read returns nil and leaves the cursor put, so the caller stops decoding cleanly.
+    /// A forward cursor over the byte buffer. A truncated field exhausts the reader: later fields
+    /// cannot reinterpret its remaining bytes at a different width.
     private struct Reader {
         let bytes: [UInt8]
         var idx: Int = 0
@@ -100,7 +100,7 @@ public enum FTMSDecode {
             return Int(bytes[idx])
         }
         mutating func u16() -> Int? {
-            guard idx + 1 < bytes.count else { return nil }
+            guard idx + 1 < bytes.count else { idx = bytes.count; return nil }
             defer { idx += 2 }
             return Int(bytes[idx]) | (Int(bytes[idx + 1]) << 8)
         }
@@ -110,7 +110,7 @@ public enum FTMSDecode {
             return raw >= 0x8000 ? raw - 0x10000 : raw
         }
         mutating func u24() -> Int? {
-            guard idx + 2 < bytes.count else { return nil }
+            guard idx + 2 < bytes.count else { idx = bytes.count; return nil }
             defer { idx += 3 }
             return Int(bytes[idx]) | (Int(bytes[idx + 1]) << 8) | (Int(bytes[idx + 2]) << 16)
         }

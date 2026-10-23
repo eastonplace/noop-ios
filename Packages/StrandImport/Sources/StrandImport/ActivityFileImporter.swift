@@ -367,7 +367,9 @@ public enum ActivityFileImporter {
         let dLat = (b.lat - a.lat) * .pi / 180
         let dLon = (b.lon - a.lon) * .pi / 180
         let la1 = a.lat * .pi / 180, la2 = b.lat * .pi / 180
-        let h = sin(dLat / 2) * sin(dLat / 2) + cos(la1) * cos(la2) * sin(dLon / 2) * sin(dLon / 2)
+        let rawH = sin(dLat / 2) * sin(dLat / 2) + cos(la1) * cos(la2) * sin(dLon / 2) * sin(dLon / 2)
+        // Roundoff near antipodal points can put this mathematical [0, 1] value just above one.
+        let h = min(1, max(0, rawH))
         return earthR * 2 * atan2(h.squareRoot(), (1 - h).squareRoot())
     }
 

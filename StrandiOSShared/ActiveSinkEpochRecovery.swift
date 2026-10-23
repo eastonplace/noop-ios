@@ -1,4 +1,5 @@
 import Foundation
+import NoopPhase34Core
 
 public enum ActiveSinkEpochRecovery {
     public static func nextEpoch(
@@ -7,7 +8,9 @@ public enum ActiveSinkEpochRecovery {
         widgetGenerationKey: String = ActiveVerifiedSinkEpochStore.widgetGenerationKey,
         liveActivityGenerationKey: String = ActiveVerifiedSinkEpochStore.liveActivityGenerationKey,
         overlayKey: String = ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey,
-        verifiedEnvelopeKey: String = VerifiedWidgetEnvelopeStore.storageKey
+        verifiedEnvelopeKey: String = VerifiedWidgetEnvelopeStore.storageKey,
+        coachBriefKey: String = CoachBriefWidgetStore.storageKey,
+        coachBriefGenerationKey: String = CoachBriefWidgetStore.generationKey
     ) -> UInt64? {
         let decoder = JSONDecoder()
         var epochs: [UInt64] = []
@@ -16,7 +19,7 @@ public enum ActiveSinkEpochRecovery {
            let active = try? decoder.decode(ActiveVerifiedSinkEpochRecord.self, from: data) {
             epochs.append(active.epoch)
         }
-        for key in [widgetGenerationKey, liveActivityGenerationKey] {
+        for key in [widgetGenerationKey, liveActivityGenerationKey, coachBriefGenerationKey] {
             if let data = defaults.data(forKey: key),
                let record = try? decoder.decode(VerifiedSinkGenerationRecord.self, from: data) {
                 epochs.append(record.epoch)
@@ -30,6 +33,10 @@ public enum ActiveSinkEpochRecovery {
            let envelope = try? decoder.decode(VerifiedWidgetEnvelope.self, from: data) {
             epochs.append(envelope.epoch)
         }
+        if let data = defaults.data(forKey: coachBriefKey), data.count <= 8_192,
+           let brief = try? decoder.decode(CoachBriefWidgetPayload.self, from: data) {
+            epochs.append(brief.epoch)
+        }
 
         let maximum = epochs.max() ?? 0
         let (next, overflow) = maximum.addingReportingOverflow(1)
@@ -37,7 +44,7 @@ public enum ActiveSinkEpochRecovery {
     }
 
     /// Replacement for beginTransition. A missing/corrupt active record does not
-    /// reset ordering below surviving Widget/Live/envelope records.
+    /// reset ordering below surviving metric, Live Activity, or Coach Brief records.
     public static func beginTransitionRecovering(
         defaults: UserDefaults
     ) -> UInt64? {
@@ -53,6 +60,7 @@ public enum ActiveSinkEpochRecovery {
     /// explicit carry-forward identity that could safely retain the old core.
     public static func clearVerifiedWidgetState(defaults: UserDefaults) {
         VerifiedWidgetEnvelopeStore.clear(defaults: defaults)
+        CoachBriefWidgetStore.clear(defaults: defaults)
         defaults.removeObject(forKey: WidgetSnapshot.storageKey)
         defaults.removeObject(forKey: ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey)
         defaults.removeObject(forKey: ActiveVerifiedSinkEpochStore.widgetGenerationKey)

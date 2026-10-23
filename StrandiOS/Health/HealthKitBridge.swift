@@ -926,19 +926,7 @@ final class HealthKitBridge: ObservableObject {
                 HKQuery.predicateForObjects(from: HKSource.default()),
                 HKQuery.predicateForSamples(withStart: start, end: end, options: []),
             ])
-            let windowSamples: [HKSample] = try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<[HKSample], any Error>) in
-                let query = HKSampleQuery(
-                    sampleType: type,
-                    predicate: predicate,
-                    limit: HKObjectQueryNoLimit,
-                    sortDescriptors: nil
-                ) { _, objects, error in
-                    if let error { continuation.resume(throwing: error); return }
-                    continuation.resume(returning: objects ?? [])
-                }
-                store.execute(query)
-            }
+            let windowSamples = try await loadHealthKitSamples(of: type, predicate: predicate)
             samples.append(contentsOf: windowSamples)
         }
         for sample in samples {
@@ -1027,8 +1015,8 @@ final class HealthKitBridge: ObservableObject {
         of type: HKSampleType,
         predicate: NSPredicate
     ) async throws -> [HKSample] {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<[HKSample], any Error>) in
+        var activeQuery: HKSampleQuery?
+        return try await HealthKitCancellableQuery.run(start: { completion in
             let query = HKSampleQuery(
                 sampleType: type,
                 predicate: predicate,
@@ -1036,13 +1024,16 @@ final class HealthKitBridge: ObservableObject {
                 sortDescriptors: nil
             ) { _, samples, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    completion(.failure(error))
                 } else {
-                    continuation.resume(returning: samples ?? [])
+                    completion(.success(samples ?? []))
                 }
             }
+            activeQuery = query
             store.execute(query)
-        }
+        }, stop: { [store] in
+            if let activeQuery { store.stop(activeQuery) }
+        })
     }
 
     /// HealthKit deletion callbacks contain only object UUIDs. Persist the UUID and original bounds
@@ -1540,8 +1531,8 @@ final class HealthKitBridge: ObservableObject {
             HKQuery.predicateForObjects(from: HKSource.default()),
             HKQuery.predicateForSamples(withStart: from, end: to, options: []),
         ])
-        return try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<[HKSample], any Error>) in
+        var activeQuery: HKSampleQuery?
+        return try await HealthKitCancellableQuery.run(start: { completion in
             let query = HKSampleQuery(
                 sampleType: type,
                 predicate: predicate,
@@ -1552,13 +1543,16 @@ final class HealthKitBridge: ObservableObject {
                 )]
             ) { _, objects, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    completion(.failure(error))
                 } else {
-                    continuation.resume(returning: objects ?? [])
+                    completion(.success(objects ?? []))
                 }
             }
+            activeQuery = query
             store.execute(query)
-        }
+        }, stop: { [store] in
+            if let activeQuery { store.stop(activeQuery) }
+        })
     }
 
     private func rebuildRemainingSourcePage(
@@ -2599,13 +2593,13 @@ final class HealthKitBridge: ObservableObject {
             HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate),
             Self.notNoopAuthored,
         ])
-        return try await withCheckedThrowingContinuation {
-            (cont: CheckedContinuation<[String: Double], Error>) in
+        var query: HKStatisticsCollectionQuery?
+        return try await HealthKitCancellableQuery.run(start: { completion in
             let q = HKStatisticsCollectionQuery(quantityType: type, quantitySamplePredicate: predicate,
                                                 options: op, anchorDate: anchor,
                                                 intervalComponents: DateComponents(day: 1))
             q.initialResultsHandler = { _, results, error in
-                if let error { cont.resume(throwing: error); return }
+                if let error { completion(.failure(error)); return }
                 var values: [String: Double] = [:]
                 results?.enumerateStatistics(from: start, to: end) { stats, _ in
                     let q: HKQuantity?
@@ -2620,10 +2614,13 @@ final class HealthKitBridge: ObservableObject {
                         values[HealthKitBridge.dayString(stats.startDate)] = q.doubleValue(for: unit)
                     }
                 }
-                cont.resume(returning: values)
+                completion(.success(values))
             }
+            query = q
             store.execute(q)
-        }
+        }, stop: { [store] in
+            if let query { store.stop(query) }
+        })
     }
 
     /// Live HealthKit import owns daily Apple projections and Apple workouts only. It deliberately never
@@ -2694,11 +2691,11 @@ final class HealthKitBridge: ObservableObject {
             HKQuery.predicateForSamples(withStart: start, end: end, options: []),
             Self.notNoopAuthored,
         ])
-        return try await withCheckedThrowingContinuation {
-            (cont: CheckedContinuation<[SleepStageInterval], Error>) in
+        var activeQuery: HKSampleQuery?
+        return try await HealthKitCancellableQuery.run(start: { completion in
             let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit,
                                       sortDescriptors: nil) { _, samples, error in
-                if let error { cont.resume(throwing: error); return }
+                if let error { completion(.failure(error)); return }
                 let intervals = (samples ?? []).compactMap { sample -> SleepStageInterval? in
                     guard let sample = sample as? HKCategorySample else { return nil }
                     let stage = SleepStage.from(rawValue: String(sample.value))
@@ -2715,10 +2712,13 @@ final class HealthKitBridge: ObservableObject {
                         sampleID: sample.uuid.uuidString
                     )
                 }
-                cont.resume(returning: intervals)
+                completion(.success(intervals))
             }
+            activeQuery = query
             store.execute(query)
-        }
+        }, stop: { [store] in
+            if let activeQuery { store.stop(activeQuery) }
+        })
     }
 
     // MARK: - Workouts (#835)
@@ -2764,11 +2764,12 @@ final class HealthKitBridge: ObservableObject {
             ),
             Self.notNoopAuthored,
         ])
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[WorkoutRow], Error>) in
+        var activeQuery: HKSampleQuery?
+        return try await HealthKitCancellableQuery.run(start: { completion in
             let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
             let q = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: predicate,
                                   limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, error in
-                if let error { cont.resume(throwing: error); return }
+                if let error { completion(.failure(error)); return }
                 var rows: [WorkoutRow] = []
                 for case let workout as HKWorkout in samples ?? [] {
                     let startTs = Int(workout.startDate.timeIntervalSince1970)
@@ -2788,10 +2789,13 @@ final class HealthKitBridge: ObservableObject {
                         zonesJSON: nil,
                         notes: nil))
                 }
-                cont.resume(returning: rows)
+                completion(.success(rows))
             }
+            activeQuery = q
             store.execute(q)
-        }
+        }, stop: { [store] in
+            if let activeQuery { store.stop(activeQuery) }
+        })
     }
 
     /// Source tag stamped on workouts imported from Apple Health. Matches the macOS importer's

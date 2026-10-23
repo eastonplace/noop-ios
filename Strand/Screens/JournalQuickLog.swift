@@ -226,7 +226,7 @@ struct JournalQuickLogTile: Identifiable, Equatable {
     /// The grid in one run: the active questions, in the order the groups always had (sleep, fuel, training,
     /// recovery, supplements), each group by its own sort order. The groups themselves are no longer shown.
     static func tiles(from items: [JournalCatalogItem], active: Set<String>) -> [JournalQuickLogTile] {
-        let visible = active.isEmpty ? items : items.filter { active.contains($0.canonical) }
+        let visible = items.filter { active.contains($0.canonical) }
         let order = CoachingCheckInGroup.allCases
         return visible
             .sorted {

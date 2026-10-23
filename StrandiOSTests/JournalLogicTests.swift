@@ -19,6 +19,18 @@ final class JournalLogicTests: XCTestCase {
         XCTAssertTrue(merged[0].answeredYes)
     }
 
+    func testFirstImportedOwnerWinsOverlappingAnswerAndLocalOverrideStillWins() {
+        let active = JournalEntry(day: "2026-10-22", question: "Q", answeredYes: true, notes: nil, numericValue: 3)
+        let canonical = JournalEntry(day: "2026-10-22", question: "Q", answeredYes: false, notes: nil, numericValue: 0)
+        let imported = Repository.mergeJournal(imported: [active, canonical], native: [])
+        XCTAssertEqual(imported.count, 1)
+        XCTAssertEqual(imported.first?.numericValue, 3)
+        XCTAssertEqual(imported.first?.answeredYes, true)
+        let local = Repository.mergeJournal(imported: [active, canonical], native: [canonical])
+        XCTAssertEqual(local.first?.numericValue, 0)
+        XCTAssertEqual(local.first?.answeredYes, false)
+    }
+
     func testDisjointKeysUnionAndSort() {
         let imported = [e("2026-06-09", "B?", true)]
         let native = [e("2026-06-10", "A?", false), e("2026-06-09", "A?", true)]
