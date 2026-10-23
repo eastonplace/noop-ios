@@ -46,8 +46,12 @@ final class InsightsReportTests: XCTestCase {
         let row = try XCTUnwrap(report.significant.first { $0.source == .data(.earlyBedtime) && $0.outcome == .recovery })
         func plain(_ s: String) -> String { s.replacingOccurrences(of: "\u{202F}", with: " ") }
         XCTAssertEqual(plain(row.bedtime ?? ""), "11:30 PM")
-        XCTAssertTrue(plain(row.sentence).hasPrefix("On nights you went to bed before 11:30 PM, your recovery averaged"))
-        XCTAssertTrue(row.sentence.hasSuffix("higher."))
+        XCTAssertTrue(plain(row.sentence).hasPrefix("On nights you went to bed before 11:30 PM, your recovery averaged 12 points higher ("))
+        XCTAssertTrue(row.sentence.hasSuffix(")."))
+        XCTAssertEqual(row.deltaText, "+12 pts")
+        XCTAssertEqual(plain(row.rowTitle), "In bed before 11:30 PM")
+        XCTAssertTrue(row.detailLine.hasSuffix("30 vs 30 nights · Solid"))
+        XCTAssertEqual(row.headline, "Your bedtime moves your recovery most")
         XCTAssertEqual(plain(row.withLabel), "Before 11:30 PM")
         XCTAssertEqual(row.countsText, "30 vs 30 nights")
         XCTAssertEqual(row.source.label, "From your data")
@@ -76,9 +80,22 @@ final class InsightsReportTests: XCTestCase {
         }
         let report = InsightsReportBuilder.build(i)
         let row = try XCTUnwrap(report.significant.first { $0.source.isJournal && $0.outcome == .recovery })
-        XCTAssertTrue(row.sentence.hasPrefix("On days you answered yes to “Did you drink any alcohol?”, your recovery averaged"))
-        XCTAssertTrue(row.sentence.hasSuffix("lower."))
+        XCTAssertTrue(row.sentence.hasPrefix("On days you logged Alcohol, your recovery averaged"))
+        XCTAssertTrue(row.sentence.contains("points lower ("))
+        XCTAssertEqual(row.rowTitle, "Alcohol")
+        XCTAssertTrue(row.deltaText.hasPrefix("\u{2212}"))
         XCTAssertEqual(row.source.label, "From your Journal")
+    }
+
+    func testJournalFactorsUseTheTileNames() {
+        XCTAssertEqual(InsightWords.journalQuestionTitle("Did you drink any alcohol?"), "Alcohol")
+        XCTAssertEqual(InsightWords.journalQuestionTitle("Did you have caffeine late in the day?"), "Late caffeine")
+    }
+
+    func testDoseRowsStartFromTheTypicalClearDay() {
+        let outcome = Dictionary(uniqueKeysWithValues: (0..<10).map { (day($0), $0 < 6 ? 60.0 : 40.0) })
+        let doses = Dictionary(uniqueKeysWithValues: (6..<10).map { (day($0), 2) })
+        XCTAssertEqual(InsightsHubViewModel.typicalClearDay(outcome, doses: doses), 60)
     }
 
     func testTooLittleHistoryIsNotEnoughData() {

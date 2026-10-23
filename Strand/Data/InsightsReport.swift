@@ -65,17 +65,39 @@ enum InsightOutcome: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// The size of a difference as it reads in a sentence: relative percent for scores and HRV,
-    /// beats per minute for resting heart rate.
+    /// The size of a difference as it reads in a sentence: points for the 0–100 scores (a percent of a
+    /// percent misleads), relative percent for HRV, beats per minute for resting heart rate.
     func amount(_ e: BehaviorEffect) -> String {
         switch self {
+        case .recovery, .sleep:
+            let points = max(1, Int(abs(e.delta).rounded()))
+            return points == 1 ? String(localized: "1 point") : String(localized: "\(points) points")
         case .rhr:
             let bpm = abs(e.delta)
             return bpm < 10 ? String(format: "%.1f bpm", bpm) : "\(Int(bpm.rounded())) bpm"
-        default:
+        case .hrv:
             let pct = abs(e.pctChange ?? 0)
             return "\(max(1, Int(pct.rounded())))%"
         }
+    }
+
+    /// The signed difference for a row's trailing number: "+8 pts", "−16%", "+1.6 bpm".
+    func signedAmount(_ e: BehaviorEffect) -> String {
+        let sign = e.delta < 0 ? "\u{2212}" : "+"
+        switch self {
+        case .recovery, .sleep:
+            return String(localized: "\(sign)\(max(1, Int(abs(e.delta).rounded()))) pts")
+        case .rhr:
+            let bpm = abs(e.delta)
+            return "\(sign)" + (bpm < 10 ? String(format: "%.1f bpm", bpm) : "\(Int(bpm.rounded())) bpm")
+        case .hrv:
+            return "\(sign)\(max(1, Int(abs(e.pctChange ?? 0).rounded())))%"
+        }
+    }
+
+    /// "62% vs 54%"
+    func pair(_ e: BehaviorEffect) -> String {
+        String(localized: "\(format(e.meanWith)) vs \(format(e.meanWithout))")
     }
 }
 
@@ -158,7 +180,21 @@ struct InsightsReport: Equatable, Sendable {
     /// Below this many days the page says Insights are still warming up instead of "no patterns".
     static let minimumDays = 14
 
-    var significant: [InsightRow] { rows.filter(\.isSignificant) }
+    /// The findings to show, surest first: Solid before Building before Calibrating, then the larger effect.
+    var significant: [InsightRow] {
+        rows.filter(\.isSignificant).enumerated().sorted { a, b in
+            let ra = Self.rank(a.element.effect.confidence), rb = Self.rank(b.element.effect.confidence)
+            return ra != rb ? ra < rb : a.offset < b.offset
+        }.map(\.element)
+    }
+
+    private static func rank(_ c: ScoreConfidence) -> Int {
+        switch c {
+        case .solid: return 0
+        case .building: return 1
+        case .calibrating: return 2
+        }
+    }
     var hasEnoughData: Bool { daysOfData >= Self.minimumDays }
 
     func significant(for outcome: InsightOutcome) -> [InsightRow] {
@@ -351,16 +387,11 @@ enum InsightWords {
         }
     }
 
-    /// "Did you drink any alcohol?" → "Drink any alcohol"
+    /// The Journal tile's name for a question ("Did you drink any alcohol?" → "Alcohol"), so Insights,
+    /// the Journal and Edit questions all call it the same thing.
     static func journalQuestionTitle(_ question: String) -> String {
-        var text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        for prefix in ["Did you ", "Have you ", "Were you "] where text.hasPrefix(prefix) {
-            text.removeFirst(prefix.count)
-            break
-        }
-        if text.hasSuffix("?") { text.removeLast() }
-        guard let first = text.first else { return question }
-        return first.uppercased() + text.dropFirst()
+        coachingShortDisplayName(for: JournalCatalogItem(canonical: question, displayName: nil, kind: .bool,
+                                                         group: .other, sortIndex: 0, hidden: false, custom: false))
     }
 
     static func sideLabels(_ source: InsightSource, bedtime: String?) -> (with: String, without: String) {
@@ -392,43 +423,125 @@ enum InsightWords {
                          bedtime: String?) -> String {
         let what = outcome.inSentence
         let amount = outcome.amount(e)
+        let pair = outcome.pair(e)
         let higher = e.delta >= 0
         switch source {
         case .journal(let q):
+            let name = journalQuestionTitle(q)
             return higher
-                ? String(localized: "On days you answered yes to “\(q)”, your \(what) averaged \(amount) higher.")
-                : String(localized: "On days you answered yes to “\(q)”, your \(what) averaged \(amount) lower.")
+                ? String(localized: "On days you logged \(name), your \(what) averaged \(amount) higher (\(pair)).")
+                : String(localized: "On days you logged \(name), your \(what) averaged \(amount) lower (\(pair)).")
         case .data(let f):
             switch f {
             case .earlyBedtime:
                 let time = bedtime ?? ""
                 return higher
-                    ? String(localized: "On nights you went to bed before \(time), your \(what) averaged \(amount) higher.")
-                    : String(localized: "On nights you went to bed before \(time), your \(what) averaged \(amount) lower.")
+                    ? String(localized: "On nights you went to bed before \(time), your \(what) averaged \(amount) higher (\(pair)).")
+                    : String(localized: "On nights you went to bed before \(time), your \(what) averaged \(amount) lower (\(pair)).")
             case .consistentBedtime:
                 return higher
-                    ? String(localized: "On nights you went to bed within 30 minutes of your usual time, your \(what) averaged \(amount) higher.")
-                    : String(localized: "On nights you went to bed within 30 minutes of your usual time, your \(what) averaged \(amount) lower.")
+                    ? String(localized: "On nights you went to bed within 30 minutes of your usual time, your \(what) averaged \(amount) higher (\(pair)).")
+                    : String(localized: "On nights you went to bed within 30 minutes of your usual time, your \(what) averaged \(amount) lower (\(pair)).")
             case .sevenHours:
                 return higher
-                    ? String(localized: "After nights with 7 hours of sleep or more, your \(what) averaged \(amount) higher.")
-                    : String(localized: "After nights with 7 hours of sleep or more, your \(what) averaged \(amount) lower.")
+                    ? String(localized: "After nights with 7 hours of sleep or more, your \(what) averaged \(amount) higher (\(pair)).")
+                    : String(localized: "After nights with 7 hours of sleep or more, your \(what) averaged \(amount) lower (\(pair)).")
             case .sleepDebt:
                 return higher
-                    ? String(localized: "When you were carrying sleep debt, your \(what) averaged \(amount) higher.")
-                    : String(localized: "When you were carrying sleep debt, your \(what) averaged \(amount) lower.")
+                    ? String(localized: "When you were carrying sleep debt, your \(what) averaged \(amount) higher (\(pair)).")
+                    : String(localized: "When you were carrying sleep debt, your \(what) averaged \(amount) lower (\(pair)).")
             case .lateWorkout:
                 return higher
-                    ? String(localized: "After a workout that ended within 3 hours of bed, your \(what) averaged \(amount) higher.")
-                    : String(localized: "After a workout that ended within 3 hours of bed, your \(what) averaged \(amount) lower.")
+                    ? String(localized: "After a workout that ended within 3 hours of bed, your \(what) averaged \(amount) higher (\(pair)).")
+                    : String(localized: "After a workout that ended within 3 hours of bed, your \(what) averaged \(amount) lower (\(pair)).")
             case .highStrain:
                 return higher
-                    ? String(localized: "On mornings after a high-strain day, your \(what) averaged \(amount) higher.")
-                    : String(localized: "On mornings after a high-strain day, your \(what) averaged \(amount) lower.")
+                    ? String(localized: "On mornings after a high-strain day, your \(what) averaged \(amount) higher (\(pair)).")
+                    : String(localized: "On mornings after a high-strain day, your \(what) averaged \(amount) lower (\(pair)).")
             case .highSteps:
                 return higher
-                    ? String(localized: "On mornings after a high-step day, your \(what) averaged \(amount) higher.")
-                    : String(localized: "On mornings after a high-step day, your \(what) averaged \(amount) lower.")
+                    ? String(localized: "On mornings after a high-step day, your \(what) averaged \(amount) higher (\(pair)).")
+                    : String(localized: "On mornings after a high-step day, your \(what) averaged \(amount) lower (\(pair)).")
+            }
+        }
+    }
+}
+
+// MARK: - Row and hero words
+
+extension InsightRow {
+    /// The factor as a row title: "In bed before 11:30 PM", "Workout within 3 h of bed", "Alcohol".
+    var rowTitle: String { InsightWords.rowTitle(source, bedtime: bedtime) }
+    var symbol: String { InsightWords.symbol(source) }
+    /// "62% vs 54% · 87 vs 33 nights · Solid"
+    var detailLine: String { "\(outcome.pair(effect.effect)) · \(countsText) · \(confidenceWord)" }
+    /// "+8 pts", "−16%"
+    var deltaText: String { outcome.signedAmount(effect.effect) }
+    /// "+8 pts recovery", for the compact Trends rows.
+    var deltaWithOutcome: String { String(localized: "\(deltaText) \(outcome.inSentence)") }
+    /// The hero's headline when this is the strongest finding.
+    var headline: String { InsightWords.headline(source, outcome: outcome) }
+}
+
+extension InsightWords {
+    static func rowTitle(_ source: InsightSource, bedtime: String?) -> String {
+        switch source {
+        case .journal(let q): return journalQuestionTitle(q)
+        case .data(let f):
+            switch f {
+            case .earlyBedtime: return String(localized: "In bed before \(bedtime ?? "")")
+            case .consistentBedtime: return String(localized: "Bed within 30 min of usual")
+            case .sevenHours: return String(localized: "7 hours of sleep or more")
+            case .sleepDebt: return String(localized: "Carrying sleep debt")
+            case .lateWorkout: return String(localized: "Workout within 3 h of bed")
+            case .highStrain: return String(localized: "High-strain day")
+            case .highSteps: return String(localized: "High-step day")
+            }
+        }
+    }
+
+    static func symbol(_ source: InsightSource) -> String {
+        switch source {
+        case .journal(let q):
+            let s = q.lowercased()
+            if s.contains("alcohol") || s.contains("drink") { return "wineglass" }
+            if s.contains("caffeine") || s.contains("coffee") { return "cup.and.saucer" }
+            if s.contains("stress") { return "brain.head.profile" }
+            if s.contains("screen") { return "iphone" }
+            if s.contains("eat") || s.contains("meal") { return "fork.knife" }
+            if s.contains("sauna") { return "flame" }
+            if s.contains("sick") || s.contains("ill") { return "thermometer.medium" }
+            if s.contains("read") { return "book" }
+            if s.contains("magnesium") { return "pills" }
+            return "square.and.pencil"
+        case .data(let f):
+            switch f {
+            case .earlyBedtime: return "bed.double"
+            case .consistentBedtime: return "clock"
+            case .sevenHours: return "moon.zzz"
+            case .sleepDebt: return "moon"
+            case .lateWorkout: return "figure.run"
+            case .highStrain: return "flame"
+            case .highSteps: return "figure.walk"
+            }
+        }
+    }
+
+    /// Whole headlines per factor and outcome word, so no fragment is stitched.
+    static func headline(_ source: InsightSource, outcome: InsightOutcome) -> String {
+        let what = outcome.inSentence
+        switch source {
+        case .journal(let q):
+            return String(localized: "\(journalQuestionTitle(q)) moves your \(what) most")
+        case .data(let f):
+            switch f {
+            case .earlyBedtime: return String(localized: "Your bedtime moves your \(what) most")
+            case .consistentBedtime: return String(localized: "A steady bedtime moves your \(what) most")
+            case .sevenHours: return String(localized: "Sleep length moves your \(what) most")
+            case .sleepDebt: return String(localized: "Sleep debt moves your \(what) most")
+            case .lateWorkout: return String(localized: "Late workouts move your \(what) most")
+            case .highStrain: return String(localized: "Hard days move your \(what) most")
+            case .highSteps: return String(localized: "Busy days on your feet move your \(what) most")
             }
         }
     }
