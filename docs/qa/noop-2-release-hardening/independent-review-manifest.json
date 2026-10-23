@@ -2,7 +2,7 @@
   "reviewed_at_utc": "2026-10-23T14:30:19.339630+00:00",
   "base_commit": "a7ade2598d439d33cd20816d69ccc991b29322fc",
   "branch": "audit/noop-2-release-hardening-20261023",
-  "scope": "Changed production/test Swift, privacy manifests, project/release metadata, reviewed QA callback harness, workout benchmark and calendar reproduction script. Earlier file and documentation hashes remain dated evidence. The integration_followup.reviewed_file_overrides entries supersede matching earlier file hashes for the current-main reconciliation.",
+  "scope": "Changed production/test Swift, privacy manifests, project/release metadata, reviewed QA callback harness, workout benchmark and calendar reproduction script. Earlier file and documentation hashes remain dated evidence. The integration_followup.reviewed_file_overrides entries supersede matching earlier file hashes for the current-main reconciliation. The ui_sync_followup.reviewed_new_files adds one reviewed UI test; apply that addition and the integration overrides for 46 effective reviewed entries. Earlier documentation hashes remain dated evidence.",
   "unresolved_confirmed_findings": 1,
   "independent_findings_resolved": [
     "R1 per-attempt Coach request admission",
@@ -294,7 +294,7 @@
     "native_validation_status": "unchanged; no native result inferred or added by metadata review",
     "unresolved_confirmed_findings": 0
   },
-  "qualification_status": "NO-GO for release: current-main integration needs fresh exact-head native/UI/package and aggregate-gate qualification; inherited P1 F16, complete-batch integration and physical-device gates remain unresolved.",
+  "qualification_status": "NO-GO for release: combined head346 failed UI and aggregate qualification; reviewed test-only synchronization correction needs fresh exact-head native/UI/package and aggregate success. Inherited P1 F16, complete-batch and physical-device gates remain unresolved.",
   "native_fixture_followup": {
     "reviewed_at_utc": "2026-10-23T15:16:20.543091+00:00",
     "reviewed_since_commit": "26e150d2bbd1fcdf14a65de06e834e8b0841d5da",
@@ -576,5 +576,123 @@
       "F16 / DL-05, inherited P1"
     ],
     "limits": "Integration-focused source review, not a new complete PR78 subsystem audit. No new native/package tests, physical device operation or migration qualification performed by this reviewer. PR79 remains draft/unmerged and release/install holds remain."
+  },
+  "ui_sync_followup": {
+    "reviewed_at_utc": "2026-10-23T22:58:07.574165+00:00",
+    "reviewed_worktree_based_on_commit": "346da5302250cdff9b57532f18375e561eb06eeb",
+    "reviewed_state": "Uncommitted UI-test synchronization correction; future commit identity and runtime pass are not inferred.",
+    "reviewed_new_files": [
+      {
+        "path": "StrandiOSUITests/ApprovedDashboardUITests.swift",
+        "bytes": 54726,
+        "sha256": "49dddfd44fc4f3699c42ced976b73f46fc9adf331eaa4b6947a1024a50617f81"
+      }
+    ],
+    "previous_reviewed_entries_preserved": 45,
+    "effective_reviewed_entries_after_integration_overrides_and_addition": 46,
+    "production_code_changed_in_followup": false,
+    "independent_byte_checks": {
+      "prefix_before_wait_unchanged": true,
+      "suffix_from_failure_diagnostics_unchanged": true,
+      "complete_round_trip_method_unchanged": true,
+      "assertion_calls_before": 78,
+      "assertion_calls_after": 78,
+      "timeout_seconds_before": 8,
+      "timeout_seconds_after": 8,
+      "physical_touch_preconditions_post_wait_order_and_row_assertions_retained": true,
+      "relaunch_rendering_restoration_assertions_retained": true,
+      "retry_retap_late_acceptance_or_waiver_added": false,
+      "failed_head_test_and_dashboard_view_identical_to_prior_passing_529adf2": true
+    },
+    "correction": "Exact identifier-and-full-ordered-value query with native waitForExistence replaces separate exists/value reads inside a block predicate; original eight-second deadline and all assertions remain.",
+    "correction_native_runtime_result": "pending fresh exact-head execution",
+    "failed_combined_ci": {
+      "run_id": 40002121607,
+      "run_attempt": 1,
+      "job_id": 120581722324,
+      "head_sha": "346da5302250cdff9b57532f18375e561eb06eeb",
+      "base_sha": "b7ebe85b2a7f5c0d25f2ef5a04b9d8dce8815679",
+      "tested_sha": "e516579ef7da5e30c3674ac627500e1e58ab37a7",
+      "matching_tree": "1ad4789173e00a5cfd7c8592b56c605c0f5dd826",
+      "plan_hash": "cd2fca032070ed644972a4ae25a6ace27d6adfafa6601b51c5d340cd63ad218f",
+      "conclusion": "failure",
+      "completed_at_utc": "2026-10-23T19:41:43Z",
+      "native_xctest": {
+        "executed": 3338,
+        "passed": 3334,
+        "skipped": 4,
+        "failed": 0
+      },
+      "swift_testing": {
+        "passed": 302,
+        "suites": 41,
+        "known_issues": 3
+      },
+      "release_hardening_cases_passed_once": 73,
+      "integrated_main_native_cases_passed_once": 15,
+      "selected_ui": {
+        "executed": 21,
+        "passed": 20,
+        "failed": 1,
+        "skipped": 0,
+        "missing": 0,
+        "unexpected": 0
+      },
+      "unique_paired_xctest_cases": 3359,
+      "repeated_cases": 0,
+      "test_retry_flags_observed": false,
+      "full_log_sha256": "cc329e0ddec6e597af82e93beeb6b9e478f3cdad7f8b10132456a38eb64cdc00",
+      "independently_checked_evidence_hashes": 32,
+      "gate_plan_byte_identical": true,
+      "failed_test": "NOOPCoachUITests/ApprovedDashboardUITests/testDashboardSettingsSelectionPersists",
+      "primary_failure": {
+        "switch": "today.health.sleep",
+        "log_lines": [
+          23762,
+          23774
+        ],
+        "later_saved_and_parsed_values_equal_expected": true
+      },
+      "cleanup_failure": {
+        "switch": "today.health.skinTemp",
+        "log_lines": [
+          24200,
+          24215
+        ],
+        "later_saved_and_parsed_values_equal_expected": true,
+        "native_row_value": "1"
+      },
+      "primary_throw_masked_by_cleanup_xctfail": true,
+      "relaunch_persistence_rendering_assertions_reached": false,
+      "gate_job_id": 120619112529,
+      "gate_errors": [
+        "app job build-and-test: expected success, got failure",
+        "app stage ui: expected success, got failure"
+      ],
+      "classification": "Observed readback synchronization failures; later exact values match. Does not establish lost preferences or a fixture-only/application-latency root cause."
+    },
+    "independently_verified_combined_packages": {
+      "run_id": 40002121569,
+      "run_attempt": 1,
+      "jobs_passed": 9,
+      "xctest_passed": 3605,
+      "xctest_skipped": 1,
+      "swift_testing_passed": 111,
+      "total_passed": 3716,
+      "failed": 0,
+      "unique_paired_xctest_cases": 3606,
+      "raw_log_hashes_checked": 9,
+      "evidence_manifest_entries_checked": 19
+    },
+    "reviewed_root_result_documents": [
+      "docs/qa/noop-2-release-hardening/README.md",
+      "docs/qa/noop-2-release-hardening/native-ci-combined-result.json"
+    ],
+    "unresolved_confirmed_source_patch_findings": 0,
+    "known_unresolved_release_findings": [
+      "F16 / DL-05, inherited P1",
+      "Fresh exact-head UI and aggregate qualification after synchronization correction"
+    ],
+    "limits": "No fresh corrected native runtime execution, physical-device test or app performance measurement performed. Original failed run remains failed; draft/unmerged and install/publication holds remain."
   }
 }

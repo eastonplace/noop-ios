@@ -699,15 +699,13 @@ final class ApprovedDashboardUITests: XCTestCase {
         let expectedValue = "summary:" + expected.summary.joined(separator: ",")
             + ";health:" + expected.health.joined(separator: ",")
         let saved = element("todayDashboard.settings", in: app)
-        let committed = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                // Re-resolve the parent on each poll after native List row reordering.
-                let current = app.descendants(matching: .any)
-                    .matching(identifier: "todayDashboard.settings").firstMatch
-                return current.exists && (current.value as? String) == expectedValue
-            }, object: app
-        )
-        guard XCTWaiter.wait(for: [committed], timeout: 8) == .completed else {
+        // Keep the exact ordered value in the query while native List rows move.
+        // Let XCTest wait for that match without separate exists/value accessibility
+        // requests inside a predicate callback. The original timeout still applies.
+        let committed = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@ AND value == %@", "todayDashboard.settings", expectedValue)
+        ).firstMatch
+        guard committed.waitForExistence(timeout: 8) else {
             let actualValue = String(describing: saved.value)
             let parsedSelection: String
             do {

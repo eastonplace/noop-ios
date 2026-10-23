@@ -177,3 +177,41 @@ The four native skips include the still-unresolved Buddhist-calendar assertion, 
 The root's attempt-2 retry began at the change-plan job because plan and app-result artifacts are attempt-scoped. Its new plan still identifies the old base/head/merge, and its carried-forward source-audit result is not fresh execution. Once main advanced, that retry became obsolete for qualification of the integrated candidate; monitoring stopped and no completed attempt-2 case-level or aggregate success is asserted here. Its retained plan/source evidence is under `native-ci-39977563756-attempt2`.
 
 The integration requires a new exact-head protected plan, app/widget/test build, full selected native execution, exact selected UI methods, required package jobs, and successful aggregate evidence validation. Existing skips/known issues must remain visible. F16 needs its own coordinated preservation-aware key migration and qualification; PR77 and the complete combined batch still require reconciliation and final release-candidate testing. Physical WHOOP/iPhone/HealthKit/background validation and measured device performance remain separate gates. The historical 529 results substantiate that earlier tree only.
+
+
+## Combined CI failure and dashboard synchronization review
+
+**The combined head `346da5302250cdff9b57532f18375e561eb06eeb` failed its own UI/aggregate qualification. The following test-only synchronization correction is accepted for fresh validation, but has not yet passed native UI execution. F16 remains an unresolved P1 production release blocker.** Earlier dated review and CI records remain historical evidence; this section does not replace a failed result with a pass.
+
+The reviewer independently parsed the complete log for [workflow 40002121607, attempt 1](https://github.com/eastonplace/noop-ios/actions/runs/40002121607), compared the live attempt-scoped GitHub job inventory, verified all 32 retained evidence hashes, and checked the plan and gate artifacts. The run identifies head `346da530`, base `b7ebe85b2a7f5c0d25f2ef5a04b9d8dce8815679`, tested merge `e516579ef7da5e30c3674ac627500e1e58ab37a7`, and matching tree `1ad4789173e00a5cfd7c8592b56c605c0f5dd826`. The gate's plan is byte-identical to the original, with plan hash `cd2fca032070ed644972a4ae25a6ace27d6adfafa6601b51c5d340cd63ad218f`.
+
+| Combined-head check | Independently verified result |
+|---|---|
+| Native XCTest | 3,338 executed: 3,334 passed, four existing skips, zero failures. |
+| Swift Testing | 302 passed in 41 suites, with three existing known artwork issues. |
+| Targeted release-hardening cases | All 73 passed exactly once. |
+| Native cases added by integrated main | All 15 passed exactly once. |
+| Selected UI | All 21 planned methods executed: 20 passed, one failed, no skips, missing methods or unexpected methods. |
+| Repeated native/UI XCTest execution | None: 3,359 unique paired starts/completions; no test retry flags observed. |
+| Package workflow 40002121569, attempt 1 | All nine jobs and their test steps succeeded: 3,716 passes, one existing optional-fixture skip, zero failures. |
+| Aggregate gate | Correctly failed for `build-and-test` and its UI stage; this was not the historical HTTP 502. |
+
+The complete native/UI log has SHA-256 `cc329e0ddec6e597af82e93beeb6b9e478f3cdad7f8b10132456a38eb64cdc00`. The reviewer also independently paired the package logs' 3,606 unique XCTest starts/completions (3,605 passes plus one skip), confirmed 111 additional Swift Testing passes, and checked their nine raw-log hashes and 19-entry evidence manifest. Existing native calendar/model/Xiaomi skips and three artwork known issues remain visible.
+
+### Primary failure and cleanup masking
+
+The final XCTest issue at `StrandiOSUITests/ApprovedDashboardUITests.swift:423` reports that cleanup could not restore `today.health.skinTemp`. It masks an earlier thrown error in the main test body. At complete-log lines 23762-23774, disabling `today.health.sleep` timed out in the eight-second exact-selection predicate. Both subsequent diagnostic reads exactly matched `summary:strain,recovery;health:hrv,stress,steps,calories`; the moved sleep row was virtualized. The helper still threw because its earlier wait had not completed.
+
+The `defer` then attempted restoration. At lines 24200-24215, the `today.health.skinTemp` wait likewise timed out; both subsequent readbacks exactly matched `summary:recovery,strain,sleep;health:hrv,restingHr,respiratory,bloodOxygen,skinTemp`, and the native switch reported value 1. The cleanup's `XCTFail`, with `continueAfterFailure` disabled, became the recorded issue. The main body had stopped at its initial `setSelection(changed)` call, before process relaunch and the later persistence/rendering assertions. Those assertions therefore did not qualify this source.
+
+The log shows slow/repeated accessibility retrieval spanning the eight-second predicate budget. This establishes failed readback synchronization and later matching values; it does not demonstrate lost preferences or isolate all latency to the harness. Both the UI test and production dashboard-settings view were independently byte-compared between this failed head and the earlier passing `529adf2` revision and are identical. No production responsiveness or performance improvement is inferred from that comparison.
+
+### Reviewed correction and preserved assertions
+
+The single UI test hunk replaces the client-side block predicate's separate existence/value reads with an exact `identifier == %@ AND value == %@` query followed by `waitForExistence(timeout: 8)`. It follows the repository's existing native-picker query/wait pattern. The mechanism reduces interleaved client-side accessibility queries; no atomic or single-snapshot guarantee is claimed.
+
+Independent byte checks confirm that the prefix before the wait and the entire suffix starting with its failure diagnostics are unchanged. The complete `assertSettingsRoundTrip()` method is unchanged, and all 78 `XCTAssert` calls in the file remain. The physical native-switch activation, preconditions, exact order, post-wait direct selection equality, native-row value, process relaunch, Today rendering and original-state restoration checks remain. The post-wait direct read also prevents a hypothetical matching stale duplicate element from bypassing a different current selection.
+
+The original eight-second budget is unchanged. No extra tap, retry, post-timeout acceptance fallback, disabled case, fixture reset, test-selection change, production edit or gate waiver is introduced. The old failing run is the concrete regression evidence; the corrected test requires fresh exact-head native UI execution before it can be described as verified.
+
+The manifest adds the UI test as `ui_sync_followup.reviewed_new_files` without rewriting the 45 dated source/test/configuration/script entries. Applying the existing integration overrides and this one addition yields **46 effective reviewed entries**. The root's new README section and [machine-readable combined result](native-ci-combined-result.json) were read and agree with the independently verified outcome and these limits. All production source files remain unchanged in this follow-up. This review does not authorize merge, installation or publication.
