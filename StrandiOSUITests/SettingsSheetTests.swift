@@ -15,6 +15,23 @@ final class SettingsSheetTests: XCTestCase {
         app.descendants(matching: .any)["settings.row.\(route)"].firstMatch
     }
 
+    /// The demo seed finishes after the shell is interactive, and its root redraw drops a sheet opened before it. The
+    /// seeded strap battery is set only once the seed returns, so wait for it before navigating, as
+    /// ApprovedDashboardUITests does.
+    private func waitForDemoSeed(in app: XCUIApplication) {
+        let battery = app.buttons["app.battery"]
+        XCTAssertTrue(battery.waitForExistence(timeout: 60), "the header shows the strap battery")
+        let seeded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == 'Strap battery 68 percent'"),
+                                               object: battery)
+        XCTAssertEqual(XCTWaiter.wait(for: [seeded], timeout: 60), .completed, "the demo seed finished before navigating")
+    }
+
+    /// Pinned header chrome can report a false accessibility hit test above the clipped scroll view beneath it, so the
+    /// profile button gets a real touch at its centre, as in ApprovedDashboardUITests.
+    private func openSettings(_ avatar: XCUIElement) {
+        avatar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
     func testAvatarOpensSettingsSearchPushesAPageAndSwipeDownDismisses() throws {
         continueAfterFailure = false
         let app = launch()
@@ -25,7 +42,8 @@ final class SettingsSheetTests: XCTestCase {
 
         let avatar = app.buttons["Profile and settings"]
         XCTAssertTrue(avatar.waitForExistence(timeout: 30))
-        avatar.tap()
+        waitForDemoSeed(in: app)
+        openSettings(avatar)
 
         let done = app.buttons["settings.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 15), "the Settings sheet opens with its Done button")
@@ -59,7 +77,8 @@ final class SettingsSheetTests: XCTestCase {
         let app = launch()
         let avatar = app.buttons["Profile and settings"]
         XCTAssertTrue(avatar.waitForExistence(timeout: 60))
-        avatar.tap()
+        waitForDemoSeed(in: app)
+        openSettings(avatar)
 
         let profileRow = app.descendants(matching: .any)["settings.profileRow"].firstMatch
         XCTAssertTrue(profileRow.waitForExistence(timeout: 15))
