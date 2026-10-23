@@ -163,8 +163,9 @@ enum HeadsUpBuilder {
 
     // MARK: One window
 
-    /// Evaluate the newest window of `days` (oldest → newest): the last 2 nights against a ~28-night baseline that
-    /// ends 3 days back. The same inputs, thresholds and labels the alert has always used.
+    /// Evaluate the newest window of `days` (oldest → newest): the last 2 nights against a baseline of up to 28
+    /// nights that ends 3 days back. The baseline is trusted from 14 valid nights (`Baselines.minNightsTrust`); the
+    /// extra nights up to 28 only refine it. The same inputs, thresholds and labels the alert has always used.
     static func evaluate(_ days: [DailyMetric], context: JournalContext) -> Evaluation {
         let recent = Array(days.suffix(2))
         let base = Array(days.suffix(31).dropLast(3))
@@ -323,8 +324,8 @@ enum HeadsUpBuilder {
             rawScore: result.level == .suppressed ? result.score / IllnessSignalEngine.confounderDampen : nil,
             signals: latest.signals,
             causes: latestContext.causes,
-            confidence: result.level == .raised ? IllnessConfidence.band(latest.distance.distance) : nil,
             answeredNo: latestContext.answeredNo,
+            confidence: result.level == .raised ? IllnessConfidence.band(latest.distance.distance) : nil,
             history: history(days, journal: journal),
             unwellDay: latestContext.unwellDay)
         return (snapshot, latest)

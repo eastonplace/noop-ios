@@ -108,7 +108,9 @@ final class HeadsUpModelTests: XCTestCase {
         guard case let .signals(cells) = card.content else { return XCTFail("A read shows its signals") }
         let restingHR = try XCTUnwrap(cells.first)
         XCTAssertEqual(restingHR.state, "Up")
-        XCTAssertEqual(restingHR.emphasis, StrandPalette.textPrimary, "A move on an all-clear read is not painted green")
+        XCTAssertEqual(restingHR.emphasis, HeadsUpPresentation.upInk,
+                       "A signal that is up reads amber on any read: the strip has no \"Up\" word to say so")
+        XCTAssertNil(try XCTUnwrap(cells.last).emphasis, "A normal signal keeps primary ink")
     }
 
     func testAMoveTheOtherWayIsNotCalledNormal() throws {
@@ -211,7 +213,7 @@ final class HeadsUpModelTests: XCTestCase {
     func testRaisedCardCountsSignalsAndShowsTheBanner() throws {
         let built = HeadsUpBuilder.snapshot(days: history(count: 40, spiked: 2), journal: [], enabled: true)
         let card = HeadsUpPresentation.card(built.snapshot)
-        XCTAssertEqual(card.pill, "3 of 4 up")
+        XCTAssertEqual(card.pill, "3 of 4 signals up")
         XCTAssertTrue(card.lineIsPrimary)
         guard case let .signals(cells) = card.content else { return XCTFail("A read shows its signals") }
         XCTAssertEqual(cells.count, 4)
@@ -219,8 +221,9 @@ final class HeadsUpModelTests: XCTestCase {
         XCTAssertTrue(restingHR.delta.hasPrefix("+"), "Resting HR reads as a rise: \(restingHR.delta)")
         XCTAssertEqual(restingHR.unit, "bpm")
         XCTAssertEqual(restingHR.state, "Up")
-        XCTAssertNotNil(restingHR.emphasis)
+        XCTAssertEqual(restingHR.emphasis, HeadsUpPresentation.upInk)
         XCTAssertEqual(cells[1].state, "Down")
+        XCTAssertEqual(cells.map(\.label), ["Resting HR", "HRV", "Skin temp", "Breathing"])
         XCTAssertNil(cells[3].emphasis, "Respiration stayed normal")
         XCTAssertEqual(HeadsUpPresentation.bannerLine(built.snapshot), "Heads-up: your body looks run down")
     }
@@ -239,17 +242,42 @@ final class HeadsUpModelTests: XCTestCase {
         let card = HeadsUpPresentation.card(explained)
         XCTAssertEqual(card.pill, "Explained")
         XCTAssertEqual(card.line, "Signals are up, but you logged alcohol. Likely that.")
-        XCTAssertEqual(try XCTUnwrap(card.chip).text, "Alcohol logged · likely the cause")
+        XCTAssertNil(card.chip, "The line already names the cause; the chip would say it twice")
         XCTAssertNotNil(HeadsUpPresentation.meterNote(explained))
     }
 
-    func testLearningCardShowsProgress() {
+    func testLearningCardSaysTheCountOnce() {
         let learning = HeadsUpBuilder.snapshot(days: history(count: 9), journal: [], enabled: true).snapshot
-        guard case let .progress(fraction, leading, _) = HeadsUpPresentation.card(learning).content else {
-            return XCTFail("Learning shows progress")
-        }
+        let card = HeadsUpPresentation.card(learning)
+        guard case let .progress(fraction) = card.content else { return XCTFail("Learning shows progress") }
         XCTAssertEqual(fraction, 6.0 / Double(HeadsUpSnapshot.nightsNeeded), accuracy: 1e-9)
-        XCTAssertEqual(leading, "6 of \(HeadsUpSnapshot.nightsNeeded) nights")
+        XCTAssertEqual(card.line, "Getting to know your normal · 6 of \(HeadsUpSnapshot.nightsNeeded) nights")
+        XCTAssertEqual(HeadsUpSnapshot.nightsNeeded, 14, "The copy promises 14 nights, the engine's trusted baseline")
+    }
+
+    func testBaselineCopyMatchesTheEngine() {
+        // 14 valid nights make a trusted baseline; the window feeding it is up to 28 nights ending 3 days back.
+        XCTAssertEqual(HeadsUpSnapshot.nightsNeeded, Baselines.minNightsTrust)
+        let days = history(count: 60)
+        let evaluation = HeadsUpBuilder.evaluate(days, context: .init())
+        XCTAssertEqual(evaluation.baselineNights, 28, "A long history still uses 28 baseline nights")
+        let learning = HeadsUpBuilder.snapshot(days: history(count: 9), journal: [], enabled: true).snapshot
+        XCTAssertTrue(HeadsUpPresentation.body(learning).contains("14 nights"))
+        XCTAssertFalse(HeadsUpPresentation.body(learning).contains("baseline"), "Plain words: \"your usual\"")
+    }
+
+    func testSkinTemperatureLineIsPlain() throws {
+        let built = HeadsUpBuilder.snapshot(days: history(count: 40, spiked: 2), journal: [], enabled: true)
+        let skin = try XCTUnwrap(built.snapshot.signals.first { $0.kind == .skinTemp })
+        let line = HeadsUpPresentation.detailLine(skin, phase: built.snapshot.phase)
+        XCTAssertEqual(line, "+0.8 °C · usual ±0.6 °C")
+    }
+
+    func testMildAndRaisedPillsCountTheSameWay() {
+        let built = HeadsUpBuilder.snapshot(days: history(count: 40, spiked: 2), journal: [], enabled: true)
+        XCTAssertEqual(HeadsUpPresentation.pill(.mild, built.snapshot), "3 of 4 signals up")
+        XCTAssertFalse(HeadsUpPresentation.line(.mild, built.snapshot).contains("3"),
+                       "The line does not repeat the pill's count")
     }
 
     // MARK: Checked before warning you
@@ -337,6 +365,19 @@ final class HeadsUpModelTests: XCTestCase {
         let context = HeadsUpDayContext.resolve(days: history(count: 41), snapshot: old,
                                                 canonicalStrain: { _ in 64 }, logicalKey: today, localKey: today)
         XCTAssertNil(context.strain)
+    }
+
+    // MARK: History chart
+
+    func testHistoryScaleHugsTheBarsButKeepsBothLines() {
+        func bars(_ scores: [Double]) -> [HeadsUpHistoryBar] {
+            scores.enumerated().map { HeadsUpHistoryBar(id: "\($0.offset)", score: $0.element, color: .clear) }
+        }
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop(bars([0, 5, 9, 4])), 64, "A quiet fortnight still fits the 50 line and its label")
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop(bars([0, 55])), 64)
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop(bars([30, 80])), 88, accuracy: 1, "Tall bars get 10% of headroom")
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop(bars([100])), 100, "The scale never passes 100")
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop([]), 64)
     }
 
     func testHistoryEndsOnTodayOnlyWhenItIs() {
