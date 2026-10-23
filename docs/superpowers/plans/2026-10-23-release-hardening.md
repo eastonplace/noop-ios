@@ -6,7 +6,7 @@ Easton authorized a code audit, confirmed fixes, regression tests, an independen
 
 - Verified default branch: `main`, commit `a7ade2598d439d33cd20816d69ccc991b29322fc`.
 - Local branch: `audit/noop-2-release-hardening-20261023`.
-- The open PR 77 is outside this base. Requalify the combined candidate after any additional merges.
+- The open PR 77 is outside this base. A separate hardening draft PR78 appeared during the audit; GitHub assigned this work PR79. Preserve that work, reconcile overlap, and requalify the combined candidate after any additional merges.
 - Preserve all features, physiological formulas, collection cadence, data compatibility, UI design, and every Coach prompt/template/instruction literal.
 - No deployment, release publication, phone installation, or commands to physical straps.
 

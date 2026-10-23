@@ -21,7 +21,7 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## 2.0.0
 
-Staged combined release. Phone installation and publication remain on hold until Easton calls the batch ready. This entry accumulates implemented work from PR68 onward; Easton's release-hardening request extends the tentative endpoint to PR78. Unmerged features are not listed as delivered.
+Staged combined release. Phone installation and publication remain on hold until Easton calls the batch ready. This entry accumulates implemented work from PR68 onward; Easton's release-hardening request extends the tentative endpoint to PR79 (GitHub assigned PR78 to another draft while this audit ran). Unmerged features are not listed as delivered.
 
 - **Daily training targets.** Today suggests a daily Strain range from measured recent history, Recovery and sleep. Preview planned Strain and sleep without replacing observed metrics. Missing trailing days retain the load model's civil-day decay.
 - **Reviewed Lift progression.** Review suggested weights, reps or sets before the next session. Explicit acceptance applies to that session; saved routines, completed history and active-workout ownership remain protected.
@@ -59,7 +59,7 @@ CI work in PR76 removes duplicate package testing and selects checks by change t
 - **Safer health imports.** Invalid or out-of-range numeric fields cannot trap integer conversion or contaminate daily heart-rate aggregation. Other valid readings and workout fields continue to import with the existing rounding rules.
 - **Release privacy declarations.** App and widget bundles declare their existing required-reason API usage, with tests that inspect the built resources.
 
-This draft uses build 249, above main's build 247 and the build 248 reserved by the still-open PR77. It does not incorporate PR77. The combined release candidate still requires native CI, physical WHOOP validation and device profiling; no app-wide speedup or battery-saving percentage is claimed. See the release-hardening audit for measured host benchmarks and remaining gates.
+This draft uses build 250, above main's build 247 and the builds 248/249 reserved by the still-open PR77/PR78. It does not incorporate either draft. Their overlapping changes must be reconciled before the combined candidate is qualified. Native CI, physical WHOOP validation and device profiling remain required; no app-wide speedup or battery-saving percentage is claimed. See the release-hardening audit for measured host benchmarks and remaining gates.
 
 ## 1.8.1
 

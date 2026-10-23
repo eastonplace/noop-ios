@@ -11,8 +11,8 @@
   "files": [
     {
       "path": "CHANGELOG.md",
-      "bytes": 277399,
-      "sha256": "c4f7e6a24dd7f6afbb200704ad809f03f2f36f1b81697fc61673809b667b629a"
+      "bytes": 277537,
+      "sha256": "003e2fc119138398a17520099f12df8d8ac129caa072302dd3c92157076f75b9"
     },
     {
       "path": "Packages/StrandAnalytics/Sources/StrandAnalytics/WeeklyCoachInsightStore.swift",
@@ -222,7 +222,66 @@
     {
       "path": "project.yml",
       "bytes": 8881,
-      "sha256": "4bc95b99067fb49f61bbba0d84e569253b35314bcb714ca26645e2963aac2648"
+      "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6"
     }
-  ]
+  ],
+  "metadata_followup": {
+    "reviewed_at_utc": "2026-10-23T14:36:00.510850+00:00",
+    "reviewed_since_commit": "b54cadbd4aff7dbd32f9f0618a56a9913bb9cd0e",
+    "draft_pr": 79,
+    "build_before": "249",
+    "build_after": "250",
+    "marketing_version": "2.0.0",
+    "tentative_last_pr": 79,
+    "staging_and_install_publication_holds_preserved": true,
+    "separate_drafts_not_incorporated": [
+      77,
+      78
+    ],
+    "functional_source_changes": false,
+    "original_manifest_entries": 43,
+    "unchanged_original_manifest_entries": 41,
+    "updated_original_entries": [
+      {
+        "path": "CHANGELOG.md",
+        "previous_sha256": "c4f7e6a24dd7f6afbb200704ad809f03f2f36f1b81697fc61673809b667b629a",
+        "sha256": "003e2fc119138398a17520099f12df8d8ac129caa072302dd3c92157076f75b9"
+      },
+      {
+        "path": "project.yml",
+        "previous_sha256": "4bc95b99067fb49f61bbba0d84e569253b35314bcb714ca26645e2963aac2648",
+        "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6"
+      }
+    ],
+    "reviewed_metadata_files": [
+      {
+        "path": "CHANGELOG.md",
+        "bytes": 277537,
+        "sha256": "003e2fc119138398a17520099f12df8d8ac129caa072302dd3c92157076f75b9"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/README.md",
+        "bytes": 30959,
+        "sha256": "30b232fc54554f2f17be5ea7af3c3bf58c4d4a6e377c172aebc26f5bf9fadd56"
+      },
+      {
+        "path": "docs/releases/2.0-batch.json",
+        "bytes": 154,
+        "sha256": "c8b120e93f2c8cf2dcb5b1e49f3ff2e392f9f9a11b8b70888324d9044db42e35"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-23-release-hardening.md",
+        "bytes": 4554,
+        "sha256": "207c4d4571f0328e868c9f7d072e739125fc9a4cad475271627551ef7d2673c7"
+      },
+      {
+        "path": "project.yml",
+        "bytes": 8881,
+        "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6"
+      }
+    ],
+    "diff_check_passed": true,
+    "native_validation_status": "unchanged; no native result inferred or added by metadata review",
+    "unresolved_confirmed_findings": 0
+  }
 }

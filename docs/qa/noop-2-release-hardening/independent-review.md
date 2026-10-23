@@ -87,3 +87,14 @@ The base revision fails the four new radio-state assertions (exit 1). The final 
 ## Reviewed snapshot
 
 `independent-review-manifest.json`, alongside this report, records SHA-256 hashes of every changed production/test Swift file, privacy manifest, project/release metadata file, and the two reviewed QA harness/benchmark scripts. The files were uncommitted during review. Later changes must be assessed against those reviewed bytes; no clean final commit or CI success is implied by this manifest.
+
+
+## Metadata follow-up — draft PR79 and build 250
+
+Reviewed the complete metadata diff since `b54cadbd4aff7dbd32f9f0618a56a9913bb9cd0e`. GitHub assigned this audit draft PR79 because a separate hardening draft PR78 appeared while the audit was in progress. The follow-up reserves build 250 above the separately reserved builds 248 and 249. Neither PR77 nor the separate PR78 is incorporated by this metadata change.
+
+The reviewed changes are limited to `project.yml`, `docs/releases/2.0-batch.json`, `CHANGELOG.md`, the release-hardening QA README, and the implementation plan. The project build changes from 249 to 250 while marketing version remains 2.0.0. The tentative batch endpoint changes from PR78 to PR79; staging status, the phone-install hold, and the publication hold remain unchanged. The explanatory text correctly keeps overlapping draft work outside the reviewed base and requires reconciliation before the combined release candidate is qualified.
+
+SHA-256 comparison with the original 43-entry review manifest found **41 entries unchanged**. Only `project.yml` and `CHANGELOG.md` changed among those entries. All reviewed functional production sources, tests, privacy manifests, and QA code retain their reviewed bytes. The manifest now records refreshed hashes for those two entries and supplemental hashes for all five metadata files.
+
+`git diff --check b54cadbd` passed. No functional tests were repeated for this metadata-only update, and no new native CI success, release approval, merge, installation, or publication is implied. The existing functional review findings remain resolved and the previously stated qualification limits remain in force. No new defect was found in this follow-up.
