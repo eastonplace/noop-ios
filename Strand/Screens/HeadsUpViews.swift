@@ -20,10 +20,14 @@ enum HeadsUpPresentation {
         }
     }
 
+    /// Mild is the same amber as Heads-up, turned down, so the read, its meter and its bars share one family. It was
+    /// the Sleep blue, which looked like a different kind of signal beside the amber Heads-up bars.
+    static let mildTone = StrandPalette.statusWarning.opacity(0.6)
+
     static func tone(_ level: IllnessSignalEngine.Level) -> Color {
         switch level {
         case .quiet: return StrandPalette.statusPositive
-        case .mild: return StrandPalette.restColor
+        case .mild: return mildTone
         case .raised: return StrandPalette.statusWarning
         case .suppressed: return StrandPalette.textTertiary
         case .alreadyUnwell: return StrandPalette.journalAccent
@@ -456,7 +460,7 @@ enum HeadsUpPresentation {
             } else if day.score >= IllnessSignalEngine.raiseThreshold {
                 color = StrandPalette.statusWarning
             } else if day.score >= IllnessSignalEngine.mildThreshold {
-                color = StrandPalette.restColor
+                color = mildTone
             } else {
                 color = day.score > 0 ? StrandPalette.hairlineStrong : StrandPalette.hairline
             }

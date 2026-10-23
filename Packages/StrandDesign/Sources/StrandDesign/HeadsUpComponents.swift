@@ -353,7 +353,7 @@ public struct HeadsUpStrengthMeter: View {
                 ZStack(alignment: .leading) {
                     ZStack(alignment: .leading) {
                         Rectangle().fill(StrandPalette.hairline)
-                        Rectangle().fill(StrandPalette.restColor.opacity(0.22))
+                        Rectangle().fill(StrandPalette.statusWarning.opacity(0.09))
                             .frame(width: width * 0.25)
                             .offset(x: width * 0.25)
                         Rectangle().fill(StrandPalette.statusWarning.opacity(0.16))
@@ -527,7 +527,7 @@ public struct HeadsUpHistoryChart: View {
                 let height: (Double) -> CGFloat = { size.height * CGFloat(min(max($0, 0), top) / top) }
                 ZStack(alignment: .topLeading) {
                     threshold(size: size, height: height(50), color: StrandPalette.statusWarning.opacity(0.5))
-                    threshold(size: size, height: height(25), color: StrandPalette.restColor.opacity(0.55))
+                    threshold(size: size, height: height(25), color: StrandPalette.statusWarning.opacity(0.3))
                     HStack(alignment: .bottom, spacing: 8) {
                         ForEach(bars) { bar in
                             ZStack(alignment: .bottom) {
