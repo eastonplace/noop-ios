@@ -80,6 +80,7 @@ final class NotificationJournalEligibilityTests: XCTestCase {
 
     func testCompletionWithdrawsTheProductionScheduledRequestWhilePartialEntryKeepsIt() async throws {
         let store = try await WhoopStore.inMemory()
+        let answers = try XCTUnwrap(JournalBehaviorDay.storageKey(forBehaviorKey: day))
         let catalog = catalog(defaults())
         _ = try await store.ensureDefaultCoachingSet(name: "Selected",
             memberships: [membership("Question A"), membership("Quantity B")])
@@ -94,14 +95,14 @@ final class NotificationJournalEligibilityTests: XCTestCase {
         await runtime.process(candidates: [try XCTUnwrap(needed)])
         XCTAssertEqual(center.requests.count, 1)
         _ = try await store.upsertJournal([
-            .init(day: day, question: "Question A", answeredYes: false, notes: nil)
+            .init(day: answers, question: "Question A", answeredYes: false, notes: nil)
         ], deviceId: Repository.journalDeviceId)
         let partial = try await runtime.journalReminderIfNeeded(candidate, day: day,
             catalog: catalog, importedQuestions: [], store: store)
         XCTAssertNotNil(partial)
         XCTAssertEqual(center.requests.count, 1)
         _ = try await store.upsertJournal([
-            .init(day: day, question: "Quantity B", answeredYes: true, notes: nil, numericValue: 0)
+            .init(day: answers, question: "Quantity B", answeredYes: true, notes: nil, numericValue: 0)
         ], deviceId: Repository.journalDeviceId)
         let complete = try await runtime.journalReminderIfNeeded(candidate, day: day,
             catalog: catalog, importedQuestions: [], store: store)
@@ -109,5 +110,35 @@ final class NotificationJournalEligibilityTests: XCTestCase {
         XCTAssertTrue(center.requests.isEmpty)
         let rows = try await store.notificationRecords()
         XCTAssertEqual(rows.first?.state, .withdrawn)
+    }
+
+    func testACompleteYesterdayDoesNotSilenceTheReminderForAnIncompleteToday() async throws {
+        let store = try await WhoopStore.inMemory()
+        let catalog = catalog(defaults())
+        _ = try await store.ensureDefaultCoachingSet(name: "Selected",
+            memberships: [membership("Question A"), membership("Quantity B")])
+        // The reminder is for the evening of `day`; its answers are stored under the morning after.
+        let today = try XCTUnwrap(JournalBehaviorDay.storageKey(forBehaviorKey: day))
+        // Yesterday (stored under `day` itself) is completely answered; Today is not started.
+        _ = try await store.upsertJournal([
+            .init(day: day, question: "Question A", answeredYes: false, notes: nil),
+            .init(day: day, question: "Quantity B", answeredYes: true, notes: nil, numericValue: 0)
+        ], deviceId: Repository.journalDeviceId)
+        let runtime = NotificationCoordinator(center: NotificationCoordinatorTests.Center(), clock: { self.now },
+            preferences: { .init(modes: [.journalCheckIn: .notify]) },
+            context: { .init(sourceContext: "source", logicalDay: self.day) }, store: { store }, dryRun: { false })
+        let candidate = NotificationSchedulePlanner.candidate(group: .journalCheckIn, id: day,
+            scheduledAt: now.addingTimeInterval(3600), source: "source", destination: .journal(logicalDay: day), now: now)
+        let yesterdayDone = try await runtime.journalReminderIfNeeded(candidate, day: day,
+            catalog: catalog, importedQuestions: [], store: store)
+        XCTAssertNotNil(yesterdayDone, "A finished Yesterday leaves tonight's check-in still to do")
+        // Finishing Today is what silences it.
+        _ = try await store.upsertJournal([
+            .init(day: today, question: "Question A", answeredYes: true, notes: nil),
+            .init(day: today, question: "Quantity B", answeredYes: true, notes: nil, numericValue: 2)
+        ], deviceId: Repository.journalDeviceId)
+        let todayDone = try await runtime.journalReminderIfNeeded(candidate, day: day,
+            catalog: catalog, importedQuestions: [], store: store)
+        XCTAssertNil(todayDone)
     }
 }
