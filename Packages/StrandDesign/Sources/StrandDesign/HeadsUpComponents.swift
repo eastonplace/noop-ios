@@ -514,7 +514,8 @@ public struct HeadsUpHistoryChart: View {
     }
 
     /// The top of the vertical scale: 10% above the tallest bar or dashed outline, at least 64 and at most 100.
-    public static func scaleTop(_ bars: [HeadsUpHistoryBar]) -> Double {
+    /// Plain arithmetic, so it is callable off the main actor (tests, layout helpers) though the chart is a View.
+    nonisolated public static func scaleTop(_ bars: [HeadsUpHistoryBar]) -> Double {
         let peak = bars.map { max($0.score, $0.outline ?? 0) }.max() ?? 0
         return min(100, max(64, (peak * 1.1).rounded(.up)))
     }
