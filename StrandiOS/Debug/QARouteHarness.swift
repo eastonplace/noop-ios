@@ -468,6 +468,8 @@ private struct QARouteHost: ViewModifier {
                     .sheetScreenScaffoldEnvironment(onClose: { sheeted = false })
                     .background(StrandPalette.appCanvas.ignoresSafeArea())
             }
+            // As the Journal's own sheet has it: pushed question pages are drill-ins with a back chevron.
+            .drillInDestinationEnvironment()
         case .coachWorkoutsSheet:
             // The Workouts hub as Coach's plan opens it: the root of a sheet that supplies its own close action.
             NavigationStack {
