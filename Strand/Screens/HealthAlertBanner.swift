@@ -1,5 +1,6 @@
 import SwiftUI
 import StrandDesign
+import StrandAnalytics
 
 /// The Heads-Up line at the top of Today: one tappable row that opens the Heads-Up page, shown only for a raised read
 /// or a logged "feeling sick". The full story lives in the Heads-Up card under Health Monitor and on its page.

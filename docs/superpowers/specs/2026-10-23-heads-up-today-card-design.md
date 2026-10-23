@@ -94,8 +94,8 @@ The whole card is one button that opens the detail page.
 | State | Engine source | Pill | Dot token | Line |
 |---|---|---|---|---|
 | Off | `illnessWatch == false` | Off | none | "Get a nudge when your body looks run down, sometimes before you feel it." Has a **Turn on** button. |
-| Learning | under 14 nights / untrusted baseline | Learning | `accent` | Progress bar, "9 of 14 nights" |
-| All clear | `.quiet` with a trusted baseline | All clear | `statusPositive` | "All 4 signals are in your normal range." |
+| Learning | under 14 baseline nights / untrusted baseline | Learning | `accent` | Progress bar, "9 of 14 nights" |
+| All clear | `.quiet` with a trusted baseline | All clear | `statusPositive` | "All 4 signals are in your normal range." One signal moving alone: "Resting HR is up on its own. One signal alone isn’t a pattern." |
 | A few up | `.mild` | 2 slightly up | `restColor` | "Two signals are slightly off. A calmer day helps." |
 | Heads-up | `.raised` | 3 of 4 up | `statusWarning` | "Your body looks run down. Take it easy today." |
 | Explained | `.suppressed` | Explained | `textTertiary` | "Signals are up, but you logged alcohol. Likely that." |
@@ -123,7 +123,7 @@ The page is pushed from the card or the banner, with a back button to Today. Sec
    - a 14-night sparkline with your normal band shaded and the last 2 nights highlighted in the state colour.
 3. **Last 14 days.** Daily signal strength as bars, with dashed threshold lines at 25 and 50, so you can see a heads-up building over two or three days.
 4. **Checked before warning you.** Alcohol, hard or late workout, sauna, high stress, and travel, each marked not logged or logged. A logged one is highlighted with a "Likely cause" tag. The rest state replaces this section with **You logged: Feeling sick** and "4 of 4 agree".
-5. **Elsewhere today.** Recovery, Sleep and Strain for context. These are labelled as not part of the Heads-Up math.
+5. **Elsewhere today.** Recovery, Sleep and Strain for context. These are labelled as not part of the Heads-Up math. When the newest night is older than today, the title is "Elsewhere" with that night's date.
 6. **What helps today.** Two or three plain suggestions per state, plus **Log how you feel** (opens the Journal) and **Adjust today's target** (opens the Daily training target).
 7. **How Heads-Up works.** Three steps:
    - It compares you with you.
@@ -225,10 +225,32 @@ This list covers PR #77, build 246 of the held 2.0.0 batch.
 - The separate Evening Check-In screen and its Save button were removed.
 - The shared row components (`JournalHabitToggle`, `JournalQuantityRow`, `JournalMoodRow`, `JournalStreakStrip`) are flat. The classic journal card uses them too.
 
+**Fixes from the in-depth review**
+
+A multi-agent review of the first build confirmed these bugs, and all of them are fixed in the same PR.
+
+- Heads-Up data:
+  - Learning progress counts baseline nights (the baseline window ends 3 nights back). It only rises, and the first read comes at 17 nights.
+  - A person with an established baseline who misses 2 nights stays scored instead of dropping back to learning.
+  - A Journal write re-reads Heads-Up, so a logged cause or "feeling sick" shows at once.
+  - Nothing is shown until the day history has loaded, so there is no "0 of 14 nights" flash.
+  - A slower read can no longer overwrite a newer one, or post after Heads-Up is turned off.
+- Heads-Up wording:
+  - An all-clear read with one signal moving says so, and does not paint that signal green.
+  - A signal outside its range in the harmless direction reads "Higher" or "Lower", not "Normal".
+  - The 14-day chart and the "Elsewhere" facts show their real date when the newest night is not today.
+  - The Today card also shows between midnight and the 04:00 day roll.
+- Journal:
+  - A quick switch between Yesterday and Today can no longer save one day's answers into the other.
+  - A zero amount saves as an explicit No, everywhere a numeric answer is written.
+  - Alcohol, caffeine, magnesium and sauna are counted again (servings, dose, 10-minute steps), and + no longer caps an amount.
+  - Days with imported answers keep their logging dot.
+
 **Tests**
 
-- `StrandiOSTests/HeadsUpModelTests.swift` covers phases, causes, word matching and wording.
-- `StrandiOSUITests/HeadsUpJournalUITests.swift` captures every Heads-Up state and the Journal in the simulator.
+- `StrandiOSTests/HeadsUpModelTests.swift` covers phases, learning progress, missed nights, single-signal and harmless-direction reads, causes, word matching and wording.
+- `StrandiOSTests/CoachJournalSnapshotTests.swift` pins a numeric zero as an explicit No.
+- `StrandiOSUITests/HeadsUpJournalUITests.swift` captures every Heads-Up state and the Journal in the simulator. The Journal case is safe to re-run on the same simulator.
 
 **Not built**
 

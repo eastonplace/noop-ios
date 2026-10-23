@@ -96,6 +96,11 @@ final class HeadsUpJournalUITests: XCTestCase {
 
         let no = app.buttons.matching(NSPredicate(format: "label == 'No'")).firstMatch
         try require(no, in: app, timeout: 10)
+        // A re-run on the same simulator keeps the last run's answer: a tap on a chosen chip clears it first.
+        if no.isSelected {
+            no.tap()
+            try waitFor(no, predicate: "selected == false", in: app)
+        }
         no.tap()
         try waitFor(no, predicate: "selected == true", in: app)
         capture(app, "journal-home-2-answered")

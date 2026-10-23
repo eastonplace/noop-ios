@@ -73,8 +73,13 @@ struct HeadsUpSnapshot: Equatable, Sendable {
     static let nightsNeeded = Baselines.minNightsTrust
     static let historyLength = 14
 
-    static let off = HeadsUpSnapshot(phase: .off, day: nil, score: 0, rawScore: nil, signals: [], causes: [],
-                                     confidence: nil, history: [], unwellDay: nil)
+    /// Off still lists the four signals (with no readings), so its page can say what Heads-Up would read.
+    static let off = HeadsUpSnapshot(
+        phase: .off, day: nil, score: 0, rawScore: nil,
+        signals: SignalKind.allCases.map {
+            Signal(kind: $0, latest: nil, usual: nil, z: nil, fired: false, normalBand: nil, history: [])
+        },
+        causes: [], confidence: nil, history: [], unwellDay: nil)
 
     var level: IllnessSignalEngine.Level? {
         if case .scored(let level) = phase { return level }
@@ -100,6 +105,9 @@ enum HeadsUpBuilder {
         let signals: [HeadsUpSnapshot.Signal]
         /// The HRV or resting-HR baseline is trusted: the engine's gate for raising anything.
         let trusted: Bool
+        /// The HRV or resting-HR baseline has enough nights, whether or not the last 2 nights were recorded (or the
+        /// baseline is momentarily provisional or stale). A ready baseline is never "learning" again.
+        let baselineReady: Bool
         /// Valid nights in the larger of the HRV and resting-HR baselines.
         let baselineNights: Int
     }
@@ -171,7 +179,9 @@ enum HeadsUpBuilder {
                                                                       skin: skin.signal, resp: resp.signal))
         return Evaluation(result: result, distance: distance,
                           signals: [rhr.signal, hrv.signal, skin.signal, resp.signal],
-                          trusted: trusted, baselineNights: max(rhr.nights, hrv.nights))
+                          trusted: trusted,
+                          baselineReady: max(rhr.nights, hrv.nights) >= HeadsUpSnapshot.nightsNeeded,
+                          baselineNights: max(rhr.nights, hrv.nights))
     }
 
     private struct SignalRead {
@@ -280,11 +290,12 @@ enum HeadsUpBuilder {
         guard enabled else { return (.off, nil) }
         let latestContext = context(days: Set(days.suffix(2).map(\.day)), journal: journal)
         let latest = evaluate(days, context: latestContext)
+        // Learning progress always counts the nights the baseline itself holds (the window ends 3 days back), so it
+        // only ever rises and reaches the target exactly when the first trusted read is possible.
         guard days.count >= HeadsUpSnapshot.nightsNeeded else {
-            let nights = days.filter { $0.restingHr != nil || $0.avgHrv != nil }.count
-            return (learning(nights: nights, day: days.last?.day, signals: latest.signals), nil)
+            return (learning(nights: latest.baselineNights, day: days.last?.day, signals: latest.signals), nil)
         }
-        guard latest.trusted else {
+        guard latest.trusted || latest.baselineReady else {
             return (learning(nights: latest.baselineNights, day: days.last?.day, signals: latest.signals), latest)
         }
         let result = latest.result

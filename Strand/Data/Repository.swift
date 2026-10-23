@@ -4578,13 +4578,14 @@ final class Repository: ObservableObject {
         journalRevision &+= 1
     }
 
-    /// Write one native NUMERIC answer (#322): stores the value AND answeredYes=true, so the existing
-    /// BehaviorInsights with/without split treats a numeric log as "behaviour occurred" unchanged,
-    /// while the value is carried for dose-response. Day per the importer's wake-day convention.
+    /// Write one native NUMERIC answer (#322): stores the value AND answeredYes = value > 0, so the existing
+    /// BehaviorInsights with/without split treats a positive log as "behaviour occurred" and a logged zero
+    /// as an explicit none, while the value is carried for dose-response. Day per the importer's wake-day
+    /// convention.
     func saveJournalNumeric(day: String, question: String, value: Double, notes: String? = nil) async {
         guard let store = await ensureStore() else { return }
         _ = try? await store.upsertJournal(
-            [JournalEntry(day: day, question: question, answeredYes: true, notes: notes,
+            [JournalEntry(day: day, question: question, answeredYes: value > 0, notes: notes,
                           numericValue: value)],
             deviceId: Self.journalDeviceId)
         journalDidChange()
@@ -4612,7 +4613,7 @@ final class Repository: ObservableObject {
     }
 
     /// Log one coaching stack without creating a parallel behavior path. Checked items fan out through
-    /// the existing journal APIs (numeric doses still imply answeredYes=true); coachingStackUse is only
+    /// the existing journal APIs (a positive numeric dose still implies answeredYes=true); coachingStackUse is only
     /// the provenance record tying those ordinary occurrences back to the initiating stack.
     @discardableResult
     func logCoachingStack(stackId: String, day: String, items: [CoachingStackItem],

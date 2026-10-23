@@ -586,6 +586,8 @@ final class AppModel: ObservableObject {
     /// Everything the Heads-Up card on Today and its detail page draw, from the same evaluation as
     /// `illnessSignal`. nil until the day history first loads.
     @Published var headsUp: HeadsUpSnapshot?
+    /// Bumped by every illness evaluation; a read that finishes after a newer one started is dropped.
+    private var illnessEvalGeneration = 0
     /// Cycle-phase awareness (only computed when the user has opted in; else nil). Awareness only.
     @Published var cyclePhase: CyclePhaseEngine.Result?
     /// The nightly fused-index curve (oldest→newest) feeding the cycle card's sparkline.
@@ -727,8 +729,15 @@ final class AppModel: ObservableObject {
         }
         // HR-zone haptic coaching watches the smoothed bpm.
         $bpm.sink { [weak self] hr in self?.coachZone(hr) }.store(in: &hrCancellables)
-        // Illness/strain early-warning recomputes when the daily history changes.
-        repo.$days.sink { [weak self] days in self?.evaluateIllness(days) }.store(in: &hrCancellables)
+        // Illness/strain early-warning recomputes when the daily history changes or finishes loading. CombineLatest
+        // hands the sink the new values (a @Published publisher fires in willSet), so it never reads a stale flag.
+        repo.$days.combineLatest(repo.$loaded.removeDuplicates())
+            .sink { [weak self] days, loaded in self?.evaluateIllness(days, loaded: loaded) }
+            .store(in: &hrCancellables)
+        // Journal answers feed Heads-Up's causes (Explained, Rest up), and a Journal write never republishes `days`.
+        repo.$journalRevision.dropFirst().removeDuplicates()
+            .sink { [weak self] _ in self?.reevaluateIllness() }
+            .store(in: &hrCancellables)
         // Re-apply "Continuous HRV capture" on every (re)bond: if on, the strap should hold the dense
         // realtime stream armed even with no Live screen open, so it banks beat-to-beat R-R 24/7 for
         // better overnight HRV/recovery/sleep. The BLE reconciler arms it on the off→on edge; pushing it
@@ -3558,10 +3567,20 @@ final class AppModel: ObservableObject {
     /// (alcohol / a hard-or-late workout / etc.) so a night out doesn't cry wolf. The journal context is
     /// read asynchronously, so this kicks a Task; the published `illnessSignal` + the `healthAlert`
     /// banner both come from the engine's single decision. On-device only, APPROXIMATE , not a diagnosis.
-    private func evaluateIllness(_ days: [DailyMetric]) {
+    private func evaluateIllness(_ days: [DailyMetric], loaded: Bool) {
+        // Every evaluation supersedes the ones before it: a read still waiting on the Journal must not overwrite a
+        // newer state (Heads-Up turned off, the history replaced) or post an alert after the person turned it off.
+        illnessEvalGeneration &+= 1
+        let generation = illnessEvalGeneration
         guard behavior.illnessWatch else {
             healthAlert = nil; illnessSignal = nil; illnessDistance = nil
             publishHeadsUp(.off)
+            return
+        }
+        // Before the day history loads there is nothing to say: no "learning" flash for a person with months of data.
+        guard loaded else {
+            healthAlert = nil; illnessSignal = nil; illnessDistance = nil
+            publishHeadsUp(nil)
             return
         }
         guard days.count >= HeadsUpSnapshot.nightsNeeded else {
@@ -3574,6 +3593,7 @@ final class AppModel: ObservableObject {
             // Journal causes for the newest window and for each morning of the history chart. Read once, off the
             // engine's hot path: the builder only needs presence flags, matched on whole words.
             let journal = await self.repo.journalEntries(days: HeadsUpSnapshot.historyLength + 7)
+            guard generation == self.illnessEvalGeneration, self.behavior.illnessWatch else { return }
             self.applyIllnessSignal(days, journal: journal)
         }
     }
@@ -3601,7 +3621,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func publishHeadsUp(_ snapshot: HeadsUpSnapshot) {
+    private func publishHeadsUp(_ snapshot: HeadsUpSnapshot?) {
         #if DEBUG
         // `--demo-heads-up <state>`: a fixed read so the card and detail page can be captured without real nights.
         if let demo = HeadsUpSnapshot.demoOverride {
@@ -3623,7 +3643,7 @@ final class AppModel: ObservableObject {
     /// flips , the repo.$days sink only fires on data changes, so a flip would otherwise wait
     /// for the next refresh.
     func reevaluateIllness() {
-        evaluateIllness(repo.days)
+        evaluateIllness(repo.days, loaded: repo.loaded)
     }
 
     // MARK: - v5 skin-temp suite engines (cycle phase + body clock)

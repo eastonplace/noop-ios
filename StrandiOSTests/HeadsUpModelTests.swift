@@ -1,5 +1,6 @@
 import XCTest
 import StrandAnalytics
+import StrandDesign
 import WhoopStore
 @testable import NOOP
 
@@ -36,6 +37,18 @@ final class HeadsUpModelTests: XCTestCase {
         }
     }
 
+    /// A night the strap recorded nothing overnight.
+    private func gap(_ index: Int) -> DailyMetric {
+        DailyMetric(day: key(index), totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil, lightMin: nil,
+                    disturbances: nil, restingHr: nil, avgHrv: nil, recovery: nil, strain: nil, exerciseCount: nil,
+                    spo2Pct: nil, skinTempDevC: nil, respRateBpm: nil)
+    }
+
+    /// A steady history whose last 2 nights change only the given readings.
+    private func history(count: Int, lastTwo change: (Int) -> DailyMetric) -> [DailyMetric] {
+        Array(history(count: count).dropLast(2)) + [change(count - 2), change(count - 1)]
+    }
+
     private func logged(_ question: String, on day: String) -> JournalEntry {
         JournalEntry(day: day, question: question, answeredYes: true, notes: nil)
     }
@@ -50,10 +63,62 @@ final class HeadsUpModelTests: XCTestCase {
 
     func testShortHistoryLearnsAndNeverWarns() {
         let built = HeadsUpBuilder.snapshot(days: history(count: 10, spiked: 2), journal: [], enabled: true)
-        XCTAssertEqual(built.snapshot.phase, .learning(nights: 10))
+        XCTAssertEqual(built.snapshot.phase, .learning(nights: 7), "The newest 3 nights are not baseline nights")
         XCTAssertNil(built.latest, "The alert has never published anything below 14 days")
         XCTAssertTrue(built.snapshot.signals.allSatisfy { !$0.fired && $0.z == nil },
                       "Nothing is up or down before there is a normal to compare with")
+    }
+
+    func testLearningProgressOnlyRisesUntilTheFirstRead() {
+        var previous = -1
+        var firstRead: Int?
+        for count in 10...18 {
+            let phase = HeadsUpBuilder.snapshot(days: history(count: count), journal: [], enabled: true).snapshot.phase
+            switch phase {
+            case .learning(let nights):
+                XCTAssertNil(firstRead, "\(count) nights: learning again after the first read")
+                XCTAssertGreaterThanOrEqual(nights, previous, "\(count) nights: progress went backwards")
+                previous = nights
+            case .scored:
+                if firstRead == nil { firstRead = count }
+            case .off:
+                XCTFail("Heads-Up is on")
+            }
+        }
+        XCTAssertEqual(previous, HeadsUpSnapshot.nightsNeeded - 1, "Progress reaches the last step before the read")
+        XCTAssertEqual(firstRead, HeadsUpSnapshot.nightsNeeded + 3, "14 baseline nights plus the 3 newest")
+    }
+
+    func testMissingRecentNightsKeepAnEstablishedBaselineScored() {
+        let days = history(count: 40) + [gap(40), gap(41)]
+        let snapshot = HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true).snapshot
+        XCTAssertEqual(snapshot.phase, .scored(.quiet), "Two nights off the wrist must not restart learning")
+        XCTAssertEqual(snapshot.presentCount, 0)
+        XCTAssertEqual(HeadsUpPresentation.card(snapshot).line, "No overnight signals in the last 2 nights.")
+    }
+
+    func testOneSignalAloneStaysClearAndSaysSo() throws {
+        let days = history(count: 40) { self.night($0, rhr: 60, hrv: 62, resp: 15.1, skin: 0) }
+        let snapshot = HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true).snapshot
+        XCTAssertEqual(snapshot.phase, .scored(.quiet), "One signal never raises")
+        XCTAssertEqual(snapshot.signals.filter(\.fired).map(\.kind), [.restingHR])
+        let card = HeadsUpPresentation.card(snapshot)
+        XCTAssertEqual(card.pill, "All clear")
+        XCTAssertEqual(card.line, "Resting HR is up on its own. One signal alone isn’t a pattern.")
+        guard case let .signals(cells) = card.content else { return XCTFail("A read shows its signals") }
+        let restingHR = try XCTUnwrap(cells.first)
+        XCTAssertEqual(restingHR.state, "Up")
+        XCTAssertEqual(restingHR.emphasis, StrandPalette.textPrimary, "A move on an all-clear read is not painted green")
+    }
+
+    func testAMoveTheOtherWayIsNotCalledNormal() throws {
+        let days = history(count: 40) { self.night($0, rhr: 52, hrv: 90, resp: 15.1, skin: 0) }
+        let snapshot = HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true).snapshot
+        XCTAssertEqual(snapshot.phase, .scored(.quiet))
+        XCTAssertEqual(snapshot.firedCount, 0, "A higher HRV is not illness-ward")
+        let hrv = try XCTUnwrap(snapshot.signals.first { $0.kind == .hrv })
+        XCTAssertEqual(HeadsUpPresentation.stateWord(hrv), "Higher")
+        XCTAssertEqual(HeadsUpPresentation.card(snapshot).line, "Nothing points to being run down.")
     }
 
     func testSteadyHistoryIsAllClear() {
@@ -183,7 +248,16 @@ final class HeadsUpModelTests: XCTestCase {
         guard case let .progress(fraction, leading, _) = HeadsUpPresentation.card(learning).content else {
             return XCTFail("Learning shows progress")
         }
-        XCTAssertEqual(fraction, 9.0 / Double(HeadsUpSnapshot.nightsNeeded), accuracy: 1e-9)
-        XCTAssertEqual(leading, "9 of \(HeadsUpSnapshot.nightsNeeded) nights")
+        XCTAssertEqual(fraction, 6.0 / Double(HeadsUpSnapshot.nightsNeeded), accuracy: 1e-9)
+        XCTAssertEqual(leading, "6 of \(HeadsUpSnapshot.nightsNeeded) nights")
+    }
+
+    func testHistoryEndsOnTodayOnlyWhenItIs() {
+        let now = Date()
+        XCTAssertEqual(HeadsUpPresentation.dayLabel(Repository.localDayKey(now), now: now), "Today")
+        let older = Repository.localDayKey(now.addingTimeInterval(-3 * 86_400))
+        XCTAssertNotEqual(HeadsUpPresentation.dayLabel(older, now: now), "Today",
+                          "A history that stops on an older night shows that night's date")
+        XCTAssertFalse(HeadsUpPresentation.dayLabel(older, now: now).isEmpty)
     }
 }

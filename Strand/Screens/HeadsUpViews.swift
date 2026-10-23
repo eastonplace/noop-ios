@@ -30,10 +30,10 @@ enum HeadsUpPresentation {
         }
     }
 
-    /// The ink a counting signal's change takes. An explained read keeps it white: the signals are real, only
-    /// their meaning is softened.
+    /// The ink a counting signal's change takes. An explained or all-clear read keeps it white: the signal is real,
+    /// but painting it the read's colour would make a move look explained away, or good news.
     static func emphasis(_ level: IllnessSignalEngine.Level) -> Color {
-        level == .suppressed ? StrandPalette.textPrimary : tone(level)
+        level == .suppressed || level == .quiet ? StrandPalette.textPrimary : tone(level)
     }
 
     // MARK: Signals
@@ -127,7 +127,18 @@ enum HeadsUpPresentation {
             return signal.latest == nil ? String(localized: "No data") : String(localized: "Building")
         }
         if signal.fired { return z > 0 ? String(localized: "Up") : String(localized: "Down") }
+        // Outside the normal range the way a rough patch does not move it (a higher HRV, a cooler night).
+        if abs(z) > IllnessSignalEngine.signalZThreshold {
+            return z > 0 ? String(localized: "Higher") : String(localized: "Lower")
+        }
         return String(localized: "Normal")
+    }
+
+    /// Every recorded signal sits inside its normal range, in either direction.
+    static func allInRange(_ snapshot: HeadsUpSnapshot) -> Bool {
+        snapshot.signals.allSatisfy { signal in
+            signal.z.map { abs($0) <= IllnessSignalEngine.signalZThreshold } ?? true
+        }
     }
 
     /// Where the last 2 nights sit on a rail whose middle 40% is the normal range (±2 SD).
@@ -218,6 +229,17 @@ enum HeadsUpPresentation {
         date(key).map { $0.formatted(.dateTime.day().month(.abbreviated)) }
     }
 
+    /// The newest day is today's (either the calendar day or the 04:00 logical day, which differ after midnight).
+    static func isToday(_ key: String?, now: Date = Date()) -> Bool {
+        guard let key else { return false }
+        return key == Repository.localDayKey(now) || key == Repository.logicalDayKey(now)
+    }
+
+    /// "Today" for today's row, else its short date: a history that ends on an older night says so.
+    static func dayLabel(_ key: String?, now: Date = Date()) -> String {
+        isToday(key, now: now) ? String(localized: "Today") : (shortDate(key) ?? "")
+    }
+
     // MARK: Today card
 
     static func card(_ snapshot: HeadsUpSnapshot) -> HeadsUpCardModel {
@@ -233,7 +255,7 @@ enum HeadsUpPresentation {
             let left = max(1, needed - nights)
             return HeadsUpCardModel(
                 pill: String(localized: "Learning"), tone: color,
-                line: String(localized: "Learning your normal. Ready after \(needed) nights of wear."),
+                line: String(localized: "Learning your normal. Ready after \(needed) baseline nights."),
                 lineIsPrimary: false,
                 content: .progress(fraction: Double(nights) / Double(needed),
                                    leading: String(localized: "\(nights) of \(needed) nights"),
@@ -261,7 +283,18 @@ enum HeadsUpPresentation {
     static func line(_ level: IllnessSignalEngine.Level, _ snapshot: HeadsUpSnapshot) -> String {
         switch level {
         case .quiet:
+            let fired = snapshot.signals.filter(\.fired)
+            if fired.count == 1, let one = fired.first {
+                let name = shortName(one.kind)
+                return (one.z ?? 0) > 0
+                    ? String(localized: "\(name) is up on its own. One signal alone isn’t a pattern.")
+                    : String(localized: "\(name) is down on its own. One signal alone isn’t a pattern.")
+            }
+            if fired.count > 1 {
+                return String(localized: "\(firedNames(snapshot)) moved off your normal. Not enough to flag.")
+            }
             if snapshot.presentCount == 0 { return String(localized: "No overnight signals in the last 2 nights.") }
+            if !allInRange(snapshot) { return String(localized: "Nothing points to being run down.") }
             if snapshot.presentCount == HeadsUpSnapshot.SignalKind.allCases.count {
                 return String(localized: "All 4 signals are in your normal range.")
             }
@@ -365,10 +398,20 @@ enum HeadsUpPresentation {
         case .off:
             return String(localized: "Heads-Up reads four overnight signals together and tells you when they drift from your normal at the same time, sometimes a day or two before you feel it.")
         case .learning:
-            return String(localized: "Heads-Up compares each night with your own baseline, so it needs \(HeadsUpSnapshot.nightsNeeded) nights first. Keep wearing your strap to bed.")
+            return String(localized: "Heads-Up compares each night with your own baseline, so it needs \(HeadsUpSnapshot.nightsNeeded) baseline nights first. Your newest 3 nights stay out of the baseline, so a rough patch can’t blend into it. Keep wearing your strap to bed.")
         case .scored(let level):
             switch level {
             case .quiet:
+                let fired = snapshot.signals.filter(\.fired)
+                if fired.count == 1 {
+                    return String(localized: "\(firedNames(snapshot)) moved off your normal on its own. Heads-Up speaks up when several signals move together.")
+                }
+                if fired.count > 1 {
+                    return String(localized: "\(firedNames(snapshot)) moved off your normal, but not enough to flag. Heads-Up keeps watching and speaks up if the move grows.")
+                }
+                if !allInRange(snapshot) {
+                    return String(localized: "Nothing is moving the way it does when you’re run down. A shift the other way, like a higher HRV, isn’t a warning sign.")
+                }
                 return String(localized: "Resting HR, HRV, skin temperature and breathing rate are inside your normal range, or not recorded.")
             case .mild:
                 return String(localized: "\(firedNames(snapshot)) moved slightly off your normal. Nothing alarming, but a calmer day won’t hurt.")
@@ -376,7 +419,7 @@ enum HeadsUpPresentation {
                 return String(localized: "\(firedNames(snapshot)) moved away from your normal over the last 2 nights, and nothing you logged explains it.")
             case .suppressed:
                 let causes = joined(orderedCauses(snapshot.causes).map(causePhrase))
-                return String(localized: "\(firedNames(snapshot)) are up, but you logged \(causes). That moves the same signals, so Heads-Up is standing down.")
+                return String(localized: "\(firedNames(snapshot)) moved off your normal, but you logged \(causes). That moves the same signals, so Heads-Up is standing down.")
             case .alreadyUnwell:
                 return agrees(snapshot)
                     ? String(localized: "You logged feeling sick, and \(snapshot.firedCount) of \(snapshot.presentCount) signals agree. Take it easy. Heads-Up keeps watching until they settle.")
@@ -496,11 +539,13 @@ private struct TodayHeadsUpCardLeaf: View, @preconcurrency Equatable {
 
 /// The facts from the day row the detail page shows for context. They are not part of the Heads-Up math.
 struct HeadsUpDayContext: Equatable {
+    let day: String?
     let recovery: Double?
     let sleepMinutes: Double?
     let strain: Double?
 
     init(_ day: DailyMetric?) {
+        self.day = day?.day
         recovery = day?.recovery
         sleepMinutes = day?.totalSleepMin
         strain = day?.strain
@@ -746,7 +791,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
             HeadsUpHistoryChart(bars: bars,
                                 leadingLabel: HeadsUpPresentation.shortDate(snapshot.history.first?.day) ?? "",
                                 middleLabel: middle ?? "",
-                                trailingLabel: String(localized: "Today"))
+                                trailingLabel: HeadsUpPresentation.dayLabel(snapshot.history.last?.day))
         }
     }
 
@@ -828,7 +873,10 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
         } ?? WidgetMetrics.missingValue
         let strain = context.strain.map { String(format: "%.1f", StrainScale.displayValue(fromStored: $0)) }
             ?? WidgetMetrics.missingValue
-        return FlatSection("Elsewhere today", systemImage: "square.grid.2x2", tint: .neutral) {
+        let today = HeadsUpPresentation.isToday(context.day)
+        return FlatSection(today ? LocalizedStringKey("Elsewhere today") : LocalizedStringKey("Elsewhere"),
+                           systemImage: "square.grid.2x2", tint: .neutral,
+                           trailing: today ? .none : .text(HeadsUpPresentation.shortDate(context.day) ?? "")) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 FactStrip(facts: [
                     FactStrip.Fact("Recovery", value: recovery),

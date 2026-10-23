@@ -611,6 +611,11 @@ struct CoachingRootView: View {
     @State private var previousAnswers: [String: Bool] = [:]
     @State private var previousNumeric: [String: Double] = [:]
     @State private var mood: Int?
+    /// The day the answers above were read for. Taps are ignored until it matches the chosen day, so a quick
+    /// switch between Yesterday and Today never writes one day's answers into the other.
+    @State private var loadedDay: String?
+    /// Days with imported answers, which keep their streak dot whatever happens to the native ones.
+    @State private var importedDays: Set<String> = []
     @State private var loggedWindow: [Bool] = []
     @State private var recentEntries: [CoachingRecentEntry] = []
     @State private var stacks: [CoachingStack] = []
@@ -628,6 +633,7 @@ struct CoachingRootView: View {
     }
 
     private var dayKey: String { Self.key(daysBack: dayOffset) }
+    private var isCurrentDayLoaded: Bool { loadedDay == dayKey }
 
     private var items: [JournalCatalogItem] {
         let resolved = catalog.resolvedItems(imported: importedQuestions)
@@ -648,7 +654,7 @@ struct CoachingRootView: View {
 
     /// Yesterday answered something today has not yet: one tap copies just those gaps.
     private var canRepeatYesterday: Bool {
-        dayOffset == 0 && items.contains { item in
+        dayOffset == 0 && isCurrentDayLoaded && items.contains { item in
             !isAnswered(item) && (previousAnswers[item.canonical] != nil || previousNumeric[item.canonical] != nil)
         }
     }
@@ -663,9 +669,11 @@ struct CoachingRootView: View {
                         dayHeader
                         FlatSectionSeparator()
                         JournalMoodRow(mood: moodBinding)
+                            .disabled(!isCurrentDayLoaded)
                         ForEach(groups) { group in
                             FlatSectionSeparator()
                             groupSection(group)
+                                .disabled(!isCurrentDayLoaded)
                         }
                         FlatSectionSeparator()
                         noteSection
@@ -729,7 +737,7 @@ struct CoachingRootView: View {
             JournalProgressHeader(
                 answered: answeredCount, total: items.count,
                 caption: dayOffset == 0
-                    ? String(localized: "Saves as you tap. Answers describe the day and night leading into tomorrow.")
+                    ? String(localized: "Saves as you tap. Answers are about the night and day leading into this morning.")
                     : String(localized: "Filling in yesterday. Saves as you tap."))
             if canRepeatYesterday || savedMessage != nil {
                 HStack(spacing: NoopMetrics.space3) {
@@ -752,9 +760,16 @@ struct CoachingRootView: View {
         .padding(.top, NoopMetrics.space2)
     }
 
+    /// Clears the old day's answers before the new day loads, so nothing from one day shows (or saves) as the other.
     private func select(daysBack: Int) {
         guard dayOffset != daysBack else { return }
         savedMessage = nil
+        loadedDay = nil
+        answers = [:]
+        numeric = [:]
+        previousAnswers = [:]
+        previousNumeric = [:]
+        mood = nil
         dayOffset = daysBack
     }
 
@@ -779,9 +794,11 @@ struct CoachingRootView: View {
     }
 
     @ViewBuilder private func row(_ item: JournalCatalogItem) -> some View {
-        if item.kind.isNumeric {
+        if let quantity = coachingQuantity(for: item) {
             JournalQuantityRow(icon: coachingIcon(for: item), tint: coachingTint(for: item),
-                               title: coachingShortDisplayName(for: item), unit: item.kind.unitLabel ?? "",
+                               title: coachingShortDisplayName(for: item), unit: quantity.unit,
+                               step: quantity.step,
+                               emptyLabel: answers[item.canonical] == true ? String(localized: "Yes, no amount") : nil,
                                value: numericBinding(item))
         } else {
             JournalHabitToggle(icon: coachingIcon(for: item), tint: coachingTint(for: item),
@@ -794,6 +811,7 @@ struct CoachingRootView: View {
         Binding(
             get: { answers[item.canonical] },
             set: { next in
+                guard isCurrentDayLoaded else { return }
                 let day = dayKey
                 answers[item.canonical] = next
                 savedMessage = nil
@@ -809,13 +827,15 @@ struct CoachingRootView: View {
         )
     }
 
+    /// An amount. Zero is an explicit none (a No from elsewhere shows as 0); a step below zero clears it.
     private func numericBinding(_ item: JournalCatalogItem) -> Binding<Double?> {
         Binding(
-            get: { numeric[item.canonical] },
+            get: { numeric[item.canonical] ?? (answers[item.canonical] == false ? 0 : nil) },
             set: { next in
+                guard isCurrentDayLoaded else { return }
                 let day = dayKey
                 numeric[item.canonical] = next
-                answers[item.canonical] = next.map { _ in true }
+                answers[item.canonical] = next.map { $0 > 0 }
                 savedMessage = nil
                 markLogged()
                 Task {
@@ -833,6 +853,7 @@ struct CoachingRootView: View {
         Binding(
             get: { mood },
             set: { next in
+                guard isCurrentDayLoaded else { return }
                 let day = dayKey
                 mood = next
                 guard let next else { return }
@@ -845,16 +866,19 @@ struct CoachingRootView: View {
     private func markLogged() {
         let index = loggedWindow.count - 1 - dayOffset
         guard loggedWindow.indices.contains(index) else { return }
-        loggedWindow[index] = !answers.isEmpty || !numeric.isEmpty
+        loggedWindow[index] = importedDays.contains(dayKey) || !answers.isEmpty || !numeric.isEmpty
     }
 
     @MainActor private func repeatYesterday() async {
+        guard isCurrentDayLoaded else { return }
         let day = dayKey
         var copied = 0
         for item in items where !isAnswered(item) {
+            // Each save suspends; a switch of day in between ends the copy.
+            guard day == dayKey, isCurrentDayLoaded else { break }
             if let value = previousNumeric[item.canonical] {
                 numeric[item.canonical] = value
-                answers[item.canonical] = true
+                answers[item.canonical] = value > 0
                 await repo.saveJournalNumeric(day: day, question: item.canonical, value: value)
                 copied += 1
             } else if let answer = previousAnswers[item.canonical] {
@@ -863,6 +887,7 @@ struct CoachingRootView: View {
                 copied += 1
             }
         }
+        guard day == dayKey else { return }
         markLogged()
         savedMessage = copied == 0 ? String(localized: "Nothing new to copy")
                                    : String(localized: "Copied \(copied) from yesterday")
@@ -926,7 +951,7 @@ struct CoachingRootView: View {
         FlatSection("Shortcuts", systemImage: "square.grid.2x2", tint: .journal, contentSpacing: 0) {
             VStack(spacing: 0) {
                 NavigationLink { CoachingBehaviorSettingsView() } label: {
-                    linkRow(title: "Choose questions", subtitle: "What the check-in asks, and in what order",
+                    linkRow(title: "Choose questions", subtitle: "What the check-in asks",
                             icon: "slider.horizontal.3")
                 }
                 .buttonStyle(.plain)
@@ -1035,6 +1060,7 @@ struct CoachingRootView: View {
         // The person may have switched day while this was reading; the newer load owns the page.
         guard day == dayKey else { return }
         importedQuestions = questions
+        importedDays = Set(imported.map(\.day))
         activeCanonicals = active
         stacks = loadedStacks
         answers = dayAnswers
@@ -1042,6 +1068,7 @@ struct CoachingRootView: View {
         previousAnswers = earlierAnswers
         previousNumeric = earlierNumeric
         mood = dayMood
+        loadedDay = day
         loggedWindow = JournalStreakSummary.window(loggedDays: Set(all.map(\.day)),
                                                    endingOn: Self.key(daysBack: 0), days: 14)
         recentEntries = all.reversed().prefix(5).map {
@@ -1122,6 +1149,17 @@ private func coachingTint(for item: JournalCatalogItem) -> Color {
     case .recovery: return StrandPalette.metricRose
     case .supplements: return StrandPalette.metricCyan
     }
+}
+
+/// An amount to count instead of Yes / No: numeric questions, and the behaviours where how much matters.
+/// A zero saves as an explicit No, so the with/without split still sees it.
+private func coachingQuantity(for item: JournalCatalogItem) -> (step: Double, unit: String)? {
+    if item.kind.isNumeric { return (1, item.kind.unitLabel ?? String(localized: "units")) }
+    let q = JournalCatalogStore.norm(item.canonical)
+    if q.contains("alcohol") || q.contains("caffeine") { return (1, String(localized: "servings")) }
+    if q.contains("magnesium") { return (1, String(localized: "dose")) }
+    if q.contains("sauna") { return (10, String(localized: "min")) }
+    return nil
 }
 
 /// Coaching shortcuts use compact catalog labels while every persistence/analytics call continues

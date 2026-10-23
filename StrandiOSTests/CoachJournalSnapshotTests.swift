@@ -24,6 +24,18 @@ final class CoachJournalSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.sourceContext, repo.journalEntrySourceContext)
     }
 
+    func testANumericZeroIsAnExplicitNoAndAPositiveAmountIsYes() async throws {
+        let repo = try await repository()
+        await repo.saveJournalNumeric(day: "2026-10-22", question: "Alcohol", value: 0)
+        await repo.saveJournalNumeric(day: "2026-10-22", question: "Caffeine", value: 2)
+        let answers = await repo.nativeJournalAnswers(day: "2026-10-22")
+        XCTAssertEqual(answers["Alcohol"], false, "Zero servings must not count as drinking")
+        XCTAssertEqual(answers["Caffeine"], true)
+        let numeric = await repo.nativeJournalNumeric(day: "2026-10-22")
+        XCTAssertEqual(numeric["Alcohol"], 0, "The logged zero keeps its amount")
+        XCTAssertEqual(numeric["Caffeine"], 2)
+    }
+
     func testSnapshotDoesNotBorrowAnotherDaysAnswers() async throws {
         let repo = try await repository()
         await repo.saveJournalAnswer(day: "2026-10-21", question: "Alcohol", answeredYes: true)

@@ -132,17 +132,21 @@ public struct JournalQuantityRow: View {
     private let tint: Color
     private let title: String
     private let unit: String
-    private let maximum: Int
+    private let step: Double
+    private let emptyLabel: String?
     @Binding private var value: Double?
     @Environment(\.dynamicTypeSize) private var typeSize
 
+    /// `step` is one tap of − or + (10 for sauna minutes). `emptyLabel` replaces "Not logged" when there is an
+    /// answer without an amount, such as a Yes from the classic journal; − then clears that answer.
     public init(icon: String, tint: Color, title: String, unit: String,
-                maximum: Int = 8, value: Binding<Double?>) {
+                step: Double = 1, emptyLabel: String? = nil, value: Binding<Double?>) {
         self.icon = icon
         self.tint = tint
         self.title = title
         self.unit = unit
-        self.maximum = max(1, maximum)
+        self.step = step > 0 ? step : 1
+        self.emptyLabel = emptyLabel
         self._value = value
     }
 
@@ -193,7 +197,7 @@ public struct JournalQuantityRow: View {
 
     private var stepper: some View {
         HStack(spacing: 6) {
-            stepButton("minus", enabled: value != nil) { decrement() }
+            stepButton("minus", enabled: value != nil || emptyLabel != nil) { decrement() }
             Text(value.map(Self.format) ?? "0")
                 .font(StrandFont.bodyNumber)
                 .foregroundStyle(value == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
@@ -209,15 +213,20 @@ public struct JournalQuantityRow: View {
     }
 
     private var displayValue: String {
-        guard let value else { return String(localized: "Not logged", bundle: .module) }
+        guard let value else { return emptyLabel ?? String(localized: "Not logged", bundle: .module) }
         return "\(Self.format(value)) \(unit)"
     }
 
-    private func increment() { value = min(Double(maximum) * 10, (value ?? 0) + 1) }
+    // No ceiling: a typed 12 must never come back lower after a tap on +.
+    private func increment() { value = (value ?? 0) + step }
+    /// Steps down to zero (an explicit none), then one more tap clears the answer.
     private func decrement() {
-        guard let value else { return }
-        let next = value - 1
-        self.value = next < 0 ? nil : next
+        guard let value else {
+            // An answer without an amount: writing nil through the binding clears it.
+            if emptyLabel != nil { self.value = nil }
+            return
+        }
+        self.value = value <= 0 ? nil : max(0, value - step)
     }
 
     private func stepButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {

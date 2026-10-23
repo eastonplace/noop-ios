@@ -1753,9 +1753,10 @@ struct TodayView: View {
                 paperStressCard
                 TodaySectionSeparator(above: 15, below: 13.3)
                 paperHealthMonitorCard
-                // Heads-Up reads the newest nights, so it belongs to today only. It draws its own hairline and
-                // nothing at all before the day history first loads.
-                if selectedDayOffset == 0 && selectedDayKey == Repository.logicalDayKey(Date()) {
+                // Heads-Up reads the newest nights, so it belongs to today only (also before today's row exists,
+                // or between midnight and the 04:00 roll). It draws its own hairline and nothing at all before the
+                // day history first loads.
+                if usesCurrentDayResolution {
                     TodayHeadsUpSection(onOpen: { showingHeadsUp = true })
                 }
             }

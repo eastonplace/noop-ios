@@ -363,9 +363,9 @@ struct InsightsView: View {
         async let workoutsLoad = repo.workoutRows(reconcileHR: false)
 
         // Journal → behaviours map (only "yes" answers count as the behaviour occurring).
-        // journalEntries() is the imported ∪ native union (native wins per day+question). A numeric
-        // log writes answeredYes=true too (#322), so a numeric item lands in the with/without split
-        // here unchanged, on top of the numeric series read below.
+        // journalEntries() is the imported ∪ native union (native wins per day+question). A positive
+        // numeric log writes answeredYes=true too (#322) and a logged zero writes false, so a numeric
+        // item lands in the with/without split here unchanged, on top of the numeric series read below.
         let entries = await entriesLoad
         var byBehaviour: [String: Set<String>] = [:]
         var controlsByBehaviour: [String: Set<String>] = [:]
