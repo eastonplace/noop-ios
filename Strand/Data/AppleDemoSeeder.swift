@@ -259,8 +259,11 @@ enum AppleDemoSeeder {
             let onsetJitter = rng.nextInt(-1800, 1800)
             // About one night in nine runs well past the usual time, so off-schedule nights cost something.
             let offScheduleNight = i % 9 == 4
-            let onset = Int(onsetDay.timeIntervalSince1970) + 23 * 3600 + 10 * 60 + onsetJitter
-                + (offScheduleNight ? 80 * 60 : 0)
+            let onsetDaySeconds: Int = Int(onsetDay.timeIntervalSince1970)
+            let usualOnsetSeconds: Int = 23 * 3600 + 10 * 60
+            let offScheduleDelaySeconds: Int = offScheduleNight ? 80 * 60 : 0
+            let jitteredOnsetSeconds: Int = onsetDaySeconds + usualOnsetSeconds + onsetJitter
+            let onset: Int = jitteredOnsetSeconds + offScheduleDelaySeconds
             // Realistic sizes: an earlier-than-usual night is worth about 9 points of recovery over a later one,
             // a night well off schedule costs about 5 and a late workout about 4 on top of its HRV dip.
             recovery = (recovery + (onsetJitter < 0 ? 4.5 : -4.5)
