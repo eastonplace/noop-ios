@@ -129,13 +129,17 @@ struct StrainScorePartsSection: View {
     let parts: StrainScoreParts
     let steps: Int?
     let isToday: Bool
+    /// Opens the Strain score explainer from the header's ⓘ. Absent, the header has no ⓘ.
+    var infoAction: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow(
                 title: isToday ? String(localized: "What set today's score") : String(localized: "What set that day's score"),
                 systemImage: "chart.bar.fill",
-                tint: .strain
+                tint: .strain,
+                infoAction: infoAction,
+                infoAccessibilityLabel: MetricInfo.strainScore.accessibilityLabel
             )
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 ForEach(parts.rows) { row in

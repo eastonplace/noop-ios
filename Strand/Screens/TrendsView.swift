@@ -146,6 +146,8 @@ struct TrendsView: View {
         .sheet(isPresented: $showingReport) {
             TrendsReportSheet(days: canonicalDays)
         }
+        // One ⓘ sheet for every Trends header (Scores, Training load, Weekly readout), outside any tappable card.
+        .metricInfoSheet($metricInfo)
         .background {
             TimelineView(.periodic(from: .now, by: 60)) { timeline in
                 Color.clear

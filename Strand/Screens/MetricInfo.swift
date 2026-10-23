@@ -11,6 +11,26 @@ import StrandAnalytics
 enum MetricInfo: String, Identifiable {
     case loadFocus
     case trainingLoad
+    case hrv
+    case restingHR
+    case respiratory
+    case readiness
+    case recovery
+    case strain
+    case strainScore
+    case trendScores
+    case sleepScore
+    case sleepStages
+    case sleepNeed
+    case nightDetail
+    case vitality
+    case recoveryForecast
+    case weeklyReadout
+    case stress
+    case loadProjection
+    case loadHistory
+    case metricRelationships
+    case doseResponse
 
     var id: String { rawValue }
 
@@ -18,6 +38,26 @@ enum MetricInfo: String, Identifiable {
         switch self {
         case .loadFocus: String(localized: "About Load focus")
         case .trainingLoad: String(localized: "About Training load")
+        case .hrv: String(localized: "About HRV")
+        case .restingHR: String(localized: "About Resting HR")
+        case .respiratory: String(localized: "About Respiratory rate")
+        case .readiness: String(localized: "About Readiness")
+        case .recovery: String(localized: "About Recovery")
+        case .strain: String(localized: "About Strain")
+        case .strainScore: String(localized: "About your Strain score")
+        case .trendScores: String(localized: "About Trends")
+        case .sleepScore: String(localized: "About Sleep score")
+        case .sleepStages: String(localized: "About Sleep stages")
+        case .sleepNeed: String(localized: "About Sleep need")
+        case .nightDetail: String(localized: "About Night detail")
+        case .vitality: String(localized: "About Vitality and Body Age")
+        case .recoveryForecast: String(localized: "About Tomorrow's Recovery")
+        case .weeklyReadout: String(localized: "About the Weekly readout")
+        case .stress: String(localized: "About Stress")
+        case .loadProjection: String(localized: "About tomorrow's load")
+        case .loadHistory: String(localized: "About Load over time")
+        case .metricRelationships: String(localized: "About Metric relationships")
+        case .doseResponse: String(localized: "About Dose-response")
         }
     }
 
@@ -26,6 +66,26 @@ enum MetricInfo: String, Identifiable {
         switch self {
         case .loadFocus: "About Load focus"
         case .trainingLoad: "About Training load"
+        case .hrv: "About HRV"
+        case .restingHR: "About Resting HR"
+        case .respiratory: "About Respiratory rate"
+        case .readiness: "About Readiness"
+        case .recovery: "About Recovery"
+        case .strain: "About Strain"
+        case .strainScore: "About your Strain score"
+        case .trendScores: "About Trends"
+        case .sleepScore: "About Sleep score"
+        case .sleepStages: "About Sleep stages"
+        case .sleepNeed: "About Sleep need"
+        case .nightDetail: "About Night detail"
+        case .vitality: "About Vitality and Body Age"
+        case .recoveryForecast: "About Tomorrow's Recovery"
+        case .weeklyReadout: "About the Weekly readout"
+        case .stress: "About Stress"
+        case .loadProjection: "About tomorrow's load"
+        case .loadHistory: "About Load over time"
+        case .metricRelationships: "About Metric relationships"
+        case .doseResponse: "About Dose-response"
         }
     }
 
@@ -33,6 +93,26 @@ enum MetricInfo: String, Identifiable {
         switch self {
         case .loadFocus: Self.loadFocusSections
         case .trainingLoad: Self.trainingLoadSections
+        case .hrv: Self.hrvSections
+        case .restingHR: Self.restingHRSections
+        case .respiratory: Self.respiratorySections
+        case .readiness: Self.readinessSections
+        case .recovery: Self.recoverySections
+        case .strain: Self.strainSections
+        case .strainScore: Self.strainScoreSections
+        case .trendScores: Self.trendScoresSections
+        case .sleepScore: Self.sleepScoreSections
+        case .sleepStages: Self.sleepStagesSections
+        case .sleepNeed: Self.sleepNeedSections
+        case .nightDetail: Self.nightDetailSections
+        case .vitality: Self.vitalitySections
+        case .recoveryForecast: Self.recoveryForecastSections
+        case .weeklyReadout: Self.weeklyReadoutSections
+        case .stress: Self.stressSections
+        case .loadProjection: Self.loadProjectionSections
+        case .loadHistory: Self.loadHistorySections
+        case .metricRelationships: Self.metricRelationshipsSections
+        case .doseResponse: Self.doseResponseSections
         }
     }
 
@@ -87,7 +167,14 @@ enum MetricInfo: String, Identifiable {
 
 extension View {
     /// Presents the chosen metric's explainer in the shared sheet. Attach once per screen, outside any tappable card.
-    func metricInfoSheet(_ info: Binding<MetricInfo?>) -> some View {
-        sheet(item: info) { MetricInfoSheet(title: $0.title, sections: $0.sections) }
+    /// `mainSleepReason`, when set, is added as a leading "Why this night" section on the Sleep stages explainer.
+    func metricInfoSheet(_ info: Binding<MetricInfo?>, mainSleepReason: String? = nil) -> some View {
+        sheet(item: info) {
+            var sections = $0.sections
+            if $0 == .sleepStages, let mainSleepReason {
+                sections.insert(.init(heading: String(localized: "Why this night"), body: mainSleepReason), at: 0)
+            }
+            return MetricInfoSheet(title: $0.title, sections: sections)
+        }
     }
 }

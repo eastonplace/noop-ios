@@ -28,7 +28,6 @@ extension TrendsView {
                                    voiceOverSummary: trainingLoadVoiceOverSummary(snapshot.trainingLoad)) {
                 trainingLoadSection(snapshot.trainingLoad)
             }
-            .metricInfoSheet($metricInfo)
         }
     }
 
@@ -291,7 +290,9 @@ extension TrendsView {
                 title: String(localized: "Scores"),
                 systemImage: "chart.line.uptrend.xyaxis",
                 tint: .neutral,
-                trailing: .text(selectedRange.summarySubtitle)
+                trailing: .text(selectedRange.summarySubtitle),
+                infoAction: { metricInfo = .trendScores },
+                infoAccessibilityLabel: MetricInfo.trendScores.accessibilityLabel
             )
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 trendSummaryRow(

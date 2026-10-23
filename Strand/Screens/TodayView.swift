@@ -533,6 +533,10 @@ struct TodayView: View {
     // score (or the first-run card) is tapped. nil = not shown. ScoreSection is Identifiable, so
     // .sheet(item:) drives both presentation and the deep-link target in one binding.
     @State private var guideSection: ScoreSection?
+    /// The ⓘ explainer open from a Today tile (HRV), if any. Readiness lives in the Recovery sheet, so it has its own
+    /// (`readinessInfo`): a sheet cannot present a second sheet from the screen underneath it.
+    @State private var metricInfo: MetricInfo?
+    @State private var readinessInfo: MetricInfo?
     @State private var paperPillarDetail: PaperPillarDetailKind?
     /// Component-library modules own their press interaction, so their production
     /// routes are driven by explicit navigation state rather than nesting a Button
@@ -2262,6 +2266,7 @@ struct TodayView: View {
         .sheet(item: $guideSection) { section in
             ScoringGuideView(initialSection: section, onClose: { guideSection = nil })
         }
+        .metricInfoSheet($metricInfo)
         // Pillar details are full-screen destinations, not draggable sheets. A sheet made the
         // Recovery/Strain page rubber-band around under vertical gestures and, because it entered
         // the shared scaffold as a root, omitted the only route back to Today. Mark the presented
@@ -2471,7 +2476,9 @@ struct TodayView: View {
             // When Readiness is anchored on the carried last-scored day (#543), the overline stamps its
             // date so the prior read isn't passed off as today's; otherwise the usual prompt.
             SectionHeader("Readiness",
-                          overline: lastScoredRecoveryDay.map { "\(carriedCaption($0))" } ?? "Should you push today?")
+                          overline: lastScoredRecoveryDay.map { "\(carriedCaption($0))" } ?? "Should you push today?",
+                          infoAction: { readinessInfo = .readiness },
+                          infoAccessibilityLabel: MetricInfo.readiness.accessibilityLabel)
             NoopCard {
                     VStack(alignment: .leading, spacing: 12) {
                         // The ratio badge sits beside the headline while it fits and drops under it at large text
@@ -2829,7 +2836,9 @@ struct TodayView: View {
     private var readinessSheetBody: some View {
         let r = readiness
         if r.level != .insufficient {
+            // The ⓘ sheet is attached here, inside the Recovery sheet that hosts this card.
             readinessCard(r)
+                .metricInfoSheet($readinessInfo)
         }
     }
 
@@ -4125,7 +4134,9 @@ struct TodayView: View {
                 accent: d?.recovery.map { RecoveryBands.color(for: $0) }
                     ?? carried.map { RecoveryBands.color(for: $0.value) } ?? StrandPalette.textPrimary,
                 sparkline: sparks["recovery"],
-                sparkColor: StrandPalette.recoveryData
+                sparkColor: StrandPalette.recoveryData,
+                // Inline ⓘ in the tile header, like Strain and Sleep (#495).
+                accessory: { scoreInfoButton(.recovery) }
             )
         case .effort:
             // Unscored TODAY → a short "building" hint instead of the "of N" axis caption, so a
@@ -4172,7 +4183,11 @@ struct TodayView: View {
                 caption: hrv.caption,
                 accent: hrv.value == "—" ? StrandPalette.textPrimary : StrandPalette.metricPurple,
                 sparkline: sparks["hrv"],
-                sparkColor: StrandPalette.metricPurple
+                sparkColor: StrandPalette.metricPurple,
+                // Inline ⓘ in the tile header, like the score tiles (#495): what HRV means and what a good value is.
+                accessory: {
+                    InfoGlyphButton(accessibilityLabel: MetricInfo.hrv.accessibilityLabel) { metricInfo = .hrv }
+                }
             )
         case .restingHr:
             let rhr = carriedVital(unit: "bpm", today: d?.restingHr.map(Double.init),
@@ -4441,17 +4456,9 @@ struct TodayView: View {
     /// A small ⓘ that opens the scoring guide at the given score's section. Sized + tinted as
     /// unobtrusive chrome so it sits in a tile/card corner without competing with the value.
     private func scoreInfoButton(_ section: ScoreSection) -> some View {
-        Button {
+        InfoGlyphButton(accessibilityLabel: "How \(section.displayName) is calculated") {
             guideSection = section
-        } label: {
-            Image(systemName: "info.circle")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(StrandPalette.textTertiary)
-                .padding(8)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("How \(section.displayName) is calculated")
         .help("How this score is calculated")
     }
 

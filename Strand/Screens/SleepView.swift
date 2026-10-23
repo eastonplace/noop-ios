@@ -171,15 +171,18 @@ struct SleepView: View {
     /// which marks the session `userEdited` so a later strap sync can't revert the correction. (#318)
     @State private var wakeEdit: WakeEdit?
 
+    /// The ⓘ explainer open from a Sleep section header (score, stages, night detail, tonight), if any.
+    @State private var metricInfo: MetricInfo?
+
     /// Non-nil while the "Add nap" picker sheet is open (#508). Carries a seed bed/wake for the picker;
     /// saving routes through `repo.addManualNap`, which stages the chosen window from raw and writes it as
     /// its OWN separate session row (`userEdited = 1`) — never folded into the night's main sleep.
     @State private var addNap: AddNapSeed?
 
-    /// True while the hero's "why this is your main sleep" popover is open. The reason text comes
-    /// straight from the foundation `MainNightReason` for the displayed night's blocks — never
-    /// re-derived here — so the explainer says exactly what the selector decided. (spec 2026-06-20 C1)
-    @State private var showMainSleepWhy = false
+    /// The "why this is your main sleep" reason, shown as the first section ("Why this night") of the Sleep stages
+    /// explainer; set when its ⓘ is tapped. The text comes straight from the foundation `MainNightReason` for the
+    /// displayed night's blocks, never re-derived here. (spec 2026-06-20 C1)
+    @State private var stagesMainSleepReason: String?
     /// The stable detected key of the nap whose "why this is a nap" popover is open, or nil. Keyed by
     /// the nap's own `startTs` so one popover shows at a time even with several nap rows. (C1)
     @State private var napWhyStartTs: Int?
@@ -298,6 +301,7 @@ struct SleepView: View {
                         SleepNeedBreakdownSection(
                             wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
                             trailing: sleepBalanceTrailing(resolved),
+                            infoAction: { metricInfo = .sleepNeed },
                             fallback: SleepNeedFallbackPresentation.resolve(
                                 wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
                                 onDevice: { presentationNeeds[$0]?.totalMinutes },
@@ -383,6 +387,7 @@ struct SleepView: View {
                 modelKey = dataKey
                 model = buildModel()
             }
+            .metricInfoSheet($metricInfo, mainSleepReason: stagesMainSleepReason)
             .sheet(item: $wakeEdit) { edit in
                 // The night's RECORDED coverage for the #940 guards: from the immutable detected
                 // onset (where the strap actually saw the night; an earlier hand-set onset widens
@@ -619,7 +624,8 @@ struct SleepView: View {
                 FactStrip.Fact("Resting HR", value: restingHR.map { "\($0) bpm" } ?? "—"),
                 FactStrip.Fact("Respiratory", value: day?.respRateBpm.map { String(format: "%.1f", $0) } ?? "—"),
             ],
-            source: nightSource(night)
+            source: nightSource(night),
+            infoAction: { metricInfo = .sleepScore }
         )
     }
 
@@ -658,7 +664,12 @@ struct SleepView: View {
         )
 
         return FlatSection("Sleep stages", systemImage: "bed.double.fill", tint: .sleep,
-                            trailing: .custom(AnyView(windowChips(night)))) {
+                            trailing: .custom(AnyView(windowChips(night))),
+                            infoAction: {
+                                stagesMainSleepReason = mainSleepReasonText(night)
+                                metricInfo = .sleepStages
+                            },
+                            infoAccessibilityLabel: MetricInfo.sleepStages.accessibilityLabel) {
             Text("\(night.onsetText) → \(night.wakeText) · \(presentation.inBedDuration) in bed")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -680,28 +691,18 @@ struct SleepView: View {
         .strandHaptic(.selection, trigger: selectedStage)
     }
 
-    /// The stage section's header chips: why this is the main sleep (the foundation's own reason, in a popover) and
-    /// the wake-time editor. Both were quiet icons beside the old window strip; as chips they are findable.
+    /// The stage section's header action: the wake-time editor as a bare pencil glyph, beside the section's ⓘ.
+    /// The main-sleep reason lives in the Sleep stages explainer, not a second ⓘ here.
     @ViewBuilder
     private func windowChips(_ night: Night) -> some View {
-        HStack(spacing: NoopMetrics.space2) {
-            if let reason = mainSleepReasonText(night) {
-                WidgetChipButton(systemImage: "info.circle", accessibilityLabel: "Why this is your main sleep") {
-                    showMainSleepWhy.toggle()
-                }
-                .popover(isPresented: $showMainSleepWhy, arrowEdge: .bottom) {
-                    whyPopover(text: reason, napSuffix: false)
-                }
-            }
-            if let target = night.editTarget {
-                WidgetChipButton(systemImage: "pencil",
-                                accessibilityLabel: target.userEdited ? "Edit sleep times (edited)" : "Edit sleep times") {
-                    wakeEdit = WakeEdit(detectedStartTs: target.startTs,
-                                        bedTs: target.effectiveStartTs,
-                                        wakeTs: target.endTs,
-                                        stagesJSON: target.stagesJSON,
-                                        userEdited: target.userEdited)
-                }
+        if let target = night.editTarget {
+            InfoGlyphButton(systemImage: "pencil",
+                            accessibilityLabel: target.userEdited ? "Edit sleep times (edited)" : "Edit sleep times") {
+                wakeEdit = WakeEdit(detectedStartTs: target.startTs,
+                                    bedTs: target.effectiveStartTs,
+                                    wakeTs: target.endTs,
+                                    stagesJSON: target.stagesJSON,
+                                    userEdited: target.userEdited)
             }
         }
     }
@@ -995,7 +996,9 @@ struct SleepView: View {
         let rowGap = TodaySectionSeparator(above: 5, below: 5)
 
         FlatSection("Night detail", systemImage: "moon.zzz.fill", tint: .sleep,
-                     trailing: .text(String(localized: "vs your typical"))) {
+                     trailing: .text(String(localized: "vs your typical")),
+                     infoAction: { metricInfo = .nightDetail },
+                     infoAccessibilityLabel: MetricInfo.nightDetail.accessibilityLabel) {
             VStack(alignment: .leading, spacing: 0) {
                 percentRow("gauge.medium", String(localized: "Efficiency"), latest: efficiency, typical: model.efficiency.typical,
                            series: model.efficiency.series, tint: .sleep)
@@ -1603,7 +1606,6 @@ struct SleepView: View {
 
         navNight = nextOffset == 0 ? nil : decodedNight(at: nextOffset)
         selectedStage = nil
-        showMainSleepWhy = false
         nightOffset = nextOffset
     }
 
@@ -1914,6 +1916,8 @@ private struct SleepSyncingNote: View {
 private struct SleepNeedBreakdownSection<Balance: View>: View {
     let wakeDay: String
     let trailing: EyebrowTrailing
+    /// Opens the Sleep need and balance explainer from the header's information action.
+    let infoAction: () -> Void
     let fallback: SleepNeedFallbackPresentation?
     let fallbackIsLoading: Bool
     @ViewBuilder let balance: () -> Balance
@@ -1928,7 +1932,8 @@ private struct SleepNeedBreakdownSection<Balance: View>: View {
         let mode = SleepPerformanceV2Prefs.mode
         let isVisible = SleepNeedBreakdownVisibility.isVisible(mode: mode)
         let showFallback = SleepNeedFallbackPresentation.shouldShow(mode: mode, breakdownDay: breakdown?.day, wakeDay: wakeDay)
-        FlatSection("Tonight", systemImage: "moon.fill", tint: .sleep, trailing: trailing) {
+        FlatSection("Tonight", systemImage: "moon.fill", tint: .sleep, trailing: trailing,
+                    infoAction: infoAction, infoAccessibilityLabel: MetricInfo.sleepNeed.accessibilityLabel) {
             if !showFallback, let breakdown {
                 needBlock(breakdown)
             } else if let fallback, fallback.wakeDay == wakeDay {

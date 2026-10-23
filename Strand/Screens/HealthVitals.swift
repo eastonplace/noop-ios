@@ -792,6 +792,8 @@ struct HealthMetricTrendView: View {
     @State private var stepsEstByDay: [String: Double] = [:]
     /// The series, observations and estimate note this page draws, built by the `.task` below.
     @State private var page: HealthTrendPage?
+    /// The ⓘ explainer open from the hero's header (HRV, Resting HR, Respiratory), if any.
+    @State private var metricInfo: MetricInfo?
 
     private var temperatureUnit: TemperatureUnit {
         UnitPrefs.resolveTemperature(system: UnitSystem(rawValue: unitSystemRaw) ?? .metric, override: temperatureRaw)
@@ -853,6 +855,7 @@ struct HealthMetricTrendView: View {
                 }
             }
         }
+        .metricInfoSheet($metricInfo)
         .task(id: pageKey) {
             var apple = appleByDay
             var estimates = stepsEstByDay
@@ -875,12 +878,24 @@ struct HealthMetricTrendView: View {
         }
     }
 
+    /// The explainer for the three vitals that have one; the other pages (Steps, Calories, SpO₂...) read plainly.
+    private var info: MetricInfo? {
+        switch metric {
+        case .hrv: .hrv
+        case .restingHR: .restingHR
+        case .respiratory: .respiratory
+        default: nil
+        }
+    }
+
     private func hero(latest: CalendarMetricDay?, observations: [CalendarMetricDay], tint: DomainTint) -> some View {
         let unit = display?.unit ?? metric.unit
         let format = display?.format ?? metric.format
         let text = latest?.value.map(format) ?? WidgetMetrics.missingValue
         return VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-            SectionEyebrow(title: metric.healthEyebrowTitle, systemImage: metric.symbol, tint: tint)
+            SectionEyebrow(title: metric.healthEyebrowTitle, systemImage: metric.symbol, tint: tint,
+                           infoAction: info.map { kind in { metricInfo = kind } },
+                           infoAccessibilityLabel: info?.accessibilityLabel ?? "More info")
             HeroValue(value: text, unit: unit.isEmpty ? nil : unit,
                       caption: latest.map { BodyVitalReading.dayLabel(Self.dayKey($0.date)) },
                       captionPlacement: .below)
