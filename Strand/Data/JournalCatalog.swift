@@ -275,6 +275,12 @@ final class JournalCatalogStore: ObservableObject {
         edit(canonical) { $0.kind = kind }
     }
 
+    /// Pick the Journal group a question is listed and ordered under (a `CoachingCheckInGroup` raw value), or nil to go
+    /// back to the group its `JournalGroup` and wording imply. Display and ordering only; the key never changes.
+    func setCoachingGroup(_ canonical: String, to coachingGroup: String?) {
+        edit(canonical) { $0.coachingGroup = coachingGroup }
+    }
+
     /// Set an item's sort index within its group (drag-reorder).
     func setSortIndex(_ canonical: String, to sortIndex: Int) {
         edit(canonical) { $0.sortIndex = sortIndex }
@@ -374,6 +380,9 @@ struct JournalCatalogItem: Equatable, Codable, Identifiable {
     var hidden: Bool
     /// True for a user-added question (deletable); false for a starter/imported one (hideable only).
     var custom: Bool
+    /// The Journal group the user picked for this question (a `CoachingCheckInGroup` raw value). When set it wins over the
+    /// group `group` and the wording imply; nil for a question they have not moved.
+    var coachingGroup: String?
 
     var id: String { canonical }
 
@@ -383,7 +392,8 @@ struct JournalCatalogItem: Equatable, Codable, Identifiable {
     }
 
     init(canonical: String, displayName: String?, kind: JournalKind, group: JournalGroup,
-         sortIndex: Int, hidden: Bool, custom: Bool) {
+         sortIndex: Int, hidden: Bool, custom: Bool, coachingGroup: String? = nil) {
+        self.coachingGroup = coachingGroup
         self.canonical = canonical
         self.displayName = displayName
         self.kind = kind
