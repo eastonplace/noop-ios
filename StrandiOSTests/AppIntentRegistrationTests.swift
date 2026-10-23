@@ -12,5 +12,12 @@ final class AppIntentRegistrationTests: XCTestCase {
         XCTAssertTrue(SyncStrapIntent.openAppWhenRun)
         XCTAssertFalse(MarkMomentIntent.openAppWhenRun)
     }
+
+    func testGPSRouteExportRequiresAuthenticationOnTheLocalDevice() {
+        // The file includes timestamped precise locations. Siri/Shortcuts must authenticate
+        // before perform can read the saved route, including when NOOP remains backgrounded.
+        XCTAssertEqual(ExportWorkoutRouteIntent.authenticationPolicy, .requiresLocalDeviceAuthentication)
+        XCTAssertFalse(ExportWorkoutRouteIntent.openAppWhenRun)
+    }
 }
 #endif

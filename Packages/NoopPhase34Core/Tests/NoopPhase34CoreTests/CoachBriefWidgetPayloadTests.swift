@@ -45,6 +45,17 @@ final class CoachBriefWidgetPayloadTests: XCTestCase {
         let decoded = try JSONDecoder().decode(CoachBriefWidgetPayload.self, from: JSONSerialization.data(withJSONObject: object))
         XCTAssertFalse(decoded.isDisplayable(epoch: 7, contextID: "source-a", logicalDay: "2026-09-21", now: now))
     }
+    func testCurrentStrainScaleAcceptsCompletedBriefAboveLegacyMaximum() throws {
+        for strain in [21.1, 50, 100] {
+            let value = try payload(strain: strain)
+            let decoded = try JSONDecoder().decode(CoachBriefWidgetPayload.self, from: JSONEncoder().encode(value))
+            XCTAssertEqual(decoded.strain, strain)
+            XCTAssertTrue(decoded.isDisplayable(epoch: 7, contextID: "source-a", logicalDay: "2026-09-21", now: now))
+        }
+        XCTAssertNil(CoachBriefWidgetPayload(epoch: 7, contextID: "source-a", generation: 42,
+            logicalDay: "2026-09-21", generatedAt: now, kind: .morning, text: "A brief.", strain: 100.1))
+    }
+
     func testMissingMetricsStayMissing() throws {
         let value = try XCTUnwrap(CoachBriefWidgetPayload(epoch: 7, contextID: "source-a", generation: 42,
             logicalDay: "2026-09-21", generatedAt: now, kind: .evening, text: "Your evening brief."))

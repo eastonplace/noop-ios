@@ -54,7 +54,7 @@ enum AppChangelog {
             Feature("book.closed.fill", .journal, "Coach and Journal", "Dictate daily notes and add a Coach brief widget."),
             Feature("figure.walk", .accent, "Workout review and export", "Review detected types and share measured GPX or FIT routes."),
             Feature("waveform.path.ecg", .stress, "Your stress baseline", "Compare hourly stress with your own normal."),
-            Feature("heart.fill", .hrv, "Reliable daily data", "Cleaner scores, filtered steps and protected history."),
+            Feature("heart.fill", .hrv, "Reliable daily data", "Cleaner scores, protected history and quicker workout review."),
             Feature("bed.double.fill", .sleep, "Sleep at a glance", "See sleep need, stages and night detail with less scrolling."),
             Feature("info.circle", .accent, "Score guides everywhere", "See what each metric means and how to read yours."),
             Feature("alarm.fill", .sleep, "Confirmed strap alarms", "Wake times check the current strap's reply."),

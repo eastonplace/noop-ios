@@ -1376,13 +1376,15 @@ public enum SleepStager {
 
         // Linear interpolation over the grid (numpy.interp semantics: clamp at edges).
         var filled = [Double](repeating: 0, count: n)
+        var upperKnownIndex = 1
         for i in 0..<n {
             if !hrPerEpoch[i].isNaN { filled[i] = hrPerEpoch[i]; continue }
-            // find surrounding known points
+            // Both the epoch and known-point indexes only advance. Searching from the start for
+            // every missing epoch made a partially covered night's interpolation quadratic.
             if i <= maskIdx.first! { filled[i] = hrPerEpoch[maskIdx.first!]; continue }
             if i >= maskIdx.last! { filled[i] = hrPerEpoch[maskIdx.last!]; continue }
-            var lo = maskIdx.first!, hi = maskIdx.last!
-            for m in maskIdx { if m <= i { lo = m } ; if m >= i { hi = m; break } }
+            while maskIdx[upperKnownIndex] < i { upperKnownIndex += 1 }
+            let lo = maskIdx[upperKnownIndex - 1], hi = maskIdx[upperKnownIndex]
             if hi == lo { filled[i] = hrPerEpoch[lo] }
             else {
                 let frac = Double(i - lo) / Double(hi - lo)

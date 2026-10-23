@@ -55,6 +55,7 @@ enum HealthKitExportDeletionCommit {
         recordIdentities: ([HealthKitObjectIdentity]) async throws -> Void,
         delete: () async throws -> Int
     ) async throws -> Int {
+        try Task.checkCancellation()
         let samples = try await loadSamples()
         let identities = samples.map {
             HealthKitObjectIdentity(
@@ -65,9 +66,13 @@ enum HealthKitExportDeletionCommit {
             )
         }
         for start in stride(from: 0, to: identities.count, by: maximumIdentityBatchSize) {
+            try Task.checkCancellation()
             let end = min(start + maximumIdentityBatchSize, identities.count)
             try await recordIdentities(Array(identities[start..<end]))
         }
+        // The journal write may complete after the background grant expires. Retain its identity
+        // evidence, but do not start a destructive rewrite that the cancelled exporter cannot finish.
+        try Task.checkCancellation()
         return try await delete()
     }
 }
@@ -718,7 +723,7 @@ final class HealthKitSyncCoordinator {
     }
 }
 
-struct HealthKitAnchorPage {
+struct HealthKitAnchorPage: Sendable {
     let samples: [HKSample]
     /// HealthKit supplies only UUIDs for deleted objects. They are resolved through the persisted
     /// source-object index before the observer's aggregation window is chosen.
@@ -768,7 +773,8 @@ final class HealthKitAnchoredPageLoader: HealthKitAnchoredPageLoading {
         anchor: HKQueryAnchor?,
         limit: Int
     ) async throws -> HealthKitAnchorPage {
-        try await withCheckedThrowingContinuation { continuation in
+        var activeQuery: HKAnchoredObjectQuery?
+        return try await HealthKitCancellableQuery.run(start: { completion in
             let query = HKAnchoredObjectQuery(
                 type: type,
                 predicate: predicate,
@@ -776,17 +782,20 @@ final class HealthKitAnchoredPageLoader: HealthKitAnchoredPageLoading {
                 limit: limit
             ) { _, samples, deleted, newAnchor, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    completion(.failure(error))
                 } else {
-                    continuation.resume(returning: HealthKitAnchorPage(
+                    completion(.success(HealthKitAnchorPage(
                         samples: samples ?? [],
                         deletedObjectUUIDs: (deleted ?? []).map { $0.uuid.uuidString },
                         newAnchor: newAnchor
-                    ))
+                    )))
                 }
             }
+            activeQuery = query
             store.execute(query)
-        }
+        }, stop: { [store] in
+            if let activeQuery { store.stop(activeQuery) }
+        })
     }
 }
 
@@ -837,6 +846,7 @@ final class HealthKitAnchorPager {
         var finalAnchor: HKQueryAnchor?
 
         repeat {
+            try Task.checkCancellation()
             guard pageCount < Self.maximumPageCount else { throw PagingError.excessivePageCount }
             let page = try await loader.loadPage(
                 type: type,
@@ -844,6 +854,7 @@ final class HealthKitAnchorPager {
                 anchor: cursor,
                 limit: pageLimit
             )
+            try Task.checkCancellation()
             guard let nextAnchor = page.newAnchor else { throw PagingError.missingAnchor }
             pageCount += 1
             sampleCount += page.samples.count

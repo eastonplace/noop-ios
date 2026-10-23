@@ -161,18 +161,24 @@ enum ShortcutHealthImport {
         return v.isEmpty ? nil : v
     }
 
+    /// Treat non-finite text as an absent optional metric. Keep valid cells in the same record.
+    private static func finiteDouble(_ text: String) -> Double? {
+        guard let value = Double(text), value.isFinite else { return nil }
+        return value
+    }
+
     private static func parseDay(_ f: [String]) -> ParsedDay? {
         // D,day,steps,activeKcal,restingHr,hrvMs,avgHr,asleepMin,vo2max,weightKg
         guard let day = field(f, 1), isValidDay(day) else { return nil }
         var d = ParsedDay(day: day)
         d.steps      = field(f, 2).flatMap { Int($0) }
-        d.activeKcal = field(f, 3).flatMap { Double($0) }
+        d.activeKcal = field(f, 3).flatMap(finiteDouble)
         d.restingHr  = field(f, 4).flatMap { Int($0) }
-        d.hrvMs      = field(f, 5).flatMap { Double($0) }
+        d.hrvMs      = field(f, 5).flatMap(finiteDouble)
         d.avgHr      = field(f, 6).flatMap { Int($0) }
-        d.asleepMin  = field(f, 7).flatMap { Double($0) }
-        d.vo2max     = field(f, 8).flatMap { Double($0) }
-        d.weightKg   = field(f, 9).flatMap { Double($0) }
+        d.asleepMin  = field(f, 7).flatMap(finiteDouble)
+        d.vo2max     = field(f, 8).flatMap(finiteDouble)
+        d.weightKg   = field(f, 9).flatMap(finiteDouble)
         return d.hasAnyMetric ? d : nil
     }
 
@@ -189,9 +195,9 @@ enum ShortcutHealthImport {
         let (derivedDuration, overflow) = end.subtractingReportingOverflow(start)
         guard !overflow, derivedDuration >= 0 else { return nil }
         var w = ParsedWorkout(startTs: start, endTs: end, sport: sport)
-        w.durationS  = field(f, 4).flatMap { Double($0) } ?? Double(derivedDuration)
-        w.energyKcal = field(f, 5).flatMap { Double($0) }
-        w.distanceM  = field(f, 6).flatMap { Double($0) }
+        w.durationS  = field(f, 4).flatMap(finiteDouble) ?? Double(derivedDuration)
+        w.energyKcal = field(f, 5).flatMap(finiteDouble)
+        w.distanceM  = field(f, 6).flatMap(finiteDouble)
         return w
     }
 

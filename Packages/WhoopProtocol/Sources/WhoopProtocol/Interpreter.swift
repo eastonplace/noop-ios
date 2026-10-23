@@ -377,10 +377,12 @@ private func parseFrameWhoop5(_ frame: [UInt8], collectFields: Bool) -> ParsedFr
         if spec!.post == "realtime_data" {
             // Verified variable-length extension: REALTIME_DATA R-R intervals (rr_count @13+delta,
             // intervals @14+delta…), the same shape as 4.0 shifted by +4.
-            let rrn = readDType(frame, 13 + delta, "u8") ?? 0
+            let end = min(payloadEnd ?? 0, frame.count)
+            let rrn = 13 + delta < end ? (readDType(frame, 13 + delta, "u8") ?? 0) : 0
             var rrs: [Int] = []
             for i in 0..<rrn {
                 let off = 14 + delta + i * 2
+                guard off + 2 <= end else { break } // Never decode CRC32 bytes as intervals.
                 if let v = readDType(frame, off, "u16"), v > 0 {
                     fb.add(off, 2, "rr[\(i)]", "rr", value: .int(v), note: "ms")
                     rrs.append(v)

@@ -43,7 +43,7 @@ public struct CoachBriefWidgetPayload: Codable, Equatable, Sendable {
             && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && text.utf8.count <= Self.maximumTextBytes
             && (recovery.map { (0...100).contains($0) } ?? true)
-            && (strain.map { $0.isFinite && (0...21).contains($0) } ?? true)
+            && (strain.map { $0.isFinite && (0...100).contains($0) } ?? true)
             && (sleepMinutes.map { (0...1_440).contains($0) } ?? true)
     }
 
