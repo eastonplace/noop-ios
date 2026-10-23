@@ -1,4 +1,5 @@
 import XCTest
+import GRDB
 import WhoopProtocol
 @testable import WhoopStore
 
@@ -97,6 +98,34 @@ final class ReadTests: XCTestCase {
         let other = try await store.plausibleHRCount(
             deviceId: "other", from: 0, to: 1_000, bpmRange: 30...240, cap: 100)
         XCTAssertEqual(other, 1)
+    }
+
+    func testPlausibleHrCountFiltersPpgFallbackByTheSameBpmRange() async throws {
+        let store = try await WhoopStore.inMemory()
+        _ = try await store.insert(Streams(
+            hr: [HRSample(ts: 10, bpm: 0), HRSample(ts: 20, bpm: 70)],
+            ppgHr: [
+                PpgHrSample(ts: 10, bpm: 65, conf: 0.8), // measured zero still owns this second
+                PpgHrSample(ts: 20, bpm: 80, conf: 0.8), // measured second counts once
+                PpgHrSample(ts: 40, bpm: 30, conf: 0.8),
+                PpgHrSample(ts: 50, bpm: 240, conf: 0.8),
+                PpgHrSample(ts: 60, bpm: 241, conf: 0.8),
+                PpgHrSample(ts: 70, bpm: 0, conf: 0.8),
+            ]), deviceId: "d")
+        // The persisted column is REAL even though the current protocol model carries whole bpm.
+        // Legacy/foreign rows must be checked in the same rounded domain as hrSamples.
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                INSERT INTO ppgHrSample (deviceId, ts, bpm, conf) VALUES
+                    ('d', 30, 29.4, 0.8), ('d', 80, 29.6, 0.8), ('d', 90, 240.4, 0.8)
+                """)
+        }
+        let count = try await store.plausibleHRCount(
+            deviceId: "d", from: 0, to: 100, bpmRange: 30...240, cap: 100)
+        XCTAssertEqual(count, 5)
+        let invalidOnly = try await store.plausibleHRCount(
+            deviceId: "d", from: 60, to: 70, bpmRange: 30...240, cap: 1)
+        XCTAssertEqual(invalidOnly, 0, "invalid fallback rows must not satisfy a coverage gate")
     }
 
     func testHrBucketsAveragePerBucketOrderedAndDeviceScoped() async throws {

@@ -28,12 +28,35 @@ struct LiftReceiptLogicTests {
     #expect(snapshot.lines[0].loadLabel == "45 LB × 10")
     #expect(snapshot.lines[0].volumeLabel == "450 LB")
     #expect(snapshot.lines[1].statusLabel == "1/3")
-    #expect(snapshot.lines[1].detailLabel == "100 LB × 5  /  1/3 SET")
+    #expect(snapshot.lines[1].detailLabel == "100 LB × 5  /  SET 1 OF 3")
     #expect(snapshot.lines[1].loadLabel == "100 LB × 5")
     #expect(snapshot.lines[1].volumeLabel == "500 LB")
     #expect(snapshot.lines[2].statusLabel == "1/2")
     #expect(snapshot.lines[2].loadLabel == "BW × 8")
     #expect(snapshot.lines[2].volumeLabel == "—")
+  }
+
+  @Test("Each receipt row labels its set ordinal without claiming cumulative sets or volume")
+  func receiptSetOrdinalLabels() {
+    let fixture = ReceiptFixture()
+    let session = fixture.session(sets: [
+      fixture.set(exerciseID: fixture.loaded.id, number: 1, weight: 135, reps: 8),
+      fixture.set(exerciseID: fixture.loaded.id, number: 2, weight: 135, reps: 8),
+    ], duration: 180)
+
+    for target in [Int?.none, 3] {
+      let snapshot = LiftReceiptSnapshot.make(
+        session: session,
+        exercisesByID: [fixture.loaded.id: fixture.loaded],
+        targetSetsByExerciseID: target.map { [fixture.loaded.id: $0] } ?? [:]
+      )
+      let expectedOrdinals = target == nil ? ["SET 1", "SET 2"] : ["SET 1 OF 3", "SET 2 OF 3"]
+      #expect(snapshot.lines.map(\.detailLabel) == expectedOrdinals.map { "135 LB × 8  /  \($0)" })
+      #expect(snapshot.lines.map(\.id) == session.sets.map(\.id))
+      #expect(snapshot.lines.map(\.volumeLabel) == ["1,080 LB", "1,080 LB"])
+      #expect(snapshot.workingSetCount == 2)
+      #expect(snapshot.totalVolume == 2_160)
+    }
   }
 
   @Test("Warm-ups add volume but do not add working-set totals")

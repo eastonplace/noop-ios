@@ -34,6 +34,17 @@ public struct OuraSecureFrame: Equatable, Sendable {
 }
 
 public enum OuraFraming {
+    /// Command/response opcodes in the protocol's outer-frame table. Unlike event records, these
+    /// may have fewer than four body bytes (for example an auth status or notification ACK).
+    public static func isOuterOpcode(_ op: UInt8) -> Bool {
+        switch op {
+        case 0x06...0x13, 0x16...0x21, 0x24...0x26, 0x28...0x29, 0x2B...0x2C, 0x2F,
+             0x31...0x32, 0x37...0x3A:
+            return true
+        default:
+            return false
+        }
+    }
     /// The secure-session / extended opcode. Per OURA_PROTOCOL.md s2.2 / s4.1.
     public static let secureSessionOp: UInt8 = 0x2F
 
@@ -144,7 +155,7 @@ public extension OuraFraming {
 
 // MARK: - Reassembler
 
-/// Accumulate BLE notification fragments into complete TLV inner records. A record never spans two
+/// Accumulate BLE notification fragments into complete outer frames or TLV inner records. A record never spans two
 /// notifications in the verified corpus, but the parser is still defensive: it buffers partial
 /// trailing bytes across feeds and only emits complete `2 + len` records (OURA_PROTOCOL.md s2.4).
 ///
@@ -162,28 +173,39 @@ public final class OuraReassembler {
 
     public init() {}
 
-    /// Feed one notification value. Returns every complete TLV record now available, in order. Partial
-    /// trailing bytes are retained for the next feed. Per OURA_PROTOCOL.md s2.3 / s2.4.
+    /// Feed one notification value and return its event records. Outer responses are consumed at
+    /// their own declared length, so short ACK bodies cannot corrupt the following event stream.
     public func feed(_ fragment: [UInt8]) -> [OuraRecord] {
+        feedFrames(fragment).compactMap { frame in
+            guard !OuraFraming.isOuterOpcode(frame.op) else { return nil }
+            return OuraFraming.parseRecord([frame.op, UInt8(frame.body.count)] + frame.body)
+        }
+    }
+
+    /// Reassemble the shared outer/event wire format before routing either kind. Buffering once for
+    /// the whole channel preserves a trailing partial event after a secure frame, and a fragmented
+    /// auth/history response is delivered exactly once when complete.
+    public func feedFrames(_ fragment: [UInt8]) -> [OuraOuterFrame] {
         buf.append(contentsOf: fragment)
-        var out: [OuraRecord] = []
-        while buf.count >= 2 {
-            let len = Int(buf[1])
+        var out: [OuraOuterFrame] = []
+        var head = 0
+        while buf.count - head >= 2 {
+            let op = buf[head]
+            let len = Int(buf[head + 1])
             // A record must cover its 4 timestamp bytes. A len < 4 here is a misaligned byte: drop one
             // and resync rather than emit garbage (honest-data invariant).
-            if len < OuraFraming.minRecordLen {
-                buf.removeFirst(1)
+            if !OuraFraming.isOuterOpcode(op), len < OuraFraming.minRecordLen {
+                head += 1
                 continue
             }
             let total = 2 + len
-            if buf.count < total {
+            if buf.count - head < total {
                 break   // wait for the rest of this record
             }
-            if let rec = OuraFraming.parseRecord(Array(buf[0..<total])) {
-                out.append(rec)
-            }
-            buf.removeFirst(total)
+            out.append(OuraOuterFrame(op: op, body: Array(buf[(head + 2)..<(head + total)])))
+            head += total
         }
+        if head > 0 { buf.removeFirst(head) }
         return out
     }
 

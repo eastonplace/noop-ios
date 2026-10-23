@@ -130,13 +130,14 @@ public enum ReadinessEngine {
                              signals: [], acwr: nil, monotony: nil)
         }
         let history = sorted.filter { $0.day < latest.day }   // everything before today
+        let baselineHistory = physiologyBaseline(history, target: latest.day)
 
         var signals: [Signal] = []
 
         // HRV readiness ------------------------------------------------------
         let hrvSignal = zSignal(
             value: latest.avgHrv,
-            baseline: history.suffix(baselineWindow).compactMap { $0.avgHrv },
+            baseline: baselineHistory.compactMap { $0.avgHrv },
             key: "hrv", label: "HRV",
             unit: "ms",
             decimals: 0,
@@ -150,7 +151,7 @@ public enum ReadinessEngine {
         // Resting-HR drift ---------------------------------------------------
         let rhrSignal = zSignal(
             value: latest.restingHr.map(Double.init),
-            baseline: history.suffix(baselineWindow).compactMap { $0.restingHr.map(Double.init) },
+            baseline: baselineHistory.compactMap { $0.restingHr.map(Double.init) },
             key: "rhr", label: "Resting HR",
             unit: "bpm",
             decimals: 0,
@@ -167,7 +168,7 @@ public enum ReadinessEngine {
         // use wider resp-only z thresholds (WATCH 1.5 / BAD 2.0) than HRV/RHR so a single noisy night
         // can't flip RUNDOWN. Mirrors the Kotlin reference (#78) for cross-platform parity.
         if let rr = latest.respRateBpm, SleepStager.respPlausibleRangeBpm.contains(rr) {
-            let base = history.suffix(baselineWindow).compactMap { $0.respRateBpm }
+            let base = baselineHistory.compactMap { $0.respRateBpm }.filter(\.isFinite)
             if base.count >= minBaseline, let m = mean(base),
                SleepStager.respPlausibleRangeBpm.contains(m), let sd = sampleSD(base), sd > 0 {
                 let z = (rr - m) / sd
@@ -195,15 +196,17 @@ public enum ReadinessEngine {
            let acute = mean(acuteDays), let chronic = mean(chronicDays) {
             if chronic > 0 {
                 let ratio = acute / chronic
-                acwr = ratio
-                signals.append(acwrSignal(ratio, acute: acute, chronic: chronic))
+                if ratio.isFinite {
+                    acwr = ratio
+                    signals.append(acwrSignal(ratio, acute: acute, chronic: chronic))
+                }
             }
             // Foster monotony over the strain days of the last calendar week.
             let week = acuteDays
             if week.count >= minAcute, let sd = sampleSD(week), sd > 0, let m = mean(week) {
                 let mono = m / sd
-                monotony = mono
-                if mono >= 2.0 {
+                if mono.isFinite { monotony = mono }
+                if mono.isFinite, mono >= 2.0 {
                     signals.append(Signal(key: "monotony", label: "Training variety",
                         evidence: "monotony \(String(format: "%.1f", mono))",
                         detail: "low - similar strain every day raises strain/illness risk", flag: .watch))
@@ -215,6 +218,16 @@ public enum ReadinessEngine {
                                                     hasHistory: !history.isEmpty || acwr != nil)
         return Readiness(level: level, headline: headline, summary: summary,
                          signals: signals, acwr: acwr, monotony: monotony)
+    }
+
+    /// The prior 30 calendar days, rather than 30 stored rows stretched across wear gaps.
+    /// One row per date means at most `baselineWindow` trailing rows can be in that interval.
+    private static func physiologyBaseline(_ history: [DailyMetric], target: String) -> [DailyMetric] {
+        guard let targetDay = epochDay(target) else { return [] }
+        return history.suffix(baselineWindow).filter { row in
+            guard let day = epochDay(row.day) else { return false }
+            return (1...baselineWindow).contains(targetDay - day)
+        }
     }
 
     /// Daily strain for the `chronicWindow` calendar days before `target`, keyed by days before it
@@ -246,10 +259,12 @@ public enum ReadinessEngine {
                                 higherIsBetter: Bool,
                                 goodText: String, neutralText: String,
                                 watchText: String, badText: String) -> Signal? {
-        guard let v = value, baseline.count >= minBaseline,
+        let baseline = baseline.filter(\.isFinite)
+        guard let v = value, v.isFinite, baseline.count >= minBaseline,
               let m = mean(baseline), let sd = sampleSD(baseline), sd > 0 else { return nil }
         // Orient z so positive always means "better".
         let z = (higherIsBetter ? (v - m) : (m - v)) / sd
+        guard z.isFinite else { return nil }
         let flag: Flag
         let text: String
         switch z {
@@ -291,9 +306,11 @@ public enum ReadinessEngine {
     }
 
     private static func format(_ value: Double, decimals: Int) -> String {
-        decimals == 0
-            ? String(Int(value.rounded()))
-            : String(format: "%.\(decimals)f", value)
+        if decimals == 0 {
+            if let integer = StableStatistics.roundedInt(value) { return String(integer) }
+            return String(format: "%.0f", value.rounded())
+        }
+        return String(format: "%.\(decimals)f", value)
     }
 
     // MARK: Synthesis
@@ -328,13 +345,19 @@ public enum ReadinessEngine {
     // MARK: Stats helpers
 
     static func mean(_ xs: [Double]) -> Double? {
-        xs.isEmpty ? nil : xs.reduce(0, +) / Double(xs.count)
+        let xs = xs.filter(\.isFinite)
+        guard !xs.isEmpty else { return nil }
+        let sum = xs.reduce(0, +)
+        // Keep ordinary arithmetic identical; rescale only when finite imported values overflow the sum.
+        return sum.isFinite ? sum / Double(xs.count) : StableStatistics.mean(xs)
     }
 
     /// Sample standard deviation (n-1). nil for fewer than 2 points.
     static func sampleSD(_ xs: [Double]) -> Double? {
+        let xs = xs.filter(\.isFinite)
         guard xs.count >= 2, let m = mean(xs) else { return nil }
         let ss = xs.reduce(0) { $0 + ($1 - m) * ($1 - m) }
-        return (ss / Double(xs.count - 1)).squareRoot()
+        return ss.isFinite ? (ss / Double(xs.count - 1)).squareRoot()
+            : StableStatistics.sampleStandardDeviation(xs, mean: m)
     }
 }

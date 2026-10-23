@@ -104,10 +104,14 @@ private let utcRangeFormatter: DateFormatter = {
 }()
 
 func registerPostHooks() {
-    postHooks["realtime_data"] = { fb, frame, _, _ in
-        let rrn = u8(frame, 13) ?? 0
+    postHooks["realtime_data"] = { fb, frame, length, _ in
+        // The CRC32 trailer is not sensor payload. A corrupt RR count must never turn its bytes
+        // into extra beats, including an interval whose first byte is the payload's last byte.
+        let payloadEnd = min(length ?? 0, frame.count)
+        let rrn = 13 < payloadEnd ? (u8(frame, 13) ?? 0) : 0
         var rrs: [Int] = []
         for i in 0..<rrn {
+            guard 14 + i * 2 + 2 <= payloadEnd else { break }
             // Drop 0 ms intervals here too, matching the historical path (Streams.extractStreams);
             // a 0 ms R-R is a placeholder, not a beat-to-beat interval.
             if let v = u16(frame, 14 + i * 2), v > 0 {

@@ -4,6 +4,10 @@ import XCTest
 /// editor instead of the preview must fail before a workout can start.
 @MainActor
 final class LiftRoutineSelectionTests: XCTestCase {
+    private enum HarnessError: Error {
+        case unreachable(String)
+    }
+
     func testSwitchingSavedRoutinesPreviewsThenStartsTheSelectedRoutine() {
         continueAfterFailure = false
         let app = launch()
@@ -43,7 +47,7 @@ final class LiftRoutineSelectionTests: XCTestCase {
         XCTAssertTrue(lowerRecording.exists, "The original selected workout remains active")
     }
 
-    func testRoutineEditAndSaveRemainSeparateFromStarting() {
+    func testRoutineEditAndSaveRemainSeparateFromStarting() throws {
         continueAfterFailure = false
         let app = launch()
         defer { app.terminate() }
@@ -55,7 +59,7 @@ final class LiftRoutineSelectionTests: XCTestCase {
         let actions = app.buttons["Routine actions"].firstMatch
         reveal(actions, in: app)
         actions.tap()
-        let save = openRoutineEditor(in: app)
+        let save = try openRoutineEditor(in: app)
         XCTAssertNil(visibleAction("lift.progression.startAsPlanned", in: app))
         XCTAssertNil(visibleAction("lift.progression.applyAndStart", in: app))
         XCTAssertNil(visibleAction("Finish workout", in: app))
@@ -107,16 +111,25 @@ final class LiftRoutineSelectionTests: XCTestCase {
             }
     }
 
-    private func openRoutineEditor(in app: XCUIApplication) -> XCUIElement {
-        let edit = readyAction("Edit", in: app)
-        edit.tap()
-        let save = app.buttons.matching(NSPredicate(format: "label == 'Save' OR identifier == 'Save'")).firstMatch
-        if !save.waitForExistence(timeout: 5), edit.exists && edit.isHittable {
-            // Native menu taps can leave the same popup open on Simulator. Retry once on
-            // the label side only while Edit is still visible; never bypass the menu route.
-            capture(app, "edit-menu-still-open-before-retry")
-            edit.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+    private func openRoutineEditor(in app: XCUIApplication) throws -> XCUIElement {
+        let edit = app.buttons.matching(NSPredicate(format: "label == 'Edit'")).firstMatch
+        guard edit.waitForExistence(timeout: 15) else {
+            capture(app, "routine-edit-menu-missing")
+            throw HarnessError.unreachable("The native Edit menu option must exist before activation")
         }
+        let frame = edit.frame
+        guard !frame.isEmpty, !frame.isNull, !frame.isInfinite,
+              frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.width.isFinite, frame.height.isFinite, app.frame.contains(frame), edit.isEnabled else {
+            capture(app, "routine-edit-menu-not-ready")
+            throw HarnessError.unreachable("The native Edit option must be enabled and fully visible before activation")
+        }
+        // iOS 26 can report a visible native menu option as non-hittable. Exercise the
+        // actual menu touch, then require both dismissal and the editor's ready Save control.
+        edit.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let menuDismissed = edit.waitForNonExistence(timeout: 5)
+        if !menuDismissed { capture(app, "routine-edit-menu-did-not-dismiss") }
+        XCTAssertTrue(menuDismissed, "Activating Edit must close the native routine menu")
         return readyAction("Save", in: app)
     }
 
