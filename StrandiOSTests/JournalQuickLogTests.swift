@@ -418,8 +418,9 @@ final class JournalQuickLogModelTests: XCTestCase {
         release?.resume()
         for _ in 0..<1000 where saved.count < 2 { try? await Task.sleep(for: .milliseconds(1)) }
         XCTAssertEqual(saved.map(\.0), ["2026-10-22", "2026-10-22"])
-        XCTAssertEqual(saved.map(\.1), [.answer(question: "Did you read before bed?", yes: false),
-                                       .amount(question: "Did you drink any alcohol?", value: 0)])
+        // The displayed grid orders alcohol before reading; the accepted bulk write preserves that order.
+        XCTAssertEqual(saved.map(\.1), [.amount(question: "Did you drink any alcohol?", value: 0),
+                                       .answer(question: "Did you read before bed?", yes: false)])
         XCTAssertEqual(replacementWrites, 0)
         XCTAssertEqual(oldCompletions, 0, "A stale run must not refresh the new context")
         XCTAssertEqual(model.dayKey, "2026-10-21")
