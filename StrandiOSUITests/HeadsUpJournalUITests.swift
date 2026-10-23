@@ -216,7 +216,8 @@ final class HeadsUpJournalUITests: XCTestCase {
         if !current.isEmpty {
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
         }
-        try waitFor(field, predicate: "value == '' OR value == nil", in: app)
+        // XCTest can expose the placeholder as the value of an empty field.
+        try waitFor(field, predicate: "value == '' OR value == nil OR value == placeholderValue", in: app)
         field.typeText(replacement)
         try waitFor(field, predicate: "value == '\(replacement)'", in: app)
     }
