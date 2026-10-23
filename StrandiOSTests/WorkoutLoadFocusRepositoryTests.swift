@@ -14,18 +14,22 @@ final class WorkoutLoadFocusRepositoryTests: XCTestCase {
     private var savedMaxHR: Any?
     private var savedPauses: Any?
 
-    override func setUp() {
-        super.setUp()
-        savedMaxHR = UserDefaults.standard.object(forKey: "profile.hrMaxOverride")
-        savedPauses = UserDefaults.standard.object(forKey: WorkoutPauseStore.defaultsKey)
-        UserDefaults.standard.set(200, forKey: "profile.hrMaxOverride")
-        UserDefaults.standard.removeObject(forKey: WorkoutPauseStore.defaultsKey)
+    override func setUp() async throws {
+        try await super.setUp()
+        await MainActor.run {
+            savedMaxHR = UserDefaults.standard.object(forKey: "profile.hrMaxOverride")
+            savedPauses = UserDefaults.standard.object(forKey: WorkoutPauseStore.defaultsKey)
+            UserDefaults.standard.set(200, forKey: "profile.hrMaxOverride")
+            UserDefaults.standard.removeObject(forKey: WorkoutPauseStore.defaultsKey)
+        }
     }
 
-    override func tearDown() {
-        UserDefaults.standard.set(savedMaxHR, forKey: "profile.hrMaxOverride")
-        UserDefaults.standard.set(savedPauses, forKey: WorkoutPauseStore.defaultsKey)
-        super.tearDown()
+    override func tearDown() async throws {
+        await MainActor.run {
+            UserDefaults.standard.set(savedMaxHR, forKey: "profile.hrMaxOverride")
+            UserDefaults.standard.set(savedPauses, forKey: WorkoutPauseStore.defaultsKey)
+        }
+        try await super.tearDown()
     }
 
     private func samples(_ bpm: Int, range: Range<Int>? = nil) -> [HRSample] {
