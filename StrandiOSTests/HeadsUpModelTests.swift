@@ -108,7 +108,9 @@ final class HeadsUpModelTests: XCTestCase {
         guard case let .signals(cells) = card.content else { return XCTFail("A read shows its signals") }
         let restingHR = try XCTUnwrap(cells.first)
         XCTAssertEqual(restingHR.state, "Up")
-        XCTAssertEqual(restingHR.emphasis, StrandPalette.textPrimary, "A move on an all-clear read is not painted green")
+        XCTAssertEqual(restingHR.emphasis, HeadsUpPresentation.upInk,
+                       "A signal that is up reads amber on any read: the strip has no \"Up\" word to say so")
+        XCTAssertNil(try XCTUnwrap(cells.last).emphasis, "A normal signal keeps primary ink")
     }
 
     func testAMoveTheOtherWayIsNotCalledNormal() throws {
@@ -211,7 +213,7 @@ final class HeadsUpModelTests: XCTestCase {
     func testRaisedCardCountsSignalsAndShowsTheBanner() throws {
         let built = HeadsUpBuilder.snapshot(days: history(count: 40, spiked: 2), journal: [], enabled: true)
         let card = HeadsUpPresentation.card(built.snapshot)
-        XCTAssertEqual(card.pill, "3 of 4 up")
+        XCTAssertEqual(card.pill, "3 of 4 signals up")
         XCTAssertTrue(card.lineIsPrimary)
         guard case let .signals(cells) = card.content else { return XCTFail("A read shows its signals") }
         XCTAssertEqual(cells.count, 4)
@@ -219,8 +221,9 @@ final class HeadsUpModelTests: XCTestCase {
         XCTAssertTrue(restingHR.delta.hasPrefix("+"), "Resting HR reads as a rise: \(restingHR.delta)")
         XCTAssertEqual(restingHR.unit, "bpm")
         XCTAssertEqual(restingHR.state, "Up")
-        XCTAssertNotNil(restingHR.emphasis)
+        XCTAssertEqual(restingHR.emphasis, HeadsUpPresentation.upInk)
         XCTAssertEqual(cells[1].state, "Down")
+        XCTAssertEqual(cells.map(\.label), ["Resting HR", "HRV", "Skin temp", "Breathing"])
         XCTAssertNil(cells[3].emphasis, "Respiration stayed normal")
         XCTAssertEqual(HeadsUpPresentation.bannerLine(built.snapshot), "Heads-up: your body looks run down")
     }
@@ -239,17 +242,142 @@ final class HeadsUpModelTests: XCTestCase {
         let card = HeadsUpPresentation.card(explained)
         XCTAssertEqual(card.pill, "Explained")
         XCTAssertEqual(card.line, "Signals are up, but you logged alcohol. Likely that.")
-        XCTAssertEqual(try XCTUnwrap(card.chip).text, "Alcohol logged · likely the cause")
+        XCTAssertNil(card.chip, "The line already names the cause; the chip would say it twice")
         XCTAssertNotNil(HeadsUpPresentation.meterNote(explained))
     }
 
-    func testLearningCardShowsProgress() {
+    func testLearningCardSaysTheCountOnce() {
         let learning = HeadsUpBuilder.snapshot(days: history(count: 9), journal: [], enabled: true).snapshot
-        guard case let .progress(fraction, leading, _) = HeadsUpPresentation.card(learning).content else {
-            return XCTFail("Learning shows progress")
-        }
+        let card = HeadsUpPresentation.card(learning)
+        guard case let .progress(fraction) = card.content else { return XCTFail("Learning shows progress") }
         XCTAssertEqual(fraction, 6.0 / Double(HeadsUpSnapshot.nightsNeeded), accuracy: 1e-9)
-        XCTAssertEqual(leading, "6 of \(HeadsUpSnapshot.nightsNeeded) nights")
+        XCTAssertEqual(card.line, "Getting to know your normal · 6 of \(HeadsUpSnapshot.nightsNeeded) nights")
+        XCTAssertEqual(HeadsUpSnapshot.nightsNeeded, 14, "The copy promises 14 nights, the engine's trusted baseline")
+    }
+
+    func testBaselineCopyMatchesTheEngine() {
+        // 14 valid nights make a trusted baseline; the window feeding it is up to 28 nights ending 3 days back.
+        XCTAssertEqual(HeadsUpSnapshot.nightsNeeded, Baselines.minNightsTrust)
+        let days = history(count: 60)
+        let evaluation = HeadsUpBuilder.evaluate(days, context: .init())
+        XCTAssertEqual(evaluation.baselineNights, 28, "A long history still uses 28 baseline nights")
+        let learning = HeadsUpBuilder.snapshot(days: history(count: 9), journal: [], enabled: true).snapshot
+        XCTAssertTrue(HeadsUpPresentation.body(learning).contains("14 nights"))
+        XCTAssertFalse(HeadsUpPresentation.body(learning).contains("baseline"), "Plain words: \"your usual\"")
+    }
+
+    func testSkinTemperatureLineIsPlain() throws {
+        let built = HeadsUpBuilder.snapshot(days: history(count: 40, spiked: 2), journal: [], enabled: true)
+        let skin = try XCTUnwrap(built.snapshot.signals.first { $0.kind == .skinTemp })
+        let line = HeadsUpPresentation.detailLine(skin, phase: built.snapshot.phase)
+        XCTAssertEqual(line, "+0.8 °C · usual ±0.6 °C")
+    }
+
+    func testMildAndRaisedPillsCountTheSameWay() {
+        let built = HeadsUpBuilder.snapshot(days: history(count: 40, spiked: 2), journal: [], enabled: true)
+        XCTAssertEqual(HeadsUpPresentation.pill(.mild, built.snapshot), "3 of 4 signals up")
+        XCTAssertFalse(HeadsUpPresentation.line(.mild, built.snapshot).contains("3"),
+                       "The line does not repeat the pill's count")
+    }
+
+    // MARK: Checked before warning you
+
+    func testNoAnswersAreKeptApartFromYesAndFromNeverAsked() {
+        let day: Set<String> = [key(1), key(2)]
+        let journal = [
+            JournalEntry(day: key(1), question: "Did you drink any alcohol?", answeredYes: false, notes: nil),
+            JournalEntry(day: key(1), question: "Did you use a sauna?", answeredYes: false, notes: nil),
+            JournalEntry(day: key(2), question: "Did you use a sauna?", answeredYes: true, notes: nil),
+        ]
+        let context = HeadsUpBuilder.context(days: day, journal: journal)
+        XCTAssertEqual(context.causes, [.sauna])
+        XCTAssertEqual(context.answeredNo, [.alcohol], "A yes on any day beats a no on another")
+        XCTAssertFalse(context.answeredNo.contains(.stress), "Never asked is not a no")
+    }
+
+    func testSnapshotCarriesNoAnswers() {
+        let journal = [JournalEntry(day: key(39), question: "Did you drink any alcohol?", answeredYes: false,
+                                    notes: nil)]
+        let snapshot = HeadsUpBuilder.snapshot(days: history(count: 40, spiked: 2), journal: journal,
+                                               enabled: true).snapshot
+        XCTAssertEqual(snapshot.phase, .scored(.raised), "A no never softens a read")
+        XCTAssertEqual(snapshot.answeredNo, [.alcohol])
+        XCTAssertEqual(snapshot.causes, [])
+    }
+
+    // MARK: Elsewhere today
+
+    private func firstPaint(day: String, sleepMinutes: Double, strain: Double, recovery: Double) -> TodayHealthSnapshot {
+        func value(_ number: Double, version: Int? = nil) -> TodayHealthMetricValue {
+            TodayHealthMetricValue(value: number, metricDay: day, sourceId: "my-whoop-noop",
+                                   strainVersion: version)
+        }
+        return TodayHealthSnapshot(
+            scopeId: "dashboard:test", deviceId: "my-whoop", displayDay: day, logicalDay: day, localDay: day,
+            generatedAt: 1, schemaVersion: 2,
+            dailyMetric: DailyMetric(day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                                     lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil,
+                                     recovery: nil, strain: nil, exerciseCount: nil),
+            recovery: value(recovery), strain: value(strain, version: 2),
+            sleepDurationMinutes: value(sleepMinutes))
+    }
+
+    func testElsewhereTodayReadsTheSameValuesAsTodaysRings() {
+        let today = key(40)
+        // The raw daily row disagrees with what Today shows: a different sleep length and a different Strain.
+        var days = history(count: 40)
+        days.append(DailyMetric(day: today, totalSleepMin: 406.8, efficiency: 0.9, deepMin: 80, remMin: 100,
+                                lightMin: 250, disturbances: 3, restingHr: 52, avgHrv: 62, recovery: 71,
+                                strain: 60.5, exerciseCount: 1, spo2Pct: 97, skinTempDevC: 0, respRateBpm: 15.1))
+        let canonical = 58.1
+
+        // After first paint, off the canonical resolver: the row's raw Strain is not used.
+        let resolved = HeadsUpDayContext.resolve(days: days, snapshot: nil, canonicalStrain: { _ in canonical },
+                                                 logicalKey: today, localKey: today)
+        XCTAssertEqual(resolved.day, today)
+        XCTAssertEqual(resolved.strain, canonical)
+        XCTAssertEqual(HeadsUpPresentation.contextStrain(resolved.strain),
+                       String(format: "%.1f", StrainScale.displayValue(fromStored: canonical)))
+        XCTAssertEqual(resolved.recovery, 71)
+
+        // While Today is still painting from its saved snapshot, the page follows the snapshot, not the row.
+        let snapshot = firstPaint(day: today, sleepMinutes: 406.8, strain: 58.1, recovery: 64)
+        let painting = HeadsUpDayContext.resolve(days: days, snapshot: snapshot, canonicalStrain: { _ in 99 },
+                                                 logicalKey: today, localKey: today)
+        XCTAssertEqual(painting.strain, 58.1)
+        XCTAssertEqual(painting.recovery, 64)
+        XCTAssertEqual(painting.sleepMinutes, 406.8)
+    }
+
+    func testElsewhereTodaySleepUsesTodaysOwnFormatting() {
+        // 406.8 minutes is 6h 46m on Today's tile (it drops the fraction); rounding up to 6h 47m disagreed with it.
+        XCTAssertEqual(HeadsUpPresentation.contextSleep(406.8), TodayView.sleepDurationText(minutes: 406.8))
+        XCTAssertEqual(HeadsUpPresentation.contextSleep(406.8), "6h 46m")
+        XCTAssertEqual(HeadsUpPresentation.contextSleep(nil), "—")
+        XCTAssertEqual(HeadsUpPresentation.contextStrain(nil), "—")
+        XCTAssertEqual(HeadsUpPresentation.contextRecovery(70.6), "71%")
+    }
+
+    func testStrainRejectedByTodayStaysEmptyHere() {
+        // Yesterday's snapshot Strain must not become today's: Today shows nothing, and so does this page.
+        let yesterday = key(39), today = key(40)
+        let old = firstPaint(day: yesterday, sleepMinutes: 400, strain: 64, recovery: 60)
+        let context = HeadsUpDayContext.resolve(days: history(count: 41), snapshot: old,
+                                                canonicalStrain: { _ in 64 }, logicalKey: today, localKey: today)
+        XCTAssertNil(context.strain)
+    }
+
+    // MARK: History chart
+
+    func testHistoryScaleHugsTheBarsButKeepsBothLines() {
+        func bars(_ scores: [Double]) -> [HeadsUpHistoryBar] {
+            scores.enumerated().map { HeadsUpHistoryBar(id: "\($0.offset)", score: $0.element, color: .clear) }
+        }
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop(bars([0, 5, 9, 4])), 64, "A quiet fortnight still fits the 50 line and its label")
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop(bars([0, 55])), 64)
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop(bars([30, 80])), 88, accuracy: 1, "Tall bars get 10% of headroom")
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop(bars([100])), 100, "The scale never passes 100")
+        XCTAssertEqual(HeadsUpHistoryChart.scaleTop([]), 64)
     }
 
     func testHistoryEndsOnTodayOnlyWhenItIs() {

@@ -43,7 +43,7 @@ enum HeadsUpPresentation {
         case .restingHR: return String(localized: "Resting heart rate")
         case .hrv: return String(localized: "Heart rate variability")
         case .skinTemp: return String(localized: "Skin temperature")
-        case .respiration: return String(localized: "Respiratory rate")
+        case .respiration: return String(localized: "Breathing rate")
         }
     }
 
@@ -52,7 +52,7 @@ enum HeadsUpPresentation {
         case .restingHR: return String(localized: "Resting HR")
         case .hrv: return String(localized: "HRV")
         case .skinTemp: return String(localized: "Skin temp")
-        case .respiration: return String(localized: "Resp. rate")
+        case .respiration: return String(localized: "Breathing")
         }
     }
 
@@ -155,18 +155,22 @@ enum HeadsUpPresentation {
         switch signal.kind {
         case .skinTemp:
             guard let band = signal.normalBand else { return now }
-            return String(localized: "\(now) · usual within ±\(String(format: "%.1f", band.upperBound)) °C")
+            return String(localized: "\(now) · usual ±\(String(format: "%.1f", band.upperBound)) °C")
         default:
             guard let usual = signal.usual else { return now }
             return String(localized: "\(now) · usual \(value(signal.kind, usual))")
         }
     }
 
-    static func cell(_ signal: HeadsUpSnapshot.Signal, level: IllnessSignalEngine.Level) -> HeadsUpSignalCell {
+    /// The ink a number takes when its signal is up against the person's usual: amber on every read, since the
+    /// Today strip no longer draws an "Up" word beside it. A normal signal keeps primary ink.
+    static let upInk = StrandPalette.statusWarning
+
+    static func cell(_ signal: HeadsUpSnapshot.Signal) -> HeadsUpSignalCell {
         let change = delta(signal)
         return HeadsUpSignalCell(id: signal.kind.rawValue, icon: icon(signal.kind), tint: tint(signal.kind),
                                  label: shortName(signal.kind), delta: change.text, unit: change.unit,
-                                 state: stateWord(signal), emphasis: signal.fired ? emphasis(level) : nil,
+                                 state: stateWord(signal), emphasis: signal.fired ? upInk : nil,
                                  position: railPosition(signal))
     }
 
@@ -240,6 +244,22 @@ enum HeadsUpPresentation {
         isToday(key, now: now) ? String(localized: "Today") : (shortDate(key) ?? "")
     }
 
+    // MARK: Elsewhere today
+
+    static func contextRecovery(_ recovery: Double?) -> String {
+        recovery.map { "\(Int($0.rounded()))%" } ?? WidgetMetrics.missingValue
+    }
+
+    /// Today's own Sleep duration text, so "Elsewhere today" can never round differently from the tile.
+    static func contextSleep(_ minutes: Double?) -> String {
+        minutes.map { TodayView.sleepDurationText(minutes: $0) } ?? WidgetMetrics.missingValue
+    }
+
+    /// Strain on the display scale, one decimal, like the Strain ring.
+    static func contextStrain(_ stored: Double?) -> String {
+        stored.map { String(format: "%.1f", StrainScale.displayValue(fromStored: $0)) } ?? WidgetMetrics.missingValue
+    }
+
     // MARK: Today card
 
     static func card(_ snapshot: HeadsUpSnapshot) -> HeadsUpCardModel {
@@ -252,20 +272,16 @@ enum HeadsUpPresentation {
                 lineIsPrimary: false, content: .turnOn)
         case .learning(let nights):
             let needed = HeadsUpSnapshot.nightsNeeded
-            let left = max(1, needed - nights)
             return HeadsUpCardModel(
                 pill: String(localized: "Learning"), tone: color,
-                line: String(localized: "Learning your normal. Ready after \(needed) baseline nights."),
+                line: String(localized: "Getting to know your normal · \(nights) of \(needed) nights"),
                 lineIsPrimary: false,
-                content: .progress(fraction: Double(nights) / Double(needed),
-                                   leading: String(localized: "\(nights) of \(needed) nights"),
-                                   trailing: left == 1 ? String(localized: "Ready tomorrow")
-                                                       : String(localized: "Ready in about \(left) days")))
+                content: .progress(fraction: Double(nights) / Double(needed)))
         case .scored(let level):
             return HeadsUpCardModel(
                 pill: pill(level, snapshot), tone: color, line: line(level, snapshot),
                 lineIsPrimary: level != .quiet,
-                content: .signals(snapshot.signals.map { cell($0, level: level) }),
+                content: .signals(snapshot.signals.map(cell)),
                 chip: chip(level, snapshot))
         }
     }
@@ -273,8 +289,7 @@ enum HeadsUpPresentation {
     static func pill(_ level: IllnessSignalEngine.Level, _ snapshot: HeadsUpSnapshot) -> String {
         switch level {
         case .quiet: return String(localized: "All clear")
-        case .mild: return String(localized: "\(snapshot.firedCount) slightly up")
-        case .raised: return String(localized: "\(snapshot.firedCount) of \(snapshot.presentCount) up")
+        case .mild, .raised: return String(localized: "\(snapshot.firedCount) of \(snapshot.presentCount) signals up")
         case .suppressed: return String(localized: "Explained")
         case .alreadyUnwell: return String(localized: "Rest up")
         }
@@ -300,16 +315,17 @@ enum HeadsUpPresentation {
             }
             return String(localized: "Your recorded signals are in your normal range.")
         case .mild:
-            return String(localized: "\(snapshot.firedCount) signals are slightly off. A calmer day helps.")
+            return String(localized: "Slightly off your usual. A calmer day helps.")
         case .raised:
             return String(localized: "Your body looks run down. Take it easy today.")
         case .suppressed:
             let causes = joined(orderedCauses(snapshot.causes).map(causePhrase))
             return String(localized: "Signals are up, but you logged \(causes). Likely that.")
         case .alreadyUnwell:
+            // The chip under the signals says what was logged; the line says what to do.
             return agrees(snapshot)
-                ? String(localized: "You logged feeling sick. Your numbers agree.")
-                : String(localized: "You logged feeling sick. Take it easy today.")
+                ? String(localized: "Your numbers agree. Take it easy today.")
+                : String(localized: "Take it easy today.")
         }
     }
 
@@ -320,15 +336,12 @@ enum HeadsUpPresentation {
 
     static func chip(_ level: IllnessSignalEngine.Level, _ snapshot: HeadsUpSnapshot) -> HeadsUpCardModel.Chip? {
         switch level {
-        case .suppressed:
-            guard let cause = orderedCauses(snapshot.causes).first else { return nil }
-            return HeadsUpCardModel.Chip(icon: causeIcon(cause), tint: StrandPalette.textSecondary,
-                                         text: String(localized: "\(causeName(cause)) logged · likely the cause"))
         case .alreadyUnwell:
             let text = weekday(snapshot.unwellDay).map { String(localized: "Logged: feeling sick · \($0)") }
                 ?? String(localized: "Logged: feeling sick")
             return HeadsUpCardModel.Chip(icon: "square.and.pencil", tint: StrandPalette.journalAccent, text: text)
-        case .quiet, .mild, .raised:
+        case .quiet, .mild, .raised, .suppressed:
+            // An explained read already names its cause in the line above.
             return nil
         }
     }
@@ -398,7 +411,7 @@ enum HeadsUpPresentation {
         case .off:
             return String(localized: "Heads-Up reads four overnight signals together and tells you when they drift from your normal at the same time, sometimes a day or two before you feel it.")
         case .learning:
-            return String(localized: "Heads-Up compares each night with your own baseline, so it needs \(HeadsUpSnapshot.nightsNeeded) baseline nights first. Your newest 3 nights stay out of the baseline, so a rough patch can’t blend into it. Keep wearing your strap to bed.")
+            return String(localized: "Heads-Up compares your last 2 nights with your own usual, so it needs to see \(HeadsUpSnapshot.nightsNeeded) nights of you first. The newest 3 nights stay out of your usual, so a rough patch can’t blend into it. Keep wearing your strap to bed.")
         case .scored(let level):
             switch level {
             case .quiet:
@@ -480,13 +493,14 @@ enum HeadsUpPresentation {
                        detail: String(localized: "Skip hard intervals and max efforts today.")),
                 Advice(icon: "moon.stars.fill", tint: StrandPalette.sleepAccent, title: String(localized: "Bank extra sleep"),
                        detail: String(localized: "Go to bed earlier tonight and give yourself a slow morning.")),
-                Advice(icon: "drop.fill", tint: StrandPalette.accent, title: String(localized: "Hydrate and check in"),
-                       detail: String(localized: "Log how you feel tonight so tomorrow’s read is sharper.")),
+                Advice(icon: "square.and.pencil", tint: StrandPalette.journalAccent,
+                       title: String(localized: "Check in tonight"),
+                       detail: String(localized: "Log how you feel so tomorrow’s read is sharper.")),
             ]
         case .suppressed:
             return [
                 Advice(icon: "drop.fill", tint: StrandPalette.accent, title: String(localized: "Hydrate and sleep it off"),
-                       detail: String(localized: "Your logged cause can lift resting HR and skin temperature for a night or two.")),
+                       detail: String(localized: "Water and a full night help. What you logged can lift resting HR and skin temperature for a night or two.")),
                 Advice(icon: "chart.line.uptrend.xyaxis", tint: StrandPalette.textSecondary,
                        title: String(localized: "We’ll check again tomorrow"),
                        detail: String(localized: "If signals stay up with nothing logged, Heads-Up will say so.")),
@@ -537,18 +551,48 @@ private struct TodayHeadsUpCardLeaf: View, @preconcurrency Equatable {
 
 // MARK: - Detail page
 
-/// The facts from the day row the detail page shows for context. They are not part of the Heads-Up math.
+/// The facts the detail page shows for context ("Elsewhere today"). They are not part of the Heads-Up math.
+///
+/// They are resolved exactly as Today resolves its rings and its Sleep tile: the same display day (the saved
+/// first-paint snapshot when Today would use it, else the logical-day row), the same first-paint Recovery and
+/// Strain values with the same fallbacks, Strain through the canonical resolver, and Sleep through Today's own
+/// duration formatter. Reading `repo.days.last` and the row's raw `strain` instead put this page on a different
+/// row, a different Strain source and a different rounding from the rings it sits behind.
 struct HeadsUpDayContext: Equatable {
     let day: String?
     let recovery: Double?
     let sleepMinutes: Double?
+    /// Strain on the stored 0–100 axis; `HeadsUpPresentation.contextStrain` draws it on the display scale.
     let strain: Double?
 
-    init(_ day: DailyMetric?) {
-        self.day = day?.day
-        recovery = day?.recovery
-        sleepMinutes = day?.totalSleepMin
-        strain = day?.strain
+    nonisolated static func resolve(days: [DailyMetric], snapshot: TodayHealthSnapshot?,
+                                    canonicalStrain: (String) -> Double?,
+                                    logicalKey: String, localKey: String) -> HeadsUpDayContext {
+        let firstPaint = snapshot.flatMap {
+            TodayView.acceptsFirstPaintSnapshot(displayDay: $0.displayDay, selectedDayOffset: 0,
+                                                logicalKey: logicalKey, localKey: localKey) ? $0 : nil
+        }
+        let row = firstPaint?.dailyMetric
+            ?? TodayView.resolveDisplayDay(days: days, selectedDayOffset: 0, logicalKey: logicalKey,
+                                           localKey: localKey, selectedDayKey: localKey)
+        func metric(_ kind: TodayHealthSnapshot.Metric) -> TodayHealthMetricValue? {
+            TodayView.firstPaintMetric(kind, snapshot: firstPaint, selectedDayOffset: 0,
+                                       currentLogicalDay: logicalKey, currentLocalDay: localKey)
+        }
+        return HeadsUpDayContext(
+            day: row?.day,
+            recovery: metric(.recovery)?.value ?? (firstPaint == nil ? row?.recovery : nil),
+            sleepMinutes: row?.totalSleepMin,
+            strain: TodayView.renderedStrainValue(
+                firstPaint: firstPaint, strainMetric: metric(.strain),
+                fallback: firstPaint == nil ? row.flatMap { canonicalStrain($0.day) } : nil))
+    }
+
+    @MainActor
+    static func current(_ repo: Repository, now: Date = Date()) -> HeadsUpDayContext {
+        resolve(days: repo.days, snapshot: repo.todayHealthSnapshot,
+                canonicalStrain: { repo.canonicalStrain(for: $0)?.storedValue },
+                logicalKey: Repository.logicalDayKey(now), localKey: Repository.localDayKey(now))
     }
 }
 
@@ -558,7 +602,7 @@ struct HeadsUpDetailView: View {
 
     var body: some View {
         HeadsUpDetailContent(snapshot: model.headsUp ?? HeadsUpSnapshot.off,
-                             context: HeadsUpDayContext(repo.days.last),
+                             context: HeadsUpDayContext.current(repo),
                              setEnabled: { model.setHeadsUpEnabled($0) })
             .equatable()
     }
@@ -573,6 +617,9 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshot == rhs.snapshot && lhs.context == rhs.context
     }
+
+    /// The width reserved for a bare row symbol, so the text beside it lines up row to row.
+    private static let iconColumn: CGFloat = 24
 
     private var tone: Color { HeadsUpPresentation.tone(snapshot.phase) }
     private var level: IllnessSignalEngine.Level? { snapshot.level }
@@ -624,12 +671,10 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: HeadsUpPresentation.icon(snapshot.phase))
                     .font(StrandFont.body.weight(.semibold))
                     .foregroundStyle(tone)
-                    .frame(width: 40, height: 40)
-                    .background(tone.opacity(0.16), in: Circle())
                     .accessibilityHidden(true)
                 Text(verbatim: HeadsUpPresentation.overline(snapshot))
                     .strandOverline()
@@ -646,8 +691,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
             switch snapshot.phase {
             case .off:
                 VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                    Button { setEnabled(true) } label: { Text("Turn on Heads-Up") }
-                        .buttonStyle(PrimaryPillButtonStyle())
+                    HeadsUpTextButton(action: { setEnabled(true) }) { Text("Turn on Heads-Up") }
                         .accessibilityIdentifier("headsUp.turnOn")
                     Text("Needs 14 nights of wear before the first read. Turn it off any time.")
                         .font(StrandFont.caption)
@@ -659,11 +703,14 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
             case .scored:
                 HeadsUpStrengthMeter(score: snapshot.score, rawScore: snapshot.rawScore, tone: tone,
                                      note: HeadsUpPresentation.meterNote(snapshot))
-                HStack(spacing: NoopMetrics.space2) {
+                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                     if let confidence = snapshot.confidence {
                         ValuePill(String(localized: "Confidence: \(confidence)"), tint: tone)
                     }
-                    ValuePill(String(localized: "vs your 28-night baseline"), tint: StrandPalette.textSecondary)
+                    Text("Compared with your usual (your last 28 nights)")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -674,9 +721,9 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
         let needed = HeadsUpSnapshot.nightsNeeded
         return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Baseline").strandOverline()
+                Text("Nights so far").strandOverline()
                 Spacer(minLength: NoopMetrics.space2)
-                Text(verbatim: String(localized: "\(nights) of \(needed) nights"))
+                Text(verbatim: String(localized: "\(nights) of \(needed)"))
                     .font(StrandFont.bodyNumber)
                     .foregroundStyle(StrandPalette.textPrimary)
             }
@@ -687,9 +734,6 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
-        .background(StrandPalette.chipFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }
 
     // MARK: Signals
@@ -705,8 +749,8 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
     private var signalsFoot: LocalizedStringKey {
         switch snapshot.phase {
         case .off: return "Uses whatever your wearable records overnight. Missing signals are skipped, never guessed."
-        case .learning: return "Lines fill in as nights are recorded. The normal band appears once your baseline is ready."
-        case .scored: return "Last 14 nights. The shaded band is your normal range; the bright end is the last 2 nights."
+        case .learning: return "Lines fill in as nights are recorded. The normal band appears once Heads-Up knows your usual."
+        case .scored: return "Two weeks of nights. The shaded band is your normal range; the bright end is the last 2 nights."
         }
     }
 
@@ -739,8 +783,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
                 Image(systemName: HeadsUpPresentation.icon(kind))
                     .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(HeadsUpPresentation.tint(kind))
-                    .frame(width: 32, height: 32)
-                    .background(HeadsUpPresentation.tint(kind).opacity(0.14), in: Circle())
+                    .frame(width: Self.iconColumn, height: 22, alignment: .leading)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: HeadsUpPresentation.name(kind))
@@ -775,7 +818,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
             if showsReading, signal.history.contains(where: { $0 != nil }) {
                 HeadsUpSparkline(values: signal.history, band: signal.normalBand,
                                  highlight: ink ?? StrandPalette.textPrimary)
-                    .padding(.leading, 44)
+                    .padding(.leading, Self.iconColumn + NoopMetrics.space3)
             }
         }
         .padding(.vertical, NoopMetrics.space3)
@@ -802,9 +845,9 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(HeadsUpSnapshot.Cause.allCases.enumerated()), id: \.element) { index, cause in
                     if index > 0 { FlatRowSeparator() }
-                    checkRow(cause, logged: snapshot.causes.contains(cause))
+                    checkRow(cause)
                 }
-                Text("From your Journal. Logging these is how Heads-Up tells a big night from a real heads-up.")
+                Text("Logging these helps Heads-Up tell a big night from getting sick.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -813,28 +856,33 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
         }
     }
 
-    private func checkRow(_ cause: HeadsUpSnapshot.Cause, logged: Bool) -> some View {
-        HStack(spacing: NoopMetrics.space3) {
+    /// One thing the Journal can explain a move with: logged yes ("Logged"), answered no ("No"), or never asked
+    /// ("Not logged", no tick: a tick beside it would read as if it had been logged).
+    private func checkRow(_ cause: HeadsUpSnapshot.Cause) -> some View {
+        let logged = snapshot.causes.contains(cause)
+        let ruledOut = !logged && snapshot.answeredNo.contains(cause)
+        return HStack(spacing: NoopMetrics.space3) {
             Image(systemName: HeadsUpPresentation.causeIcon(cause))
                 .font(StrandFont.footnote.weight(.semibold))
-                .foregroundStyle(logged ? StrandPalette.textPrimary : StrandPalette.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(StrandPalette.chipFill, in: Circle())
+                .foregroundStyle(logged ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                .frame(width: Self.iconColumn, alignment: .leading)
                 .accessibilityHidden(true)
             Text(verbatim: HeadsUpPresentation.causeName(cause))
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.textPrimary)
             Spacer(minLength: NoopMetrics.space2)
             if logged {
-                ValuePill(String(localized: "Logged · likely cause"), tint: StrandPalette.textSecondary)
+                Text("Logged")
+                    .font(StrandFont.footnote.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+            } else if ruledOut {
+                Text("No")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
             } else {
-                Label {
-                    Text("Not logged")
-                } icon: {
-                    Image(systemName: "checkmark")
-                }
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
+                Text("Not logged")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
             }
         }
         .frame(minHeight: 52)
@@ -866,22 +914,15 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
     // MARK: Context
 
     private var contextSection: some View {
-        let recovery = context.recovery.map { "\(Int($0.rounded()))%" } ?? WidgetMetrics.missingValue
-        let sleep = context.sleepMinutes.map { minutes -> String in
-            let total = Int(minutes.rounded())
-            return "\(total / 60)h \(String(format: "%02d", total % 60))m"
-        } ?? WidgetMetrics.missingValue
-        let strain = context.strain.map { String(format: "%.1f", StrainScale.displayValue(fromStored: $0)) }
-            ?? WidgetMetrics.missingValue
         let today = HeadsUpPresentation.isToday(context.day)
         return FlatSection(today ? LocalizedStringKey("Elsewhere today") : LocalizedStringKey("Elsewhere"),
                            systemImage: "square.grid.2x2", tint: .neutral,
                            trailing: today ? .none : .text(HeadsUpPresentation.shortDate(context.day) ?? "")) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 FactStrip(facts: [
-                    FactStrip.Fact("Recovery", value: recovery),
-                    FactStrip.Fact("Sleep", value: sleep),
-                    FactStrip.Fact("Strain", value: strain),
+                    FactStrip.Fact("Recovery", value: HeadsUpPresentation.contextRecovery(context.recovery)),
+                    FactStrip.Fact("Sleep", value: HeadsUpPresentation.contextSleep(context.sleepMinutes)),
+                    FactStrip.Fact("Strain", value: HeadsUpPresentation.contextStrain(context.strain)),
                 ])
                 Text("For context. These are not part of the Heads-Up math.")
                     .font(StrandFont.caption)
@@ -901,8 +942,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
                         Image(systemName: item.icon)
                             .font(StrandFont.subhead.weight(.semibold))
                             .foregroundStyle(item.tint)
-                            .frame(width: 32, height: 32)
-                            .background(item.tint.opacity(0.14), in: Circle())
+                            .frame(width: Self.iconColumn, height: 22, alignment: .leading)
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(verbatim: item.title)
@@ -919,9 +959,8 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
                     .accessibilityElement(children: .combine)
                 }
                 if level != .quiet {
-                    Button { showingJournal = true } label: { Text("Log how you feel") }
-                        .buttonStyle(PrimaryPillButtonStyle())
-                        .padding(.top, NoopMetrics.space2)
+                    HeadsUpTextButton(action: { showingJournal = true }) { Text("Log how you feel") }
+                        .padding(.top, NoopMetrics.space1)
                         .accessibilityIdentifier("headsUp.logFeeling")
                 }
             }
@@ -934,7 +973,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
         FlatSection("How Heads-Up works", systemImage: "questionmark.circle", tint: .neutral) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 howStep(1, title: "Compares you with you",
-                        detail: "Your last 2 nights against your own 28-night baseline, one signal at a time.")
+                        detail: "Your last 2 nights against your own usual, one signal at a time.")
                 howStep(2, title: "Needs signals to agree",
                         detail: "At least 2 have to move the wrong way together. One noisy night never counts.")
                 howStep(3, title: "Checks your Journal first",
@@ -946,11 +985,9 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
     private func howStep(_ number: Int, title: LocalizedStringKey, detail: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: NoopMetrics.space3) {
             Text(verbatim: "\(number)")
-                .font(StrandFont.captionNumber)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .frame(width: 24, height: 24)
-                .background(StrandPalette.chipFill, in: Circle())
-                .overlay(Circle().strokeBorder(StrandPalette.pillStroke, lineWidth: 1))
+                .font(StrandFont.bodyNumber)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .frame(width: Self.iconColumn, alignment: .leading)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -974,7 +1011,7 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
                     Text("Heads-Up")
                         .font(StrandFont.body)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Same as Health-pattern alerts in Notifications.")
+                    Text("Turns the Today card and its notification on or off.")
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }

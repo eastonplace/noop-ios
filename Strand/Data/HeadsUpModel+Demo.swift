@@ -52,10 +52,10 @@ extension HeadsUpSnapshot {
             }
         }
         func scored(_ level: IllnessSignalEngine.Level, score: Double, z: [Double], scores: [Double],
-                    rawScore: Double? = nil, causes: Set<Cause> = [], confidence: String? = nil,
-                    unwellDay: String? = nil) -> HeadsUpSnapshot {
+                    rawScore: Double? = nil, causes: Set<Cause> = [], answeredNo: Set<Cause> = [],
+                    confidence: String? = nil, unwellDay: String? = nil) -> HeadsUpSnapshot {
             HeadsUpSnapshot(phase: .scored(level), day: dayKey(0), score: score, rawScore: rawScore,
-                            signals: signals(z), causes: causes, confidence: confidence,
+                            signals: signals(z), causes: causes, answeredNo: answeredNo, confidence: confidence,
                             history: history(scores, last: level), unwellDay: unwellDay)
         }
         switch state {
@@ -73,11 +73,12 @@ extension HeadsUpSnapshot {
                           scores: [0, 0, 5, 0, 0, 0, 7, 0, 0, 3, 0, 8, 18, 29])
         case "raised":
             return scored(.raised, score: 55, z: [3.2, -3.0, 2.3, 1.2],
-                          scores: [0, 0, 4, 0, 0, 0, 8, 0, 0, 5, 0, 12, 34, 55], confidence: "strong")
+                          scores: [0, 0, 4, 0, 0, 0, 8, 0, 0, 5, 0, 12, 34, 55],
+                          answeredNo: [.alcohol, .sauna], confidence: "strong")
         case "explained":
             return scored(.suppressed, score: 37, z: [3.6, -3.4, 2.7, 0.5],
                           scores: [0, 0, 4, 0, 0, 0, 7, 0, 0, 3, 0, 0, 9, 37],
-                          rawScore: 81, causes: [.alcohol])
+                          rawScore: 81, causes: [.alcohol], answeredNo: [.stress])
         case "unwell":
             return scored(.alreadyUnwell, score: 64, z: [2.6, -3.2, 2.7, 2.4],
                           scores: [0, 0, 4, 0, 0, 0, 6, 0, 0, 19, 47, 58, 62, 64], unwellDay: dayKey(1))

@@ -16,9 +16,10 @@ public struct HeadsUpSignalCell: Equatable, Identifiable {
     /// The change against the person's usual ("+6", "−22%"), or a dash.
     public let delta: String
     public let unit: String?
-    /// "Up", "Down", "Normal" or a no-data word.
+    /// "Up", "Down", "Normal" or a no-data word. Not drawn (the signed value and its colour say it); VoiceOver
+    /// reads it.
     public let state: String
-    /// The colour the delta and state take when the signal counts toward the read; nil reads as normal.
+    /// The colour the delta takes when the signal is up against the person's usual; nil reads as normal.
     public let emphasis: Color?
     /// Where the last 2 nights sit on a rail whose middle 40% is the person's normal range; nil = no reading.
     public let position: Double?
@@ -35,8 +36,8 @@ public struct HeadsUpCardModel: Equatable {
     public enum Content: Equatable {
         /// Heads-Up is off: the line and a Turn on button.
         case turnOn
-        /// The baseline is still building.
-        case progress(fraction: Double, leading: String, trailing: String)
+        /// The baseline is still building: the bar only. The count lives in the line above it, once.
+        case progress(fraction: Double)
         /// A read: the four signals.
         case signals([HeadsUpSignalCell])
     }
@@ -126,7 +127,8 @@ public struct HeadsUpTodayCard: View {
                     ValuePill(model.pill, tint: model.tone)
                 }
             } else {
-                HStack(spacing: 8) {
+                // Centred, so the title and the pill's dot and text sit on one line however tall each is.
+                HStack(alignment: .center, spacing: 8) {
                     title
                     Spacer(minLength: 8)
                     ValuePill(model.pill, tint: model.tone)
@@ -143,12 +145,11 @@ public struct HeadsUpTodayCard: View {
     }
 
     private var offCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
             header(chevron: false)
             line
             HStack(spacing: 12) {
-                Button(action: onTurnOn) { Text("Turn on", bundle: .module) }
-                    .buttonStyle(PrimaryPillButtonStyle())
+                HeadsUpTextButton(action: onTurnOn) { Text("Turn on", bundle: .module) }
                     .accessibilityIdentifier("today.headsUp.turnOn")
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill")
@@ -171,8 +172,8 @@ public struct HeadsUpTodayCard: View {
             switch model.content {
             case .turnOn:
                 EmptyView()
-            case let .progress(fraction, leading, trailing):
-                progress(fraction: fraction, leading: leading, trailing: trailing)
+            case let .progress(fraction):
+                progress(fraction: fraction)
                     .padding(.top, 6)
             case let .signals(cells):
                 strip(cells)
@@ -184,31 +185,16 @@ public struct HeadsUpTodayCard: View {
         }
     }
 
-    private func progress(fraction: Double, leading: String, trailing: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous).fill(StrandPalette.hairlineStrong.opacity(0.6))
-                    Capsule(style: .continuous).fill(model.tone)
-                        .frame(width: proxy.size.width * min(1, max(0, fraction)))
-                }
+    private func progress(fraction: Double) -> some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous).fill(StrandPalette.hairlineStrong.opacity(0.6))
+                Capsule(style: .continuous).fill(model.tone)
+                    .frame(width: proxy.size.width * min(1, max(0, fraction)))
             }
-            .frame(height: 4)
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    Text(verbatim: leading)
-                    Spacer(minLength: 8)
-                    Text(verbatim: trailing)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: leading)
-                    Text(verbatim: trailing)
-                }
-            }
-            .font(StrandFont.sized(labelSize))
-            .monospacedDigit()
-            .foregroundStyle(StrandPalette.textTertiary)
         }
+        .frame(height: 4)
+        .accessibilityHidden(true)
     }
 
     private var columnCount: Int {
@@ -236,6 +222,9 @@ public struct HeadsUpTodayCard: View {
         }
     }
 
+    /// One column: the signal's name, its signed change in tabular digits and the normal-range rail. Every column
+    /// is built the same and pinned to the top, so the names, the numbers' baselines and the rails line up across
+    /// the four. A signal that is up takes the warning colour on its number; a normal one stays primary.
     private func signalCell(_ cell: HeadsUpSignalCell) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 4) {
@@ -252,6 +241,7 @@ public struct HeadsUpTodayCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(verbatim: cell.delta)
                     .font(StrandFont.number(deltaSize, weight: .semibold))
+                    .monospacedDigit()
                     .foregroundStyle(cell.emphasis ?? StrandPalette.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -263,19 +253,14 @@ public struct HeadsUpTodayCard: View {
                 }
             }
             .padding(.top, 8)
-            Text(verbatim: cell.state)
-                .font(StrandFont.sized(labelSize, weight: .medium))
-                .foregroundStyle(cell.emphasis ?? StrandPalette.textTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .padding(.top, 1)
             HeadsUpRail(position: cell.position, dot: cell.emphasis ?? StrandPalette.textPrimary)
-                .padding(.top, 9)
+                .padding(.top, 10)
         }
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// A logged fact under the signals: a bare symbol and a line of text, no capsule behind them.
     private func chipView(_ chip: HeadsUpCardModel.Chip) -> some View {
         HStack(spacing: 7) {
             Image(systemName: chip.icon)
@@ -284,13 +269,9 @@ public struct HeadsUpTodayCard: View {
                 .accessibilityHidden(true)
             Text(verbatim: chip.text)
                 .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textPrimary)
+                .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(StrandPalette.pillFill, in: Capsule(style: .continuous))
-        .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.pillStroke, lineWidth: 1))
     }
 
     private var accessibilitySummary: String {
@@ -390,7 +371,7 @@ public struct HeadsUpStrengthMeter: View {
                         .frame(width: max(8, width * Self.fraction(score)), height: 8)
                     Circle().fill(tone)
                         .frame(width: 14, height: 14)
-                        .overlay(Circle().strokeBorder(StrandPalette.surfaceRaised, lineWidth: 3))
+                        .overlay(Circle().strokeBorder(StrandPalette.appCanvas, lineWidth: 3))
                         .offset(x: min(max(0, width * Self.fraction(score) - 7), max(0, width - 14)))
                 }
                 .frame(width: width, height: 18)
@@ -414,9 +395,6 @@ public struct HeadsUpStrengthMeter: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(14)
-        .background(StrandPalette.chipFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "Signal strength \(Int(score.rounded())) of 100" + (note.map { ". \($0)" } ?? "")))
     }
@@ -519,7 +497,9 @@ public struct HeadsUpHistoryBar: Equatable, Identifiable {
     }
 }
 
-/// The last two weeks of mornings as bars on the 0–100 scale, with the mild (25) and heads-up (50) lines.
+/// The last two weeks of mornings as bars, with the mild (25) and heads-up (50) lines. The scale tops out just above
+/// the tallest bar (never below 64, so the heads-up line and its label always fit), so the bars and both lines use
+/// the whole height instead of leaving it empty above a quiet fortnight.
 public struct HeadsUpHistoryChart: View {
     private let bars: [HeadsUpHistoryBar]
     private let leadingLabel: String
@@ -533,16 +513,21 @@ public struct HeadsUpHistoryChart: View {
         self.trailingLabel = trailingLabel
     }
 
+    /// The top of the vertical scale: 10% above the tallest bar or dashed outline, at least 64 and at most 100.
+    public static func scaleTop(_ bars: [HeadsUpHistoryBar]) -> Double {
+        let peak = bars.map { max($0.score, $0.outline ?? 0) }.max() ?? 0
+        return min(100, max(64, (peak * 1.1).rounded(.up)))
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             GeometryReader { proxy in
                 let size = proxy.size
-                let plot = size.height - 4
+                let top = Self.scaleTop(bars)
+                let height: (Double) -> CGFloat = { size.height * CGFloat(min(max($0, 0), top) / top) }
                 ZStack(alignment: .topLeading) {
-                    threshold(at: 50, label: Text("Heads-up · 50", bundle: .module), size: size, plot: plot,
-                              color: StrandPalette.statusWarning.opacity(0.35))
-                    threshold(at: 25, label: Text("Mild · 25", bundle: .module), size: size, plot: plot,
-                              color: StrandPalette.restColor.opacity(0.4))
+                    threshold(size: size, height: height(50), color: StrandPalette.statusWarning.opacity(0.5))
+                    threshold(size: size, height: height(25), color: StrandPalette.restColor.opacity(0.55))
                     HStack(alignment: .bottom, spacing: 8) {
                         ForEach(bars) { bar in
                             ZStack(alignment: .bottom) {
@@ -550,19 +535,22 @@ public struct HeadsUpHistoryChart: View {
                                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                                         .strokeBorder(StrandPalette.textSecondary,
                                                       style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                                        .frame(height: max(2, plot * CGFloat(min(outline, 100) / 100)))
+                                        .frame(height: max(2, height(outline)))
                                 }
                                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                                     .fill(bar.color)
-                                    .frame(height: max(2, plot * CGFloat(min(bar.score, 100) / 100)))
+                                    .frame(height: max(2, height(bar.score)))
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         }
                     }
                     .frame(width: size.width, height: size.height, alignment: .bottom)
+                    // The labels sit over the bars so a tall bar never hides them.
+                    thresholdLabel(Text("Heads-up · 50", bundle: .module), size: size, height: height(50))
+                    thresholdLabel(Text("Mild · 25", bundle: .module), size: size, height: height(25))
                 }
             }
-            .frame(height: 112)
+            .frame(height: 88)
             HStack {
                 Text(verbatim: leadingLabel)
                 Spacer(minLength: 8)
@@ -578,25 +566,55 @@ public struct HeadsUpHistoryChart: View {
         .accessibilityLabel(Text(verbatim: accessibilitySummary))
     }
 
-    private func threshold(at value: Double, label: Text, size: CGSize, plot: CGFloat, color: Color) -> some View {
-        let y = size.height - plot * CGFloat(value / 100)
-        return ZStack(alignment: .topLeading) {
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: y))
-                path.addLine(to: CGPoint(x: size.width, y: y))
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-            label
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .offset(y: y - 15)
+    private func threshold(size: CGSize, height: CGFloat, color: Color) -> some View {
+        Path { path in
+            let y = size.height - height
+            path.move(to: CGPoint(x: 0, y: y))
+            path.addLine(to: CGPoint(x: size.width, y: y))
         }
+        .stroke(color, style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    private func thresholdLabel(_ label: Text, size: CGSize, height: CGFloat) -> some View {
+        label
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .offset(y: size.height - height - 15)
     }
 
     private var accessibilitySummary: String {
         let latest = bars.last.map { Int($0.score.rounded()) } ?? 0
         let peak = bars.map(\.score).max().map { Int($0.rounded()) } ?? 0
         return "Signal strength over the last \(bars.count) days. Highest \(peak), latest \(latest)."
+    }
+}
+
+// MARK: - Plain text action
+
+/// A secondary action in the house style: accent text, no capsule, border or fill, with a 44pt tap area. The
+/// package's twin of the app's Coach text button (which lives in the iOS target and so cannot be used here).
+public struct HeadsUpTextButton<Label: View>: View {
+    private let tint: Color
+    private let action: () -> Void
+    private let label: Label
+
+    public init(tint: Color = StrandPalette.accent, action: @escaping () -> Void,
+                @ViewBuilder label: () -> Label) {
+        self.tint = tint
+        self.action = action
+        self.label = label()
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            label
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(tint)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
