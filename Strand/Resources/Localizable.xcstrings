@@ -85091,6 +85091,633 @@
         }
       }
     },
+    "sleep score": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sleep score"
+          }
+        }
+      }
+    },
+    "resting heart rate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "resting heart rate"
+          }
+        }
+      }
+    },
+    "From your Journal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From your Journal"
+          }
+        }
+      }
+    },
+    "From your data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From your data"
+          }
+        }
+      }
+    },
+    "Checked %lld nights": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checked %lld nights"
+          }
+        }
+      }
+    },
+    "Checked %lld days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checked %lld days"
+          }
+        }
+      }
+    },
+    "Early bedtime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Early bedtime"
+          }
+        }
+      }
+    },
+    "Consistent bedtime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consistent bedtime"
+          }
+        }
+      }
+    },
+    "Slept 7 hours or more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slept 7 hours or more"
+          }
+        }
+      }
+    },
+    "Carrying sleep debt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carrying sleep debt"
+          }
+        }
+      }
+    },
+    "Late workout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Late workout"
+          }
+        }
+      }
+    },
+    "High-strain day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High-strain day"
+          }
+        }
+      }
+    },
+    "High-step day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High-step day"
+          }
+        }
+      }
+    },
+    "Before %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before %@"
+          }
+        }
+      }
+    },
+    "Usual time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usual time"
+          }
+        }
+      }
+    },
+    "Off by 30+ min": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by 30+ min"
+          }
+        }
+      }
+    },
+    "7 h or more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 h or more"
+          }
+        }
+      }
+    },
+    "Under 7 h": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Under 7 h"
+          }
+        }
+      }
+    },
+    "In sleep debt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In sleep debt"
+          }
+        }
+      }
+    },
+    "Not in debt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not in debt"
+          }
+        }
+      }
+    },
+    "No late workout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No late workout"
+          }
+        }
+      }
+    },
+    "After high strain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After high strain"
+          }
+        }
+      }
+    },
+    "Other days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other days"
+          }
+        }
+      }
+    },
+    "After high steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After high steps"
+          }
+        }
+      }
+    },
+    "%lld vs %lld nights": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld vs %lld nights"
+          }
+        }
+      }
+    },
+    "%lld vs %lld days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld vs %lld days"
+          }
+        }
+      }
+    },
+    "%@ %@: %@. %@: %@. %@, %@, %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@: %@. %@: %@. %@, %@, %@."
+          }
+        }
+      }
+    },
+    "See all insights": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See all insights"
+          }
+        }
+      }
+    },
+    "How insights work": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How insights work"
+          }
+        }
+      }
+    },
+    "Insights appear after about 2 weeks of wear. NOOP compares your nights with each other, so it needs enough of them first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insights appear after about 2 weeks of wear. NOOP compares your nights with each other, so it needs enough of them first."
+          }
+        }
+      }
+    },
+    "No clear patterns yet. NOOP checks again as more nights come in.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No clear patterns yet. NOOP checks again as more nights come in."
+          }
+        }
+      }
+    },
+    "Reading your patterns…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading your patterns…"
+          }
+        }
+      }
+    },
+    "Reading your patterns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading your patterns"
+          }
+        }
+      }
+    },
+    "What lines up with your best days, from your own data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What lines up with your best days, from your own data."
+          }
+        }
+      }
+    },
+    "What lines up with your best days, from %lld days of your own data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What lines up with your best days, from %lld days of your own data."
+          }
+        }
+      }
+    },
+    "NOOP is comparing your nights and days on this device.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP is comparing your nights and days on this device."
+          }
+        }
+      }
+    },
+    "No clear difference yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No clear difference yet"
+          }
+        }
+      }
+    },
+    "Add your own": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add your own"
+          }
+        }
+      }
+    },
+    "Answer a few yes/no questions to test your own habits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer a few yes/no questions to test your own habits"
+          }
+        }
+      }
+    },
+    "NOOP splits your days into two groups, for example nights you went to bed before your usual time and nights you did not, and compares the morning after. An insight appears only when the gap is larger than chance would explain, after allowing for how many things were checked. Solid means 10 or more days on each side, Building means 5 to 9. These are patterns, not causes, and everything stays on this iPhone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP splits your days into two groups, for example nights you went to bed before your usual time and nights you did not, and compares the morning after. An insight appears only when the gap is larger than chance would explain, after allowing for how many things were checked. Solid means 10 or more days on each side, Building means 5 to 9. These are patterns, not causes, and everything stays on this iPhone."
+          }
+        }
+      }
+    },
+    "What lines up with your best days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What lines up with your best days"
+          }
+        }
+      }
+    },
+    "On days you answered yes to “%@”, your %@ averaged %@ higher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On days you answered yes to “%@”, your %@ averaged %@ higher."
+          }
+        }
+      }
+    },
+    "On days you answered yes to “%@”, your %@ averaged %@ lower.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On days you answered yes to “%@”, your %@ averaged %@ lower."
+          }
+        }
+      }
+    },
+    "On nights you went to bed before %@, your %@ averaged %@ higher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On nights you went to bed before %@, your %@ averaged %@ higher."
+          }
+        }
+      }
+    },
+    "On nights you went to bed before %@, your %@ averaged %@ lower.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On nights you went to bed before %@, your %@ averaged %@ lower."
+          }
+        }
+      }
+    },
+    "On nights you went to bed within 30 minutes of your usual time, your %@ averaged %@ higher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On nights you went to bed within 30 minutes of your usual time, your %@ averaged %@ higher."
+          }
+        }
+      }
+    },
+    "On nights you went to bed within 30 minutes of your usual time, your %@ averaged %@ lower.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On nights you went to bed within 30 minutes of your usual time, your %@ averaged %@ lower."
+          }
+        }
+      }
+    },
+    "After nights with 7 hours of sleep or more, your %@ averaged %@ higher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After nights with 7 hours of sleep or more, your %@ averaged %@ higher."
+          }
+        }
+      }
+    },
+    "After nights with 7 hours of sleep or more, your %@ averaged %@ lower.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After nights with 7 hours of sleep or more, your %@ averaged %@ lower."
+          }
+        }
+      }
+    },
+    "When you were carrying sleep debt, your %@ averaged %@ higher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you were carrying sleep debt, your %@ averaged %@ higher."
+          }
+        }
+      }
+    },
+    "When you were carrying sleep debt, your %@ averaged %@ lower.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you were carrying sleep debt, your %@ averaged %@ lower."
+          }
+        }
+      }
+    },
+    "After a workout that ended within 3 hours of bed, your %@ averaged %@ higher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a workout that ended within 3 hours of bed, your %@ averaged %@ higher."
+          }
+        }
+      }
+    },
+    "After a workout that ended within 3 hours of bed, your %@ averaged %@ lower.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a workout that ended within 3 hours of bed, your %@ averaged %@ lower."
+          }
+        }
+      }
+    },
+    "On mornings after a high-strain day, your %@ averaged %@ higher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On mornings after a high-strain day, your %@ averaged %@ higher."
+          }
+        }
+      }
+    },
+    "On mornings after a high-strain day, your %@ averaged %@ lower.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On mornings after a high-strain day, your %@ averaged %@ lower."
+          }
+        }
+      }
+    },
+    "On mornings after a high-step day, your %@ averaged %@ higher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On mornings after a high-step day, your %@ averaged %@ higher."
+          }
+        }
+      }
+    },
+    "On mornings after a high-step day, your %@ averaged %@ lower.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On mornings after a high-step day, your %@ averaged %@ lower."
+          }
+        }
+      }
+    },
     "Installed outside the App Store": {
       "localizations": {
         "de": {
