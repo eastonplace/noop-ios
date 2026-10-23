@@ -289,14 +289,6 @@ struct CoachingBehaviorSettingsView: View {
                         }
                     }
                 }
-                FlatSectionSeparator()
-                NavigationLink { InsightsView() } label: {
-                    JournalLinkRow(title: "More Insights",
-                                   subtitle: "Mind check-ins, the caffeine log and what your journal moves",
-                                   icon: "chart.xyaxis.line")
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("journal.moreInsights")
             }
             .padding(.top, NoopMetrics.space2)
         }
