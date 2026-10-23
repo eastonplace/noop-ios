@@ -16,6 +16,8 @@ struct StressReadScope: Equatable, Sendable {
     let sourceLineage: String
     let repositoryRevision: Int
     let dataVersion: Int
+    let invalidationEpoch: UInt64
+    let isFenced: Bool
 }
 
 struct ForegroundStressTaskKey: Equatable, Sendable {
@@ -52,7 +54,9 @@ extension Repository {
     var stressReadScope: StressReadScope {
         StressReadScope(sourceIDs: importedReadIds, sourceContext: notificationSourceContext,
                         sourceLineage: liveSourceState.lineageComponent,
-                        repositoryRevision: refreshSeq, dataVersion: dataVersion)
+                        repositoryRevision: refreshSeq, dataVersion: dataVersion,
+                        invalidationEpoch: externalSurfaceInvalidationEpoch,
+                        isFenced: verifiedExternalSurfaceFenced)
     }
 
     /// One foreground funnel for Stress detail and Today's hourly ribbon. Store reads and array work
@@ -61,9 +65,30 @@ extension Repository {
         now: Date = Date(), calendar: Calendar = .current,
         personalBaseline: Bool, includeAdvancedReadouts: Bool = false
     ) async throws -> ForegroundStressRead {
+        try await readForegroundStress(now: now, calendar: calendar, personalBaseline: personalBaseline,
+                                       includeAdvancedReadouts: includeAdvancedReadouts, afterRead: nil)
+    }
+
+    #if DEBUG
+    func foregroundStressReadForTesting(
+        now: Date, calendar: Calendar, personalBaseline: Bool,
+        afterRead: @escaping @MainActor () async -> Void
+    ) async throws -> ForegroundStressRead {
+        try await readForegroundStress(now: now, calendar: calendar, personalBaseline: personalBaseline,
+                                       includeAdvancedReadouts: false, afterRead: afterRead)
+    }
+    #endif
+
+    private func readForegroundStress(
+        now: Date, calendar: Calendar, personalBaseline: Bool, includeAdvancedReadouts: Bool,
+        afterRead: (@MainActor () async -> Void)?
+    ) async throws -> ForegroundStressRead {
         try Task.checkCancellation()
+        guard !verifiedExternalSurfaceFenced else { throw CancellationError() }
         guard let store = await storeHandle() else { throw ForegroundStressReadError.storeUnavailable }
+        try Task.checkCancellation()
         let scope = stressReadScope
+        guard !scope.isFenced else { throw CancellationError() }
         let start = Int(calendar.startOfDay(for: now).timeIntervalSince1970)
         let end = Int(now.timeIntervalSince1970)
         let offset = calendar.timeZone.secondsFromGMT(for: now)
@@ -91,6 +116,7 @@ extension Repository {
         } onCancel: {
             worker.cancel()
         }
+        await afterRead?()
         try Task.checkCancellation()
         let currentStore = await storeHandle()
         try Task.checkCancellation()

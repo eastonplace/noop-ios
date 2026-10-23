@@ -407,20 +407,23 @@ extension Dictionary where Key == String, Value == String {
         return nil
     }
 
-    /// Parse a cell as a `Double`, tolerating thousands separators and stray
+    /// Parse a cell as a finite `Double`, tolerating thousands separators and stray
     /// units accidentally left in the cell.
     func double(_ keys: String...) -> Double? {
         for k in keys {
             if let v = self[k] {
                 let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
                 if t.isEmpty { continue }
-                if let d = Double(t) { return d }
+                if let d = Double(t) {
+                    if d.isFinite { return d }
+                    continue
+                }
                 // Tolerate values like "1,234" or "62 ms".
                 let cleaned = t
                     .replacingOccurrences(of: ",", with: "")
                     .components(separatedBy: CharacterSet(charactersIn: "0123456789.+-eE").inverted)
                     .joined()
-                if let d = Double(cleaned) { return d }
+                if let d = Double(cleaned), d.isFinite { return d }
             }
         }
         return nil

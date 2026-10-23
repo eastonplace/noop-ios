@@ -7,10 +7,12 @@ import WhoopStore
 final class PersonalStressBaselineTests: XCTestCase {
     private func scope(sourceIDs: [String] = ["active", "my-whoop"],
                        context: String = "database-a:profile-a", revision: Int = 1,
-                       dataVersion: Int = 0, lineage: String = "active:epoch-1") -> StressReadScope {
+                       dataVersion: Int = 0, lineage: String = "active:epoch-1",
+                       invalidationEpoch: UInt64 = 0, isFenced: Bool = false) -> StressReadScope {
         StressReadScope(sourceIDs: sourceIDs, sourceContext: context,
                         sourceLineage: lineage,
-                        repositoryRevision: revision, dataVersion: dataVersion)
+                        repositoryRevision: revision, dataVersion: dataVersion,
+                        invalidationEpoch: invalidationEpoch, isFenced: isFenced)
     }
 
     func testReadIdentityChangesForEverySourceAndHistoryInvalidation() {
@@ -22,6 +24,8 @@ final class PersonalStressBaselineTests: XCTestCase {
         XCTAssertNotEqual(original, scope(revision: 2))
         XCTAssertNotEqual(original, scope(dataVersion: 1))
         XCTAssertNotEqual(original, scope(lineage: "active:epoch-2"))
+        XCTAssertNotEqual(original, scope(invalidationEpoch: 1))
+        XCTAssertNotEqual(original, scope(isFenced: true))
     }
 
     func testForegroundTaskRestartsForPreferenceDateAndTimezoneChanges() throws {
@@ -91,6 +95,53 @@ final class PersonalStressBaselineRepositoryTests: XCTestCase {
         XCTAssertEqual(canonicalBaseline.baseline, 80, accuracy: 1e-9)
         XCTAssertNotEqual(first.scope, next.scope)
         XCTAssertLessThan(try XCTUnwrap(next.daytime.dayMean), 1.5)
+    }
+
+    func testFenceRaisedAndClearedDuringReadStillRejectsOldResult() async throws {
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(try await WhoopStore.inMemory())
+        do {
+            _ = try await repository.foregroundStressReadForTesting(
+                now: Date(), calendar: .current, personalBaseline: false,
+                afterRead: {
+                    repository.invalidateVerifiedExternalSurface()
+                    repository.verifiedExternalSurfaceFenced = false
+                })
+            XCTFail("An intervening source fence must invalidate the read after it clears")
+        } catch is CancellationError {}
+    }
+
+    func testSourceSwitchDuringReadRejectsOldResult() async throws {
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(try await WhoopStore.inMemory())
+        do {
+            _ = try await repository.foregroundStressReadForTesting(
+                now: Date(), calendar: .current, personalBaseline: false,
+                afterRead: { repository.adoptActiveDeviceId("replacement-strap") })
+            XCTFail("An old source's read must not publish after selection changes")
+        } catch is CancellationError {}
+    }
+
+    func testDatabaseReplacementDuringReadRejectsOldResult() async throws {
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(try await WhoopStore.inMemory())
+        let replacement = try await WhoopStore.inMemory()
+        do {
+            _ = try await repository.foregroundStressReadForTesting(
+                now: Date(), calendar: .current, personalBaseline: false,
+                afterRead: { repository.setStoreForTesting(replacement) })
+            XCTFail("A replaced database's result must not publish")
+        } catch is CancellationError {}
+    }
+
+    func testFencedRepositoryRejectsForegroundRead() async throws {
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(try await WhoopStore.inMemory())
+        repository.invalidateVerifiedExternalSurface()
+        do {
+            _ = try await repository.foregroundStressRead(personalBaseline: true)
+            XCTFail("A source transition must not return a successful stress read")
+        } catch is CancellationError {}
     }
 
     func testCancelledForegroundRequestNeverReturnsAnEmptySuccess() async throws {

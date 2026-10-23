@@ -840,7 +840,7 @@ public enum SleepStager {
         // the off-wrist intervals (#500 backstop), the persisted band state (#531 H8), and the V2 toggle (an
         // edit to any re-keys to a fresh compute). Result-only + bounded; the raw arrays are never retained.
         let key = DetectKey(
-            grav: StreamFingerprint.of(safeGravity, ts: { $0.ts }, quant: { Int(($0.x + $0.y + $0.z) * 1024) }),
+            grav: StreamFingerprint.gravity(safeGravity),
             hr: StreamFingerprint.of(safeHR, ts: { $0.ts }, quant: { Int($0.bpm) }),
             rr: StreamFingerprint.of(safeRR, ts: { $0.ts }, quant: { Int($0.rrMs) }),
             resp: StreamFingerprint.of(safeResp, ts: { $0.ts }, quant: { $0.raw }),
@@ -1091,7 +1091,7 @@ public enum SleepStager {
         // resp IS consumed here via the epoch grid, unlike V2). Result-only, bounded, no raw arrays retained.
         let key = V1StageKey(
             start: start, end: end,
-            grav: StreamFingerprint.of(grav, ts: { $0.ts }, quant: { Int(($0.x + $0.y + $0.z) * 1024) }),
+            grav: StreamFingerprint.gravity(grav),
             hr: StreamFingerprint.of(hr, ts: { $0.ts }, quant: { Int($0.bpm) }),
             rr: StreamFingerprint.of(rr, ts: { $0.ts }, quant: { Int($0.rrMs) }),
             resp: StreamFingerprint.of(resp, ts: { $0.ts }, quant: { $0.raw }))

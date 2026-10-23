@@ -8,8 +8,8 @@ import WhoopStore
 //
 // The transport half of Live Sessions (silent guardian): the pure `LiveSessionEngine` decides WHAT
 // should happen; this object is the only place that touches a clock, the live HR stream, the strap
-// buzz and the store. One 1 Hz timer feeds the engine `LiveState.heartRate` (or nil, so the engine
-// can detect a quiet stream itself — no liveness guessing here), publishes each `Output` for the
+// buzz and the store. Actual HR receipts feed the engine; the 1 Hz timer passes nil so the engine
+// can detect a quiet stream itself. It publishes each `Output` for the
 // session screen, walks a cue's pulse list out through the EXISTING hardware buzz, and books the
 // session into the `liveSession` table (once at start with endTs nil, once at end with the totals).
 //
@@ -66,6 +66,9 @@ final class LiveSessionRunner: ObservableObject {
     private var model: AppModel?
     private var repo: Repository?
     private var ble: BLEManager?
+    private var realtimeHRLease: RealtimeHRLeaseToken?
+    private var sourceDeviceId: String?
+    private var lastReceiptSecond: Int?
 
     /// Out-of-band accrual, mirroring exactly how the engine accrues `inBandSeconds`: per-tick dt
     /// clamped to `maxAccrualDtSec` so one long stall can't inflate a bucket, nothing accrues while stale.
@@ -79,7 +82,12 @@ final class LiveSessionRunner: ObservableObject {
     /// would land on the wrist as one unreadable mush.
     private var hapticWalkUntil = Date.distantPast
 
-    deinit { tickTask?.cancel() }
+    deinit {
+        tickTask?.cancel()
+        if let lease = realtimeHRLease {
+            Task { @MainActor [weak model] in model?.releaseRealtimeHR(lease) }
+        }
+    }
 
     // MARK: - Start
 
@@ -92,6 +100,7 @@ final class LiveSessionRunner: ObservableObject {
         self.model = model
         self.repo = repo
         self.ble = ble
+        sourceDeviceId = repo.deviceId
 
         // Resting HR: today's own, else the most recent banked night's. The engine needs *a* baseline
         // to place the band, so a never-slept-yet install gets a deliberately ordinary 60 — the band it
@@ -112,7 +121,7 @@ final class LiveSessionRunner: ObservableObject {
         engine = LiveSessionEngine(config: config, startTs: now)
 
         // Arm the live feed for the session (a WHOOP 5/MG only streams HR while armed, #681).
-        model.startRealtimeHR()
+        realtimeHRLease = model.acquireRealtimeHR(for: .liveSession)
 
         // Bank the in-progress row immediately (endTs nil) — a mid-session crash still leaves a record.
         persist(row(endTs: nil, band: band))
@@ -127,12 +136,12 @@ final class LiveSessionRunner: ObservableObject {
 
         // Pocket-the-phone survival: a suspended app stops firing Timers, but CoreBluetooth keeps
         // delivering HR notifies in the background (the same path that feeds the Live Activity), and each
-        // one updates `live.heartRate`. Ticking on sample arrival too means coaching keeps pace with the
+        // one produces a timestamped HR receipt. Ticking on sample arrival means coaching keeps pace with the
         // stream when only BLE callbacks are waking us; in the foreground the extra tick is a harmless
         // same-second engine update. Staleness still needs the Timer (no samples = no sink fires), which
         // resumes the moment the app does — the engine then reads the gap honestly as stale.
-        hrSink = model.live.$heartRate.sink { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        hrSink = model.live.heartRateReceipts.sink { [weak self] receipt in
+            self?.tick(now: receipt.observedSecond, receipt: receipt)
         }
     }
 
@@ -142,16 +151,17 @@ final class LiveSessionRunner: ObservableObject {
     /// row for the summary sheet. Safe against the End-tap / auto-end race — the second call is a no-op
     /// returning the already-final row.
     @discardableResult
-    func end() -> LiveSessionRow? {
+    func end(at now: Int = Int(Date().timeIntervalSince1970)) -> LiveSessionRow? {
         guard tickTask != nil else { return finalRow }
         tickTask?.cancel()
         tickTask = nil
         hrSink?.cancel()
         hrSink = nil
-        model?.stopRealtimeHR()
+        if let lease = realtimeHRLease { model?.releaseRealtimeHR(lease) }
+        realtimeHRLease = nil
 
         // Prefer the engine's live band (it may have drifted its ceiling on a strong day) over the base.
-        let final = row(endTs: Int(Date().timeIntervalSince1970), band: output?.band ?? baseBand
+        let final = row(endTs: now, band: output?.band ?? baseBand
                         ?? LiveSessionEngine.Band(floorBpm: 0, ceilingBpm: 0, floorPctHRR: 0, ceilingPctHRR: 0))
         persist(final)
         finalRow = final
@@ -165,12 +175,23 @@ final class LiveSessionRunner: ObservableObject {
 
     // MARK: - Tick (1 Hz)
 
-    private func tick() {
+    func tick(now: Int = Int(Date().timeIntervalSince1970), receipt: LiveHeartRateReceipt? = nil) {
         guard tickTask != nil else { return }
-        let now = Int(Date().timeIntervalSince1970)
-        // The engine takes the live reading if one is current, or nil as a plain time tick — staleness
-        // is ITS call (never-fabricate: no reading is forwarded as exactly that, not held or guessed).
-        guard let out = engine?.update(now: now, bpm: model?.live.heartRate) else { return }
+        guard now >= lastTickTs else { return }
+        var freshBPM: Int?
+        if let receipt {
+            guard receipt.source.deviceId == sourceDeviceId,
+                  model?.live.isCurrentHeartRateReceipt(receipt) == true,
+                  receipt.observedSecond == now,
+                  lastReceiptSecond.map({ now > $0 }) ?? true,
+                  Date().timeIntervalSince(receipt.observedAt) >= 0,
+                  Date().timeIntervalSince(receipt.observedAt) <= LiveHeartRateReceiptGate.maximumReceiptAge
+            else { return }
+            lastReceiptSecond = now
+            freshBPM = receipt.bpm
+        }
+        // Timer-only progression must never replay the cached presentation value as a new reading.
+        guard let out = engine?.update(now: now, bpm: freshBPM) else { return }
 
         // Mirror the engine's clamped accrual for the two out-of-band buckets (it only accrues in-band
         // itself). Same rules: dt clamped to maxAccrualDtSec, nothing accrues on a stale tick.
@@ -189,7 +210,7 @@ final class LiveSessionRunner: ObservableObject {
             if staleSinceTs == nil { staleSinceTs = now }
             if let since = staleSinceTs, now - since >= Self.autoEndStaleSec {
                 output = out
-                end()
+                end(at: now)
                 return
             }
         } else {
@@ -244,7 +265,7 @@ final class LiveSessionRunner: ObservableObject {
     /// Idempotent upsert on (deviceId, startTs) — the start write and the end write land on one row.
     private func persist(_ row: LiveSessionRow) {
         guard let repo else { return }
-        let deviceId = repo.deviceId
+        let deviceId = sourceDeviceId ?? repo.deviceId
         Task {
             guard let store = await repo.storeHandle() else { return }
             _ = try? await store.upsertLiveSession(row, deviceId: deviceId)

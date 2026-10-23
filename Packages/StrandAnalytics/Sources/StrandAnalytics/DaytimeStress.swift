@@ -161,6 +161,12 @@ public enum DaytimeStress {
     public static func analyze(hr: [HRSample], rr: [RRInterval],
                                tzOffsetSeconds: Int = 0,
                                mode: ScoringMode = .dayRelative) -> Result {
+        // Off-wrist and malformed HR rows remain in raw storage but must not satisfy hourly coverage
+        // or shift the calm reference. RR is a successive-beat metric, so late/out-of-order batches
+        // must be chronological before bucketing; keep invalid beats for the gap-aware cleaner.
+        let hr = hr.filter { HRValidity.isPlausible($0.bpm) }
+        let rr = zip(rr, rr.dropFirst()).allSatisfy { $0.ts <= $1.ts }
+            ? rr : rr.sorted { $0.ts < $1.ts }
         // v7.0.2 perf (#707): buckets the day's full HR + R-R streams into per-hour aggregates and runs an
         // RMSSD per hour — invoked from the Stress view, so a `body` re-evaluation re-buckets the whole day.
         // Memoize on the streams' fingerprint + tz offset; result is a small `Result`, raw arrays not held.
@@ -198,9 +204,6 @@ public enum DaytimeStress {
         //    (floored to the hour on the local clock).
         var hrByBucket: [Int: [Double]] = [:]
         for s in hr {
-            // Preserve the default path exactly. Personal baselines and personal hourly scoring both
-            // exclude off-wrist/invalid values using the app's shared plausible-HR range.
-            if case .baselineRelative = mode, !HRValidity.isPlausible(s.bpm) { continue }
             let local = s.ts + tzOffsetSeconds
             let bucket = floorDiv(local, bucketSeconds) * bucketSeconds
             hrByBucket[bucket, default: []].append(Double(s.bpm))

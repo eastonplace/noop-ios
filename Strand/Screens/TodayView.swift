@@ -360,7 +360,13 @@ struct TodayView: View {
     @State private var stressHistoryAvailable = false
     /// Today's intraday stress read for the ribbon (same DaytimeStress proxy the Stress
     /// screens use). nil until loaded; `.empty` when the day has no scorable hours.
-    @State private var daytimeStress: DaytimeStress.Result?
+    @State private var loadedDaytimeStress: DaytimeStress.Result?
+    @State private var publishedStressRibbonKey: ForegroundStressTaskKey?
+    @Environment(\.scenePhase) private var stressScenePhase
+
+    private var daytimeStress: DaytimeStress.Result? {
+        publishedStressRibbonKey == stressRibbonTaskKey ? loadedDaytimeStress : nil
+    }
     @AppStorage(PersonalStressBaselinePreference.enabledKey) private var personalStressBaselineEnabled = false
     @State private var stressRibbonLoadState = LatestWinsLoadState()
     @State private var stressCalendarRevision = 0
@@ -1722,16 +1728,23 @@ struct TodayView: View {
         refreshScreenSnapshot()
     }
 
-    /// Today's four top-level sections: dials and glance (one card, its own divider), Live Heart Rate,
+    /// Today's sections: dials and glance, a workout suggestion when there is one, the current-day training target, Live Heart Rate,
     /// Stress and Health Monitor. Exactly one hairline sits between each adjacent pair and none after the last;
     /// every separator shows the same visible gap above and below (see `TodaySectionSeparator`). The
-    /// conditional cards above (alert banner, auto workout, active workout, syncing note) are outside this rule
+    /// conditional cards above (alert banner, active workout, syncing note) are outside this rule
     /// and keep the column's normal spacing.
     @ViewBuilder
     private var paperSections: some View {
         if screenSnapshot != nil {
             VStack(alignment: .leading, spacing: 0) {
                 paperPillarCard
+                // Below the rings and "Today at a glance", so a suggestion never pushes the scores down. It draws
+                // its own leading hairline, so there is no gap when there is nothing to suggest.
+                autoWorkoutSuggestion
+                if selectedDayOffset == 0 && selectedDayKey == Repository.logicalDayKey(Date()) {
+                    TodaySectionSeparator(above: 12, below: 13.3)
+                    DailyTrainingTargetSection()
+                }
                 TodaySectionSeparator(above: 12, below: 13.3)
                 paperLiveHeartRateCard
                 TodaySectionSeparator(above: 15, below: 13.3)
@@ -1740,6 +1753,17 @@ struct TodayView: View {
                 paperHealthMonitorCard
             }
         }
+    }
+
+    @ViewBuilder
+    private var autoWorkoutSuggestion: some View {
+        #if DEBUG
+        // `--demo-auto-workout`: a synthetic suggestion, so the card can be captured without a strap.
+        AutoWorkoutCard(demoCandidate: ProcessInfo.processInfo.arguments.contains("--demo-auto-workout")
+            ? Self.demoAutoWorkout : nil)
+        #else
+        AutoWorkoutCard()
+        #endif
     }
 
     @ViewBuilder
@@ -1812,21 +1836,29 @@ struct TodayView: View {
 
     private func loadDaytimeStressForRibbon() async {
         let requestID = stressRibbonLoadState.begin()
+        // Invalidate the cached dashboard presentation before the replacement read suspends.
+        refreshScreenSnapshot()
+        guard stressScenePhase == .active else {
+            _ = stressRibbonLoadState.finish(.cancelled, requestID: requestID)
+            return
+        }
         guard await repo.storeHandle() != nil else { return }
         let requestKey = stressRibbonTaskKey
-        // The ribbon keeps its last published hours until the new read lands.
         do {
             let read = try await repo.foregroundStressRead(personalBaseline: personalStressBaselineEnabled)
             guard !Task.isCancelled, stressRibbonLoadState.owns(requestID),
                   requestKey == stressRibbonTaskKey, read.scope == repo.stressReadScope else { return }
-            daytimeStress = read.daytime
+            loadedDaytimeStress = read.daytime
+            publishedStressRibbonKey = requestKey
             _ = stressRibbonLoadState.finish(.loaded, requestID: requestID)
             refreshScreenSnapshot()
         } catch is CancellationError {
             _ = stressRibbonLoadState.finish(.cancelled, requestID: requestID)
         } catch {
-            guard stressRibbonLoadState.owns(requestID) else { return }
-            daytimeStress = nil
+            guard !Task.isCancelled, stressRibbonLoadState.owns(requestID),
+                  requestKey == stressRibbonTaskKey else { return }
+            loadedDaytimeStress = nil
+            publishedStressRibbonKey = requestKey
             _ = stressRibbonLoadState.finish(.failed("Stress signals could not refresh."), requestID: requestID)
             refreshScreenSnapshot()
         }
@@ -1862,6 +1894,14 @@ struct TodayView: View {
     }
 
     private static var paperClockFormatter: DateFormatter { AppClock.hourMinuteFormatter() }
+
+    #if DEBUG
+    /// The window `--demo-auto-workout` suggests: a 35-minute walk that ended five minutes ago.
+    private static var demoAutoWorkout: DetectedWorkout {
+        let end = Int(Date().timeIntervalSince1970) - 5 * 60
+        return DetectedWorkout(startSec: end - 35 * 60, endSec: end, avgBpm: 112, peakBpm: 131, durationMin: 35)
+    }
+    #endif
 
     private func paperStressState(_ value: Double?) -> LocalizedStringKey {
         guard let value else { return "Calibrating" }
@@ -2085,7 +2125,6 @@ struct TodayView: View {
                           today: Repository.logicalDay(Date())) { notificationSelectedDayKey = nil; selectedDayOffset = $0 }
                 #endif
                 HealthAlertBanner()
-                AutoWorkoutCard()
                 // Keeps an empty Recovery honest while a historical offload is still writing: only when the displayed
                 // day has no Recovery yet (the header spinner covers an ordinary sync).
                 if displayDay?.recovery == nil { SyncingHistoryNoteIfBackfilling() }
@@ -2126,6 +2165,9 @@ struct TodayView: View {
         // Foreground-only and independent of the daily-history cache: toggling the personal lens must
         // refresh the hourly ribbon even when the stored daily scores did not change.
         .task(id: stressRibbonTaskKey) { await loadDaytimeStressForRibbon() }
+        .onChangeCompat(of: stressScenePhase) { _ in
+            stressCalendarRevision &+= 1
+        }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
             .receive(on: DispatchQueue.main)) { _ in
             stressCalendarRevision &+= 1

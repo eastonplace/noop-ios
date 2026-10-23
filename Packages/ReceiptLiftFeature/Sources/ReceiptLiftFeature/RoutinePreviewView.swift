@@ -5,14 +5,16 @@ struct RoutinePreviewView: View {
   @EnvironmentObject private var store: LiftStore
 
   let routine: LiftRoutine
-  let onBegin: () -> Void
+  let onBegin: (LiftRoutine, LiftProgressionReview?) -> Bool
   let onCancel: () -> Void
 
   @State private var didRequestBegin = false
+  @State private var progression: LiftProgressionReview?
+  @State private var startError: String?
 
   init(
     routine: LiftRoutine,
-    onBegin: @escaping () -> Void,
+    onBegin: @escaping (LiftRoutine, LiftProgressionReview?) -> Bool,
     onCancel: @escaping () -> Void
   ) {
     self.routine = routine
@@ -20,22 +22,42 @@ struct RoutinePreviewView: View {
     self.onCancel = onCancel
   }
 
+  private var currentRoutine: LiftRoutine {
+    store.routines.first { $0.id == routine.id } ?? routine
+  }
+
   private var rows: [RoutinePreviewRow] {
-    RoutinePreviewRow.rows(for: routine, exercises: store.exercises)
+    RoutinePreviewRow.rows(for: currentRoutine, exercises: store.exercises)
   }
 
   var body: some View {
     RoutinePreviewContent(
-      routine: routine,
+      routine: currentRoutine,
       rows: rows,
-      estimatedMinutes: store.estimatedMinutes(for: routine),
-      onBegin: {
+      estimatedMinutes: store.estimatedMinutes(for: currentRoutine),
+      progression: progression,
+      suggestionsCurrent: progression.map { store.progressionReviewIsCurrent($0) } ?? false,
+      startError: startError,
+      onRefreshSuggestions: refreshSuggestions,
+      onBegin: { applySuggestions in
         guard !didRequestBegin else { return }
-        didRequestBegin = true
-        onBegin()
+        if onBegin(currentRoutine, applySuggestions ? progression : nil) {
+          didRequestBegin = true
+        } else {
+          startError = store.status
+        }
       },
       onCancel: onCancel
     )
+    .task(id: routine.id) {
+      await store.loadAndWait()
+      refreshSuggestions()
+    }
+  }
+
+  private func refreshSuggestions() {
+    progression = store.progressionReview(for: currentRoutine)
+    startError = nil
   }
 }
 
@@ -43,7 +65,11 @@ private struct RoutinePreviewContent: View {
   let routine: LiftRoutine
   let rows: [RoutinePreviewRow]
   let estimatedMinutes: Int
-  let onBegin: () -> Void
+  let progression: LiftProgressionReview?
+  let suggestionsCurrent: Bool
+  let startError: String?
+  let onRefreshSuggestions: () -> Void
+  let onBegin: (Bool) -> Void
   let onCancel: () -> Void
 
   @Environment(\.liftFormat) private var format
@@ -58,13 +84,48 @@ private struct RoutinePreviewContent: View {
     ) {
       overview
       FlatSectionSeparator()
+      if let progression, !progression.rows.isEmpty {
+        LiftProgressionReviewSection(
+          review: progression, isCurrent: suggestionsCurrent, onRefresh: onRefreshSuggestions
+        )
+        FlatSectionSeparator()
+      }
       planSection
     }
     .navigationBarBackButtonHidden(true)
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      Button(action: onBegin) { Label("Start workout", systemImage: "play.fill").liftPillLabel() }
-        .buttonStyle(PrimaryPillButtonStyle())
-        .liftFooterBar()
+      VStack(spacing: NoopMetrics.space2) {
+        if let startError {
+          Text(startError)
+            .font(StrandFont.footnote)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("lift.progression.startError")
+        }
+        if progression?.hasTargets == true {
+          Button { onBegin(true) } label: {
+            Label("Apply suggestions & start", systemImage: "play.fill").liftPillLabel()
+          }
+          .buttonStyle(PrimaryPillButtonStyle())
+          .disabled(!suggestionsCurrent)
+          .accessibilityIdentifier("lift.progression.applyAndStart")
+          Button { onBegin(false) } label: {
+            Text("Start as planned")
+              .font(StrandFont.subhead.weight(.semibold))
+              .foregroundStyle(StrandPalette.textSecondary)
+              .frame(maxWidth: .infinity, minHeight: 44)
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("lift.progression.startAsPlanned")
+        } else {
+          Button { onBegin(false) } label: {
+            Label("Start as planned", systemImage: "play.fill").liftPillLabel()
+          }
+          .buttonStyle(PrimaryPillButtonStyle())
+          .accessibilityIdentifier("lift.progression.startAsPlanned")
+        }
+      }
+      .liftFooterBar()
     }
   }
 
@@ -276,7 +337,13 @@ private enum RoutinePreviewFixtures {
         plans: routine.exercisePlans ?? [],
         defaultRestSeconds: 90
       ),
-      onBegin: {},
+      progression: LiftProgressionReview.make(
+        storeID: UUID(), routine: routine, exercises: exercises, sessions: [], unit: .pounds, now: Date()
+      ),
+      suggestionsCurrent: true,
+      startError: nil,
+      onRefreshSuggestions: {},
+      onBegin: { _ in },
       onCancel: {}
     )
   }

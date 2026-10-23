@@ -51,13 +51,13 @@ enum TrendsExploreDestination: CaseIterable, Identifiable {
         }
     }
 
-    @MainActor @ViewBuilder var destination: some View {
+    @MainActor @ViewBuilder func destination(repo: Repository) -> some View {
         switch self {
         case .whatMovesYou: InsightsHubView()
         case .intelligence: IntelligenceView()
         case .coach:
             #if os(iOS)
-            LocalCoachView()
+            LocalCoachView(journalRepository: repo)
             #else
             CoachView()
             #endif
@@ -74,6 +74,8 @@ enum TrendsExploreDestination: CaseIterable, Identifiable {
 /// A page of flat sections: each destination is a row of a glyph on its domain disc, the name, one line on what is
 /// behind it and a chevron. The rows push with closure-based NavigationLinks (the destinations are built on tap).
 struct TrendsExploreHubView: View {
+    @EnvironmentObject private var repo: Repository
+
     var body: some View {
         ScreenScaffold(title: "Explore", topBackground: nil) {
             VStack(alignment: .leading, spacing: 0) {
@@ -99,7 +101,7 @@ struct TrendsExploreHubView: View {
     }
 
     private func row(_ d: TrendsExploreDestination) -> some View {
-        NavigationLink { d.destination } label: {
+        NavigationLink { d.destination(repo: repo) } label: {
             ExploreFlatRow(symbol: d.symbol, tint: d.tint, title: d.title, subtitle: d.subtitle)
         }
         .exploreRowPress()
@@ -108,6 +110,7 @@ struct TrendsExploreHubView: View {
 
 /// The quiet list at the foot of Trends: icon, name and chevron per row, no card or disc behind them.
 struct TrendsExploreMoreList: View {
+    @EnvironmentObject private var repo: Repository
     @State private var expanded = false
 
     var body: some View {
@@ -135,7 +138,7 @@ struct TrendsExploreMoreList: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(TrendsExploreDestination.allCases.enumerated()), id: \.element) { index, d in
                         if index > 0 { FlatRowSeparator(leadingInset: 32) }
-                        NavigationLink { d.destination } label: {
+                        NavigationLink { d.destination(repo: repo) } label: {
                             HStack(spacing: NoopMetrics.space3) {
                                 Image(systemName: d.symbol)
                                     .font(.system(size: 16, weight: .regular))

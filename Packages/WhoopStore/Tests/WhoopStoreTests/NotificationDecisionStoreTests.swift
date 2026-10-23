@@ -117,7 +117,7 @@ final class NotificationDecisionStoreTests: XCTestCase {
                 XCTAssertEqual(Set(identifiers).count, identifiers.count)
             }
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 62)
     }
     func testFileBackedRestartPreservesSubmittingAndEpisode() async throws {
         let path = NSTemporaryDirectory() + "notification-ledger-\(UUID().uuidString).sqlite"
@@ -255,7 +255,7 @@ final class NotificationDecisionStoreTests: XCTestCase {
                 firstMigrationIDs = identifiers
             }
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 62)
     }
     func testDailyBudgetUsesChargeCalendarDayDespiteDifferentEvidenceLabels() async throws {
         let store = try await WhoopStore.inMemory()

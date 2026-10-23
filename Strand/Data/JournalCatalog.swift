@@ -49,9 +49,10 @@ final class JournalCatalogStore: ObservableObject {
     /// regrouped, reordered, or hidden). Starter questions with default settings are NOT stored here:
     /// they are synthesised at merge time, so this only holds the user's deltas plus their customs.
     /// Persisted as a single JSON blob under `journal.catalog.v2`.
-    @Published var items: [JournalCatalogItem] { didSet { persistItems() } }
+    @Published var items: [JournalCatalogItem] { didSet { if !reloadingItems { persistItems() } } }
 
     private let d: UserDefaults
+    private var reloadingItems = false
     private enum K {
         static let items = "journal.catalog.v2"
         // Legacy (v1) keys, read once for the one-time migration, never written again.
@@ -78,6 +79,26 @@ final class JournalCatalogStore: ObservableObject {
     private func persistItems() {
         if let blob = try? JSONEncoder().encode(items) { d.set(blob, forKey: K.items) }
         NotificationCenter.default.post(name: .init("noop.notificationJournalDidChange"), object: nil)
+    }
+
+    /// A sheet can edit a different catalog instance. Reload without publishing another persistence
+    /// notification; comparing first prevents notification/reload cycles between those instances.
+    @discardableResult
+    func reloadFromDefaults() -> Bool {
+        let decoded: [JournalCatalogItem]
+        if let blob = d.data(forKey: K.items) {
+            // Malformed persisted data must not silently discard a still-valid in-memory catalog.
+            guard let saved = try? JSONDecoder().decode([JournalCatalogItem].self, from: blob) else { return false }
+            decoded = saved
+        } else {
+            // Explicitly removing the key resets deltas. Do not recreate it or replay a legacy migration.
+            decoded = []
+        }
+        guard decoded != items else { return false }
+        reloadingItems = true
+        items = decoded
+        reloadingItems = false
+        return true
     }
 
     /// Build the v2 item list from the legacy custom/hidden arrays. Custom questions → `.bool`

@@ -3,8 +3,10 @@ import Foundation
 import WhoopProtocol
 @testable import StrandAnalytics
 
-/// Golden bit patterns for the Strain V2 scorer, generated at the untouched base `a394bb32` (release/236, L1
-/// commit 1) before any Strength Strain code existed. The test rebuilds the same ordered list of
+/// Golden bit patterns for the Strain V2 scorer, originally generated at base `a394bb32` (release/236, L1
+/// commit 1) before any Strength Strain code existed. The sole reviewed update is the messy-day calorie
+/// entry for invalid-HR exclusion, documented beside that entry; no strain bits changed. The test rebuilds
+/// the same ordered list of
 /// `"<case>=<hex bits|nil>"` lines from today's scorer and requires it to equal ``StrainGoldenBits/lines``
 /// exactly, so any change to how the scorer rounds, orders or converts a number fails here, down to the last bit.
 ///

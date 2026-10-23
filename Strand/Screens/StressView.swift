@@ -43,7 +43,7 @@ struct StressView: View {
     /// Today's intraday stress read (hourly timeline + sustained-high flag), computed
     /// from the day's banked HR + R-R via the SAME 0–3 proxy the daily score uses. Nil
     /// until the async read completes; `.empty` when the day has no usable intraday HR.
-    @State private var daytime: DaytimeStress.Result?
+    @State private var loadedDaytime: DaytimeStress.Result?
     /// Drives the Breathe sheet presented from the sustained-stress suggestion.
     @State private var showBreathe = false
 
@@ -52,9 +52,20 @@ struct StressView: View {
     /// are two extra, clearly-labelled HRV lenses surfaced in their own card. Nil until the
     /// async read completes, and individually nil when their span/beat gates are not met.
     /// Baevsky Stress Index components (si / Mo / AMo / MxDMn).
-    @State private var stressIndex: StressIndex.Components?
+    @State private var loadedStressIndex: StressIndex.Components?
     /// Frequency-domain HRV bands (LF / HF / LF-HF / total power).
-    @State private var freqHRV: HRVFreqDomain.Bands?
+    @State private var loadedFrequencyDomain: HRVFreqDomain.Bands?
+
+    // Only a read for this source, date and preference can drive the current hourly display.
+    private var daytime: DaytimeStress.Result? {
+        publishedStressKey == stressTaskKey ? loadedDaytime : nil
+    }
+    private var stressIndex: StressIndex.Components? {
+        publishedStressKey == stressTaskKey ? loadedStressIndex : nil
+    }
+    private var freqHRV: HRVFreqDomain.Bands? {
+        publishedStressKey == stressTaskKey ? loadedFrequencyDomain : nil
+    }
 
     /// Cached StressModel + the input signature it was built from. Rebuilding the
     /// model is expensive (z-score derivation + per-day date parsing over the full
@@ -121,8 +132,8 @@ struct StressView: View {
             .receive(on: DispatchQueue.main)) { _ in
             calendarRevision &+= 1
         }
-        .onChangeCompat(of: scenePhase) { phase in
-            if phase == .active { calendarRevision &+= 1 }
+        .onChangeCompat(of: scenePhase) { _ in
+            calendarRevision &+= 1
         }
     }
 
@@ -134,6 +145,10 @@ struct StressView: View {
     @MainActor
     private func load() async {
         let requestID = loadState.begin()
+        guard scenePhase == .active else {
+            _ = loadState.finish(.cancelled, requestID: requestID)
+            return
+        }
         guard await repo.storeHandle() != nil else {
             _ = loadState.finish(
                 .failed("NOOP could not open the local health store."),
@@ -141,7 +156,7 @@ struct StressView: View {
             return
         }
         let requestKey = stressTaskKey
-        // The ribbon keeps its last published hours until the new read lands; only the baseline status resets.
+        // A different source, date or preference waits for its own result.
         if publishedStressKey != requestKey {
             personalBaseline = nil
         }
@@ -156,6 +171,9 @@ struct StressView: View {
             return
         } catch {
             guard loadState.owns(requestID), requestKey == stressTaskKey else { return }
+            loadedDaytime = nil
+            loadedStressIndex = nil
+            loadedFrequencyDomain = nil
             personalBaseline = .unavailable
             publishedStressKey = requestKey
             _ = loadState.finish(.failed("NOOP could not read the local stress signals."), requestID: requestID)
@@ -169,11 +187,11 @@ struct StressView: View {
         }
 
         storedSeries = nextStoredSeries
-        daytime = nextDaytime.daytime
+        loadedDaytime = nextDaytime.daytime
         personalBaseline = nextDaytime.baseline
         publishedStressKey = requestKey
-        stressIndex = nextDaytime.stressIndex
-        freqHRV = nextDaytime.frequencyDomain
+        loadedStressIndex = nextDaytime.stressIndex
+        loadedFrequencyDomain = nextDaytime.frequencyDomain
         rebuildModelIfNeeded()
 
         let hasData = model != nil || !nextDaytime.daytime.hours.isEmpty

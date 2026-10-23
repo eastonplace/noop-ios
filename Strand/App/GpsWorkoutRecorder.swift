@@ -19,7 +19,7 @@ import WorkoutRouteExport
 //                     so a route encoded on one platform decodes identically on the other (the polyline
 //                     round-trips through the same local stores / exports as every other workout value).
 //   • `TrackFilter` — pure, stateful fix gate: drops low-accuracy fixes and physically-impossible jumps,
-//                     mirroring Android `TrackFilter` (50 m accuracy gate, ~12 m/s speed gate). Bounds the
+//                     using a sport policy (50 m accuracy gate plus speed/acceleration bounds). Bounds the
 //                     UNTRUSTED stream of OS location fixes before any of it reaches the stored route.
 //   • `RouteStore`  — a tiny on-device side-store (UserDefaults) keyed by a workout's natural key
 //                     (startTs + sport), holding the encoded polyline + distance for that session. The
@@ -149,27 +149,65 @@ struct RawFix: Equatable {
 
 /// Pure, stateful fix gate: drops low-accuracy fixes and physically-impossible jumps, returning the
 /// accepted point or nil. Keeps the last accepted fix to gate the next. A direct port of Android
-/// `TrackFilter` (so a weak-signal run admits the same legitimate fixes and rejects the same teleports).
+/// `TrackFilter`, extended with explicit sport bounds for cycling and snow travel.
 struct TrackFilterAcceptedFix: Equatable {
     let point: RouteMath.LatLng
     let startsNewSegment: Bool
 }
 
+/// Conservative capture bounds, not an estimate of the athlete's speed. Only explicit catalogue
+/// cycling/snow sports receive faster bounds; unknown/free-text sports retain the standard ceiling.
+/// The selected class is stored with the active session across pause and process restoration.
+enum GpsTrackPolicy: String, Codable, Equatable, Sendable {
+    case standard, cycling, snow
+
+    static func forSport(_ sport: String) -> Self {
+        switch WorkoutCatalog.sport(named: sport)?.name {
+        case "Cycling": return .cycling
+        case "Skiing", "Snowboarding": return .snow
+        default: return .standard
+        }
+    }
+
+    /// 43.2 / 108 / 144 km/h. The higher ceilings retain fast descents while still rejecting jumps.
+    var maxSpeedMps: Double {
+        switch self {
+        case .standard: return 12
+        case .cycling: return 30
+        case .snow: return 40
+        }
+    }
+
+    /// Deliberately generous bounds on changes in consecutive leg speeds (m/s²). The filter also
+    /// allows the horizontal-accuracy uncertainty of both legs, so GPS jitter is not acceleration.
+    var maxAccelerationMps2: Double {
+        switch self {
+        case .standard: return 6
+        case .cycling: return 8
+        case .snow: return 12
+        }
+    }
+}
+
 final class TrackFilter {
     private let maxAccuracyM: Double
     private let maxSpeedMps: Double
+    private let maxAccelerationMps2: Double
     private let segmentGapSeconds: Double
     private let minimumPointDistanceM: Double
     private var last: RawFix?
+    private var previousLeg: (speed: Double, seconds: Double, uncertainty: Double)?
 
     init(
+        policy: GpsTrackPolicy = .standard,
         maxAccuracyM: Double = 50,
-        maxSpeedMps: Double = 12,
+        maxSpeedMps: Double? = nil,
         segmentGapSeconds: Double = 120,
         minimumPointDistanceM: Double = 1
     ) {
         self.maxAccuracyM = max(0, maxAccuracyM)
-        self.maxSpeedMps = max(0, maxSpeedMps)
+        self.maxSpeedMps = max(0, maxSpeedMps ?? policy.maxSpeedMps)
+        self.maxAccelerationMps2 = policy.maxAccelerationMps2
         self.segmentGapSeconds = max(1, segmentGapSeconds)
         self.minimumPointDistanceM = max(0, minimumPointDistanceM)
     }
@@ -189,10 +227,10 @@ final class TrackFilter {
 
         let point = RouteMath.LatLng(fix.lat, fix.lon)
         var startsNewSegment = false
+        var nextLeg: (speed: Double, seconds: Double, uncertainty: Double)?
         if let prev = last {
-            let elapsed = fix.tMs.subtractingReportingOverflow(prev.tMs)
-            guard !elapsed.overflow, elapsed.partialValue > 0 else { return nil }
-            let elapsedMilliseconds = elapsed.partialValue
+            let (elapsedMilliseconds, overflow) = fix.tMs.subtractingReportingOverflow(prev.tMs)
+            guard !overflow, elapsedMilliseconds > 0 else { return nil }
             let elapsedSeconds = Double(elapsedMilliseconds) / 1000.0
             let distance = RouteMath.haversineMeters(
                 RouteMath.LatLng(prev.lat, prev.lon),
@@ -200,10 +238,22 @@ final class TrackFilter {
             guard distance >= minimumPointDistanceM else { return nil }
 
             startsNewSegment = elapsedSeconds > segmentGapSeconds
-            if !startsNewSegment, distance / elapsedSeconds > maxSpeedMps { return nil }
+            if !startsNewSegment {
+                let speed = distance / elapsedSeconds
+                guard speed <= maxSpeedMps else { return nil }
+                let uncertainty = (prev.accuracyM + fix.accuracyM) / elapsedSeconds
+                if let previousLeg {
+                    let midpointSeconds = (elapsedSeconds + previousLeg.seconds) / 2
+                    let allowedChange = maxAccelerationMps2 * midpointSeconds
+                        + uncertainty + previousLeg.uncertainty
+                    guard abs(speed - previousLeg.speed) <= allowedChange else { return nil }
+                }
+                nextLeg = (speed, elapsedSeconds, uncertainty)
+            }
         }
 
         last = fix
+        previousLeg = nextLeg
         return TrackFilterAcceptedFix(point: point, startsNewSegment: startsNewSegment)
     }
 
@@ -211,6 +261,7 @@ final class TrackFilter {
         guard fix.accuracyM.isFinite, fix.accuracyM >= 0, fix.accuracyM <= maxAccuracyM,
               (-90...90).contains(fix.lat), (-180...180).contains(fix.lon) else { return }
         last = fix
+        previousLeg = nil
     }
 }
 
@@ -462,6 +513,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     /// foreground, so it is recreated whenever the app returns to the foreground mid-recording.
     private var backgroundActivity: GpsBackgroundActivity?
     private let makeBackgroundActivity: () -> GpsBackgroundActivity?
+    private var filterPolicy: GpsTrackPolicy = .standard
     private var filter = TrackFilter()
     private var segments: [[RouteMath.LatLng]] = []
     /// Shape matches `segments`; nil points are a legacy route restored without measurements.
@@ -563,11 +615,12 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     /// Begin recording a fresh route for a workout started at `startMs` (unix milliseconds). Requests
     /// When-In-Use if not yet decided; fails safe (records nothing) if denied / restricted / unavailable.
     /// A re-arm resets the track. Returns immediately — fixes arrive asynchronously via the delegate.
-    func start(sessionID: UUID = UUID(), startMs: Int64) {
+    func start(sessionID: UUID = UUID(), startMs: Int64, sport: String = WorkoutCatalog.defaultSportName) {
         segments.removeAll()
         pointMeasurements.removeAll()
         lastRecordedTimestampMs = nil
-        filter = TrackFilter()
+        filterPolicy = .forSport(sport)
+        filter = TrackFilter(policy: filterPolicy)
         self.sessionID = sessionID
         self.startMs = startMs
         distanceM = 0
@@ -643,7 +696,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
 
     /// Preserve only the pre-termination route. Resuming uses this foreground process; it never implies
     /// CoreLocation kept recording while NOOP was closed.
-    func restore(_ snapshot: ActiveGpsWorkoutPersistence.Snapshot) {
+    func restore(_ snapshot: ActiveGpsWorkoutPersistence.Snapshot,
+                 sport: String = WorkoutCatalog.defaultSportName) {
         guard snapshot.isValid else { return }
         segments = snapshot.segments
         pointMeasurements = snapshot.pointMeasurements ?? snapshot.segments.map { $0.map { _ in nil } }
@@ -653,7 +707,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         rawFixCount = snapshot.rawFixCount
         // A restored pre-termination fix must never seed the new speed window. The first fresh fix starts
         // a separate segment and becomes the filter's new baseline.
-        filter = TrackFilter()
+        filterPolicy = snapshot.filterPolicy ?? .forSport(sport)
+        filter = TrackFilter(policy: filterPolicy)
         startsNewSegmentOnNextFix = true
         hadTerminatedGap = snapshot.hadTerminatedGap || snapshot.recordingWasActive
         pointCount = snapshot.acceptedPointCount
@@ -677,7 +732,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         guard isRecording, paused != isPaused else { return }
         isPaused = paused
         if !paused {
-            filter = TrackFilter()
+            filter = TrackFilter(policy: filterPolicy)
             startsNewSegmentOnNextFix = true
             recordingBeganAt = Date()
             lastErrorAt = nil
@@ -850,7 +905,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
             rawFixCount: rawFixCount,
             acceptedPointCount: pointCount,
             recordingWasActive: isRecording,
-            hadTerminatedGap: hadTerminatedGap
+            hadTerminatedGap: hadTerminatedGap,
+            filterPolicy: filterPolicy
         )
     }
 }

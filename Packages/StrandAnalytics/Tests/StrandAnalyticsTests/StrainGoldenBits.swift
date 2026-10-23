@@ -1,6 +1,7 @@
 /// Golden bit patterns for the Strain V2 scorer, generated at the untouched base a394bb32 by running
 /// StrainGoldenBitsTests with NOOP_PRINT_STRAIN_GOLDEN=1 (see that test for the line format and for how to
-/// regenerate). Do not edit by hand. 1124 lines.
+/// regenerate). The documented messy-day calorie entry is the sole reviewed correction to that base;
+/// every other entry retains the original bits. Do not regenerate wholesale. 1124 lines.
 enum StrainGoldenBits {
     static let lines: [String] = [
         "strain.activity|empty=nil",
@@ -38,7 +39,10 @@ enum StrainGoldenBits {
         "strain.activity|messy day=403ca71e56819ecc",
         "activityStrain|messy day=403ca71e56819ecc",
         "rescore.strain|messy day=403ca71e56819ecc",
-        "rescore.kcal|messy day=40851d0623f03a71",
+        // 2026-10-22 audit: manual rescoring now excludes fixture HR 0, 29, 241, 400, and -7.
+        // The unchanged calorie kernel on 1560 valid rows (of 1565 raw) yields these bits; the old
+        // invalid-inclusive bits were 40851d0623f03a71. See the audit's golden-calorie-followup.md.
+        "rescore.kcal|messy day=408516fb3e64a830",
         "strain.day|empty|bare=nil",
         "components.cardio|empty|bare=nil",
         "components.steps|empty|bare=nil",

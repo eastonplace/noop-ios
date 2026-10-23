@@ -279,6 +279,84 @@ public final class LiveState: ObservableObject {
     @Published public var rebootInProgress = false
 
     @Published public var heartRate: Int?
+    private let heartRateReceiptSubject = PassthroughSubject<LiveHeartRateReceipt, Never>()
+    private let heartRateSourceSubject = PassthroughSubject<LiveHeartRateSource?, Never>()
+    private var heartRateReceiptGate = LiveHeartRateReceiptGate()
+    /// Packet arrivals are separate from the deduplicated display property and never replay on subscribe.
+    public var heartRateReceipts: AnyPublisher<LiveHeartRateReceipt, Never> {
+        heartRateReceiptSubject.eraseToAnyPublisher()
+    }
+    public var heartRateSourceChanges: AnyPublisher<LiveHeartRateSource?, Never> {
+        heartRateSourceSubject.eraseToAnyPublisher()
+    }
+    public var currentHeartRateSource: LiveHeartRateSource? { heartRateReceiptGate.source }
+    public var latestHeartRateReceipt: LiveHeartRateReceipt? { heartRateReceiptGate.latest }
+    /// Direct presentation writes must not double-ingest a receipt into AppModel.
+    private(set) var isReceivingHeartRateReceipt = false
+
+    public func activateHeartRateSource(_ source: LiveHeartRateSource?) {
+        guard source != heartRateReceiptGate.source else { return }
+        heartRateReceiptGate.activate(source)
+        heartRate = nil
+        rr.removeAll(keepingCapacity: true)
+        rrRecent.removeAll(keepingCapacity: true)
+        heartRateSourceSubject.send(source)
+    }
+
+    public func isCurrentHeartRateReceipt(_ receipt: LiveHeartRateReceipt) -> Bool {
+        receipt.source == heartRateReceiptGate.source
+    }
+
+    /// A provider owns its own link time and has no WHOOP security or history admission proof.
+    func activateHeartRateProviderSource(_ source: LiveHeartRateSource,
+                                         at timestamp: TimeInterval = Date().timeIntervalSince1970) {
+        guard source.providerSessionID != nil else { return }
+        bonded = false
+        encryptedBond = false
+        standardHRMode = nil
+        connectedAt = timestamp
+        activateHeartRateSource(source)
+        if !connected { connected = true }
+        streamingLiveHR = false
+    }
+
+    /// Provider sessions have their own connection admission; they do not claim WHOOP bond proof.
+    public var hasActiveHeartRateConnection: Bool {
+        connected && (currentHeartRateSource?.providerSessionID != nil || bonded)
+    }
+
+    @discardableResult
+    public func deactivateHeartRateSource(ifCurrent source: LiveHeartRateSource) -> Bool {
+        guard currentHeartRateSource == source else { return false }
+        activateHeartRateSource(nil)
+        return true
+    }
+
+    /// Shared connection/biometric cleanup for BLEManager's disconnect path. WHOOP transport and
+    /// history teardown still run independently when a different provider already owns this state.
+    @discardableResult
+    public func disconnectHeartRateSource(ifOwnedBy source: LiveHeartRateSource?) -> Bool {
+        guard currentHeartRateSource == nil || currentHeartRateSource == source else { return false }
+        markDisconnected()
+        encryptedBond = false
+        charging = nil
+        strapFirmware = nil
+        clearBiometrics()
+        liveFeedActive = false
+        return true
+    }
+
+    @discardableResult
+    public func receiveHeartRate(bpm: Int, observedAt: Date, source: LiveHeartRateSource,
+                                transport: LiveHeartRateReceipt.Transport, now: Date = Date()) -> Bool {
+        let receipt = LiveHeartRateReceipt(bpm: bpm, observedAt: observedAt, source: source, transport: transport)
+        guard heartRateReceiptGate.admit(receipt, now: now) else { return false }
+        isReceivingHeartRateReceipt = true
+        defer { isReceivingHeartRateReceipt = false }
+        if heartRate != bpm { heartRate = bpm }
+        heartRateReceiptSubject.send(receipt)
+        return true
+    }
     @Published public var rr: [Int] = []
     @Published public internal(set) var rrRecent: [Int] = []
     @Published public var lastFrameType: String?

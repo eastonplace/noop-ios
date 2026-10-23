@@ -182,7 +182,7 @@ public struct DeviceRegistryStore: Sendable {
         "sleepRecoveryDailyOverride", "sleepRecoveryAttempt",
         "hrSample", "rrInterval", "spo2Sample", "skinTempSample", "respSample", "gravitySample",
         "stepSample", "ppgHrSample", "event", "battery", "dailyMetric", "sleepSession",
-        "journal", "workout", "appleDaily", "metricSeries", "dayOwnership", "healthKitObjectIndex",
+        "journal", "journalDayNote", "workout", "appleDaily", "metricSeries", "dayOwnership", "healthKitObjectIndex",
         // Added: device-keyed tables introduced by later migrations that the list previously missed, so a
         // "delete all of this device's data" left raw captures (rawBatch), user-entered lab/blood markers
         // (labMarker), banked band sleep-state (sleepStateSample) and live coaching sessions
@@ -228,9 +228,11 @@ public struct DeviceRegistryStore: Sendable {
                 sql: "SELECT historyLineage FROM pairedDevice WHERE id = ?",
                 arguments: [deviceId]
             )
+            let labCells = try WhoopStore.labMarkerProjectionCells(ownedBy: [deviceId], in: db)
             for table in Self.deviceScopedTables where existing.contains(table) {
                 try db.execute(sql: "DELETE FROM \(table) WHERE deviceId = ?", arguments: [deviceId])
             }
+            try WhoopStore.reprojectLabMarkerCells(db, cells: labCells)
             // Keep the registry row, but fence every future history commit from the deleted rows. This is
             // the same boundary as a physical re-pair: old trim state is not allowed to skip new history.
             if existing.contains("pairedDevice"), oldLineage != nil {

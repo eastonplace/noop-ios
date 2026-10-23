@@ -81,6 +81,13 @@ final class RouteExporterTests: XCTestCase {
         XCTAssertNil(session.fields[17], "Maximum heart rate is not inferred")
     }
 
+    func testFITRecognizesTheWorkoutCatalogOpenWaterSwimLabel() throws {
+        let decoded = try FITDocument(RouteExporter.render(.fit, segments: pausedRoute,
+                                                           name: "Swim", sport: "Open-water swim"))
+        XCTAssertEqual(decoded.messages.first { $0.number == 18 }?.uint(5), 5)
+        XCTAssertEqual(decoded.messages.first { $0.number == 19 }?.uint(25), 5)
+    }
+
     func testFITSemicirclesRoundTripCoordinatesAndDatelineDoesNotOverflow() throws {
         let route = [[point(90, 180), point(-90, -180, at: 10_000)]]
         let decoded = try FITDocument(RouteExporter.render(.fit, segments: route, name: "Polar", sport: "Other"))

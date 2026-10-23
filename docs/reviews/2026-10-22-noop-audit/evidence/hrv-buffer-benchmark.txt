@@ -1,0 +1,20 @@
+Building for production...
+[0/6] Copying whoop_protocol.json
+[1/6] Write sources
+[3/6] Write swift-version-4BDBE066E3DC7C8B.txt
+[5/7] Compiling WhoopProtocol BadClockDiagnostics.swift
+[6/8] Compiling HRVBenchmark HRVAnalyzer.swift
+[6/8] Write Objects.LinkFileList
+[7/8] Linking HRVBenchmark
+Build of product 'HRVBenchmark' complete! (22.08s)
+warning: safeExec: signal(32, SIG_DFL) failed: Invalid argument
+warning: safeExec: signal(33, SIG_DFL) failed: Invalid argument
+Equality: 37555 fixtures, exact Double bit patterns and gap flags, zero mismatches
+Workload: 28799 RR observations; synthetic clock 28800.443259082534 seconds; clean count 28316
+cleanRR: median old 2.947550 ms; new 2.647658 ms; ratio 0.8983; decrease 10.17%
+  old_ms=[2.9669807500000003, 2.98101755, 4.1522844, 2.9238467, 2.8751412, 2.9464862, 4.27603065, 2.7384288999999997, 2.94754985]; new_ms=[2.6476579, 3.268047, 3.0866962, 2.57568565, 2.57466505, 2.52267405, 3.311403, 2.3513463000000003, 3.33820125]
+cleanRRGapAware: median old 2.990384 ms; new 2.565111 ms; ratio 0.8578; decrease 14.22%
+  old_ms=[3.2765211499999998, 2.9903836, 2.9218788, 3.6863158499999997, 3.8222499, 2.7772317, 2.771848, 3.2077706999999998, 2.8319552999999997]; new_ms=[2.6948324, 2.5651112, 2.7131919499999997, 2.7423961500000003, 2.53967, 2.4932107500000003, 2.4924782, 2.663563, 2.5232744]
+analyze: median old 3.053613 ms; new 2.743948 ms; ratio 0.8986; decrease 10.14%
+  old_ms=[2.8977886, 3.3678738000000004, 3.08073875, 2.98813025, 2.99020355, 3.8118933499999996, 4.50779155, 3.05361255, 2.9615106]; new_ms=[2.62495155, 2.9383275, 2.62067365, 2.77926265, 2.7439482, 2.72350645, 3.4441438, 3.3692496, 2.6063435999999998]
+Timing: 9 alternating rounds x 20 iterations per implementation/path; checksum 32938011.084865548

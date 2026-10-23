@@ -2337,6 +2337,8 @@ final class Repository: ObservableObject {
     /// ORG-10: bumped by every journal write so screen caches can key on user-data changes that don't move
     /// `refreshSeq`. Not @Published: nothing re-renders on it.
     private(set) var dataVersion = 0
+    /// A narrowly scoped publication for Journal/Mood readers. Live sensor changes do not move it.
+    @Published private(set) var journalRevision = 0
 
     /// #833/v7.7.2 (Apple Health per-source freeze): macOS cold-mounts the NavigationSplitView detail on every
     /// sidebar switch (RootView keys it with `.id`), tearing down AppleHealthView's `@State` so its `load()`
@@ -3039,6 +3041,21 @@ final class Repository: ObservableObject {
             lists.append((try? await store.hrSamples(deviceId: id, from: from, to: to, limit: limit)) ?? [])
         }
         return await Self.unionByTimestamp(lists, ts: { $0.ts })
+    }
+
+    /// A session-owned read: both the store and source priority are fixed before any suspension.
+    /// Callers that outlive active-source selection must not resolve mutable repository IDs mid-query.
+    nonisolated static func hrSamples(
+        store: WhoopStore, sourceIds: [String], from: Int, to: Int, limit: Int = 8000
+    ) async -> [HRSample] {
+        if sourceIds.count == 1, let source = sourceIds.first {
+            return (try? await store.hrSamples(deviceId: source, from: from, to: to, limit: limit)) ?? []
+        }
+        var lists: [[HRSample]] = []
+        for source in sourceIds {
+            lists.append((try? await store.hrSamples(deviceId: source, from: from, to: to, limit: limit)) ?? [])
+        }
+        return await unionByTimestamp(lists, ts: { $0.ts })
     }
 
     /// The first list wins a shared second; ascending. A day of readings from two ids is up to 400,000 rows, so the
@@ -4554,10 +4571,11 @@ final class Repository: ObservableObject {
 
     /// ORG-10: a journal write doesn't move `refreshSeq`, so the Insights same-seq cache restored the old
     /// answers when the classic journal reopened. Drop it and bump the data version.
-    private func journalDidChange() {
+    func journalDidChange() {
         Task { @MainActor in await NotificationCoordinator.shared.reconcileSchedules() }
         insightsCache = nil
         dataVersion &+= 1
+        journalRevision &+= 1
     }
 
     /// Write one native NUMERIC answer (#322): stores the value AND answeredYes=true, so the existing

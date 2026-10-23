@@ -63,6 +63,7 @@ private struct WorkoutSetupContent: View {
     @State private var showsActivities = false
     @State private var showsDevices = false
     @State private var lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var realtimeHRLease: RealtimeHRLeaseToken?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -132,11 +133,12 @@ private struct WorkoutSetupContent: View {
         .sheet(isPresented: $showsDevices) { WorkoutDevicesSheet(onClose: { showsDevices = false }) }
         .onAppear {
             updateProbe()
-            model.startRealtimeHR()
+            if realtimeHRLease == nil { realtimeHRLease = model.acquireRealtimeHR(for: .visible) }
         }
         .onDisappear {
             probe.stop()
-            model.stopRealtimeHR()
+            if let lease = realtimeHRLease { model.releaseRealtimeHR(lease) }
+            realtimeHRLease = nil
         }
         // Only a sport that records a route needs the GPS: a treadmill run or a lift never wakes location.
         .onChange(of: isRouteSport) { _, _ in updateProbe() }

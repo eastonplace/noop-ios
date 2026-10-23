@@ -10,8 +10,9 @@ import, and GPS route export. It starts from NOOP main
 
 The additions use NOOP's existing iPhone UI, local Repository/SQLite, ReceiptLift store,
 Coach consent rules, verified widget publication, and route persistence. There is no
-new server service, cloud account, database schema bump, app version bump, or new
-runtime third-party dependency. Raw strap records and completed Strength sessions are
+new server service, cloud account, feature-specific database schema bump, or runtime
+third-party dependency. Integration retains the shared 2.0.0 staging version and advances
+the build to 245; phone installs and release publication remain on hold. Raw strap records and completed Strength sessions are
 not rewritten by these features.
 
 ## Feature walkthrough
@@ -131,9 +132,10 @@ require macOS/Xcode CI; a Linux source parse is not a native build.
 The temporary component harnesses compile the repository's exact source and tests while
 excluding unrelated Apple-only modules; they are not substitutes for the complete
 macOS package or iOS suites. Native build/test results belong to the PR checks. The
-new GPS package is included in both package CI and the app workflow's retained tests.
+new GPS package is discovered by the protected package plan and receives one authoritative
+host test job. The app and tests also compile against it.
 
-The native rerun at `8c8b11d7` compiled the full iPhone app and extensions, passed all
+Historical pre-integration evidence: the native rerun at `8c8b11d7` compiled the full iPhone app and extensions, passed all
 12 source audits, and passed all nine retained Swift package suites. This includes the
 complete 641-test WhoopStore and 1,536-test StrandAnalytics suites after the SQL and
 DST-fixture corrections.
@@ -144,10 +146,15 @@ cleanup now constructs its own suite instance from the suite name, avoiding that
 cross-actor capture. The iOS test suite must pass the follow-up native rerun; native
 UI and device interaction checks remain separate review gates.
 
-## Integration with pending work
+## Integration with current main
 
-This branch does not merge PRs #66, #67 or #68. Their UI, Coach, source-isolation,
-reliability and app-metadata changes may overlap the same files. Reconcile those
-changes by behavior after the intended merge order is chosen, especially Today,
-RootTabView, LocalCoachEngine, IntelligenceEngine, project settings and app metadata.
-No existing pending branch is modified by this PR.
+PR70 is integrated with main `a2194ec6348e97324edebad2a22b2e667c287acb`, which includes
+PR68, PR71, PR76, PR72 and PR75. Their source ownership, GPS sport filtering, Coach
+hydration and Journal, reviewed Lift progression, persistence workers, analysis cache
+witnesses and change-aware CI are retained. The shared 2.0.0 entry accumulates this
+work with the prior batch. PR73 and PR74 remain separate and unmerged.
+
+The portable and native results above describe earlier branch heads. Final integration
+qualification must be read from the exact current PR head's checks; local component
+evidence does not replace those required checks. Physical GPS/strap behavior remains
+a later device-validation gate and is not implied by a source merge.

@@ -500,6 +500,7 @@ extension WhoopStore {
                     // `<source>-noop` namespace. Privacy deletion must remove both atomically so a
                     // deferred or previously-published derived row cannot survive the raw source.
                     let ownedDeviceIds = [deviceId, deviceId + "-noop"]
+                    let labCells = try Self.labMarkerProjectionCells(ownedBy: ownedDeviceIds, in: db)
                     for table in DeviceRegistryStore.deviceScopedTables
                         where existing.contains(table) && table != "historicalReceiptScopeLifecycle" {
                         for ownedDeviceId in ownedDeviceIds {
@@ -509,6 +510,7 @@ extension WhoopStore {
                             )
                         }
                     }
+                    try Self.reprojectLabMarkerCells(db, cells: labCells)
                     // Keep the raw source's `discarded` lifecycle tombstone written above. Admission uses it
                     // to reject a stale receipt batch that was read before deletion but reaches its write
                     // transaction after deletion. A computed namespace does not own raw receipt lifecycle.

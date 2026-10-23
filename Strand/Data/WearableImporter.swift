@@ -14,7 +14,7 @@ import StrandImport
 enum WearableImporter {
 
     /// The Oura/Fitbit/Garmin export mapping revision, stamped into the Import test-mode parser line.
-    static let importerVersion = 1
+    static let importerVersion = 2
 
     @discardableResult
     static func importExport(url: URL, into store: WhoopStore,
@@ -22,8 +22,8 @@ enum WearableImporter {
         let result = try ImportCoordinator().importWearableExport(from: url)
         let deviceId = result.brand.sourceId
 
-        // Day rollups → DailyMetric. HRV/recovery/respiration that the export lacks stay nil; NOOP
-        // derives what it can locally. A brand's reference scores never populate `recovery`/`strain`.
+        // File fragments update only measurements they contain; missing fields preserve prior imports.
+        // A brand's reference scores never populate `recovery`/`strain`.
         var metrics: [DailyMetric] = []
         for d in result.days {
             metrics.append(DailyMetric(
@@ -41,10 +41,11 @@ enum WearableImporter {
                 exerciseCount: nil,
                 spo2Pct: d.spo2Pct,
                 skinTempDevC: d.skinTempDevC,
-                respRateBpm: d.respRateBpm))   // imported night resp now reaches the day rollup (#17)
+                respRateBpm: d.respRateBpm,
+                steps: d.steps))
         }
         // Capture the rows the store actually wrote (summed SQLite changes) for the Import test mode.
-        let metricsWritten = try await store.upsertDailyMetrics(metrics, deviceId: deviceId)
+        let metricsWritten = try await store.mergeImportedDailyMetrics(metrics, deviceId: deviceId)
 
         // Sleep sessions → CachedSleepSession. Oura/Garmin give duration breakdowns without a per-segment
         // hypnogram, so those sessions carry no stage JSON (we never synthesize a fake one); Fitbit's

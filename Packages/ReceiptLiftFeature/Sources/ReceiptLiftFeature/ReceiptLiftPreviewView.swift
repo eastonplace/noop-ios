@@ -46,7 +46,7 @@ public struct ReceiptLiftPreviewView: View {
                 switch screen {
                 case "routine":
                     if let routine = store.routines.first {
-                        NavigationStack { RoutinePreviewView(routine: routine, onBegin: {}, onCancel: {}) }
+                        NavigationStack { RoutinePreviewView(routine: routine, onBegin: { _, _ in false }, onCancel: {}) }
                     }
                 case "detail":
                     if let exercise = store.activeExercises.first {

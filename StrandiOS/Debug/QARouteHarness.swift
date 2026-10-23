@@ -44,7 +44,7 @@ enum QANotificationResponse {
 /// state), compare, trends-explore,
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
 /// Recovery ⓘ opens it), updates, settings (the Settings sheet; `settings-<page>` lands on one page, named by its
-/// `SettingsRouteID` case: settings-syncbattery, settings-personalprofile), live-hr, breathe, journal, intervals,
+/// `SettingsRouteID` case: settings-syncbattery, settings-personalprofile), live-hr, breathe, journal, journal-compose (the Journal screen with the note composer open over it), intervals,
 /// quick-actions (the shell's plus menu), training-load (Trends' Training load detail for the default month range),
 /// start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
@@ -92,6 +92,8 @@ enum QARoute: String, CaseIterable {
     case liveHR = "live-hr"
     case breathe
     case journal
+    /// The Coaching journal screen with the "Write or dictate a note" composer already open over it.
+    case journalCompose = "journal-compose"
     case intervals
     case startWorkout = "start-workout"
     /// The shell's plus menu (Quick Actions).
@@ -155,7 +157,7 @@ enum QARoute: String, CaseIterable {
         case .rhythm: return .shell(.rhythm)
         case .liveHR: return .shell(.liveHR)
         case .breathe: return .shell(.breathe)
-        case .journal: return .shell(.journal)
+        case .journal, .journalCompose: return .shell(.journal)
         case .intervals: return .shell(.intervals)
         case .quickActions: return .shell(.quickActions)
         case .startWorkout: return .shell(.startWorkout)

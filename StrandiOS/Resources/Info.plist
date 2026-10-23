@@ -72,9 +72,9 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>NOOP records your route during an outdoor workout to show distance, pace, and a map, and keeps recording while the screen is off. Routes stay on your device unless you choose to share or export them.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>NOOP uses your microphone only when you tap the Coach microphone. Your spoken question is transcribed on this iPhone.</string>
+	<string>NOOP uses your microphone only when you tap a microphone in Coach or Journal. Speech is transcribed on this iPhone.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>NOOP transcribes Coach questions on this iPhone. It does not send recordings to a speech server.</string>
+	<string>NOOP transcribes Coach questions and journal entries on this iPhone. It does not send recordings to a speech server.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

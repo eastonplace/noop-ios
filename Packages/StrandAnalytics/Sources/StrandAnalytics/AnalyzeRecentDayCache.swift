@@ -44,6 +44,9 @@ public enum AnalyzeRecentDayCache {
     ///   R-R backfill or a quality annotation invalidates reuse even when HR is unchanged.
     /// - stepSleepFingerprint: successor sleep bounds and awake spans reused for civil-day step
     ///   filtering. A changed tomorrow-night stage must invalidate today even if onset and HR did not move.
+    /// - inputWitness: complete committed table/store/physical identity supplied by WhoopStore. It covers
+    ///   every raw family, same-key repairs, legacy band-state fallback, cycle tails and capped-day reads.
+    ///   The engine disables reuse when it cannot read this witness; count/max alone cannot authorize it.
     ///
     /// Inputs that feed `analyzeDay` but are pass-global rather than per-day (profile, baselines1, sleep
     /// need / consistency, habitual midsleep, tz, stager toggles) are NOT in this key — the engine drops the
@@ -54,6 +57,7 @@ public enum AnalyzeRecentDayCache {
                                 cycleFingerprint: String = "",
                                 rrFingerprint: String = "",
                                 stepSleepFingerprint: String = "",
+                                inputWitness: String = "",
                                 // #1575: whether this day is the one that emits the PER-WINDOW HRV detail
                                 // (`dayStart == nowLocalMidnight`). Now that an active trace no longer
                                 // disables reuse, this has to invalidate: the night cached as "today" with
@@ -72,6 +76,7 @@ public enum AnalyzeRecentDayCache {
         return "\(owner)|\(hrCount):\(hrMaxTs):\(anchor):\(sleepEditFingerprint):\(persistedSleepFingerprint):"
             + "\(cycleFingerprint):rr\(rrFingerprint.utf8.count):\(rrFingerprint):\(hrvWindowDetail ? "d" : "s")"
             + ":ss\(stepSleepFingerprint.utf8.count):\(stepSleepFingerprint)"
+            + ":i\(inputWitness.utf8.count):\(inputWitness)"
             + (calorieFillEnd.map { ":f\($0)" } ?? "")
     }
 }

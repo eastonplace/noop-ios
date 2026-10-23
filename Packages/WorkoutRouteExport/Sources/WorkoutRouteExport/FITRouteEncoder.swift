@@ -139,7 +139,7 @@ enum FITRouteEncoder {
         case "walk", "walking": 11
         case "hike", "hiking": 17
         case "rowing": 15
-        case "swimming", "open water swimming": 5
+        case "swimming", "open water swimming", "open-water swim": 5
         default: 0 // Generic, rather than claiming a sport that was not recorded.
         }
     }

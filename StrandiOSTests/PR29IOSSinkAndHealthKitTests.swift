@@ -4,6 +4,7 @@ import XCTest
 import NoopPhase34Core
 import WhoopProtocol
 import WhoopStore
+import StrandAnalytics
 @testable import NOOP
 
 @MainActor
@@ -339,6 +340,77 @@ final class PR29IOSSinkAndHealthKitTests: XCTestCase {
         XCTAssertEqual(input.hr, [HRSample(ts: anchor + 60, bpm: 72)])
         XCTAssertEqual(input.rr, [RRInterval(ts: anchor + 60, rrMs: 810)])
         XCTAssertEqual(input.timeZoneOffsetSeconds, 0)
+    }
+
+    func testWidgetStressKeepsWakingHRAndRRBeyondDenseMidnightPrefix() async throws {
+        let store = try await WhoopStore.inMemory()
+        let day = try CivilDay(key: "2026-08-08")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let start = Int(try day.date(in: calendar).timeIntervalSince1970)
+        let noon = start + 12 * 3_600
+        let hr = (0..<20_000).map { HRSample(ts: start + $0, bpm: 60) }
+            + (0..<300).map { HRSample(ts: noon + $0, bpm: 72) }
+        let rr = (0..<20_000).map { RRInterval(ts: start + $0, rrMs: 1_000) }
+            + (0..<300).flatMap { second in
+                [RRInterval(ts: noon + second, rrMs: 800, sourceOrdinal: 0),
+                 RRInterval(ts: noon + second, rrMs: 850, sourceOrdinal: 1)]
+            }
+        _ = try await store.insert(Streams(hr: hr, rr: rr), deviceId: "dense-source")
+
+        let input = try await WidgetSnapshot.verifiedStressInput(
+            store: store, sourceIds: ["dense-source"], anchorDay: day,
+            timeZoneIdentifier: "UTC")
+        XCTAssertEqual(input.hr.count, 20_300)
+        XCTAssertEqual(input.rr.count, 20_600)
+        XCTAssertEqual(input.rr.filter { $0.ts >= noon }.count, 600)
+        let scored = DaytimeStress.analyze(
+            hr: input.hr, rr: input.rr, tzOffsetSeconds: input.timeZoneOffsetSeconds)
+        let wakingHour = try XCTUnwrap(scored.scored.first { $0.hour == 12 })
+        XCTAssertEqual(try XCTUnwrap(wakingHour.rmssd), 50, accuracy: 1e-9)
+    }
+
+    func testWidgetStressReadsAllSecondsOfTwentyFiveHourDay() async throws {
+        let store = try await WhoopStore.inMemory()
+        let day = try CivilDay(key: "2026-11-01")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let startDate = try day.date(in: calendar)
+        let nextDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: startDate))
+        let start = Int(startDate.timeIntervalSince1970)
+        let endExclusive = Int(nextDay.timeIntervalSince1970)
+        XCTAssertEqual(endExclusive - start, 90_000)
+        let hr = (start..<endExclusive).map { HRSample(ts: $0, bpm: 60) }
+            + [HRSample(ts: start - 1, bpm: 99), HRSample(ts: endExclusive, bpm: 99)]
+        let rr = [RRInterval(ts: endExclusive - 1, rrMs: 800, sourceOrdinal: 0),
+                  RRInterval(ts: endExclusive - 1, rrMs: 800, sourceOrdinal: 1),
+                  RRInterval(ts: endExclusive, rrMs: 900)]
+        _ = try await store.insert(Streams(hr: hr, rr: rr), deviceId: "dst-source")
+
+        let input = try await WidgetSnapshot.verifiedStressInput(
+            store: store, sourceIds: ["dst-source"], anchorDay: day,
+            timeZoneIdentifier: "America/New_York")
+        XCTAssertEqual(input.hr.count, 90_000)
+        XCTAssertEqual(input.hr.first?.ts, start)
+        XCTAssertEqual(input.hr.last?.ts, endExclusive - 1)
+        XCTAssertEqual(input.rr.count, 2)
+        XCTAssertEqual(input.rr.map(\.ts), [endExclusive - 1, endExclusive - 1])
+        XCTAssertEqual(input.rr.map(\.sourceOrdinal), [0, 1])
+    }
+
+    func testWidgetStressRejectsInvalidOrOverflowingReadBounds() throws {
+        let invalid: [(TimeInterval, TimeInterval)] = [
+            (.nan, 1), (0, .infinity), (-.infinity, 0),
+            (0, 0), (1, 0), (0.5, 1),
+            (Double(Int.min), 0), (0, Double(Int.max)),
+        ]
+        for (start, end) in invalid {
+            XCTAssertThrowsError(try WidgetSnapshot.stressInputBounds(start: start, endExclusive: end))
+        }
+        let bounds = try WidgetSnapshot.stressInputBounds(start: 0, endExclusive: 90_000)
+        XCTAssertEqual(bounds.from, 0)
+        XCTAssertEqual(bounds.to, 89_999)
+        XCTAssertEqual(bounds.hrLimit, 90_000)
     }
 
     private func seedIncompleteRepositoryArtifact(
