@@ -89,6 +89,12 @@ struct RoutineImportTests {
         #expect(try persisted == encode(original))
         #expect(coordinator.store.routines == original.routines)
         #expect(!coordinator.store.exercises.contains { $0.id == preview.newExercises[0].id })
+        // A failed database generation has no JSON-file write to join. Both barriers must return
+        // without waiting for that unrelated worker or scheduling a compensating write.
+        await coordinator.store.waitForPendingSave()
+        await coordinator.store.waitForScheduledWrites()
+        #expect(await harness.attempts == 1)
+        #expect(coordinator.store.persistenceWriteCount == 0)
         try await coordinator.store.importReviewedRoutines(preview, allowNewExercises: true)
         let retried = try decode(await harness.data)
         #expect(retried.routines.count == original.routines.count + 1)

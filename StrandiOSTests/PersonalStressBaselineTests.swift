@@ -69,6 +69,9 @@ final class PersonalStressBaselineRepositoryTests: XCTestCase {
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
         repository.adoptActiveDeviceId("active-strap")
+        // This read-precedence fixture models a completed handoff, without dashboard publication.
+        XCTAssertTrue(repository.verifiedExternalSurfaceFenced)
+        repository.verifiedExternalSurfaceFenced = false
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .gmt
         let now = try XCTUnwrap(calendar.date(from: .init(year: 2026, month: 10, day: 22, hour: 12)))
@@ -90,6 +93,9 @@ final class PersonalStressBaselineRepositoryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(first.daytime.dayMean), 2, accuracy: 1e-9)
 
         repository.adoptActiveDeviceId("replacement-strap")
+        // Complete the replacement handoff before reading its active/canonical source union.
+        XCTAssertTrue(repository.verifiedExternalSurfaceFenced)
+        repository.verifiedExternalSurfaceFenced = false
         let next = try await repository.foregroundStressRead(now: now, calendar: calendar, personalBaseline: true)
         guard case .history(let canonicalBaseline) = next.baseline else { return XCTFail("Missing history") }
         XCTAssertEqual(canonicalBaseline.baseline, 80, accuracy: 1e-9)

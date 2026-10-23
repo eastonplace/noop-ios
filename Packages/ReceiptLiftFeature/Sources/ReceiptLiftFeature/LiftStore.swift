@@ -1576,12 +1576,18 @@ final class LiftStore: ObservableObject {
   }
 
   func waitForPendingSave() async {
-    if let databaseTask { _ = try? await databaseTask.value; return }
+    if database != nil {
+      if let databaseTask { _ = try? await databaseTask.value }
+      return
+    }
     await persistence.waitUntilCommitted(saveGeneration)
   }
 
   func waitForScheduledWrites() async {
-    if let databaseTask { _ = try? await databaseTask.value; return }
+    if database != nil {
+      if let databaseTask { _ = try? await databaseTask.value }
+      return
+    }
     await persistence.waitForScheduledWrites()
   }
 
