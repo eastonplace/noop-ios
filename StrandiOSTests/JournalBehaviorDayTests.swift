@@ -17,6 +17,17 @@ final class JournalBehaviorDayTests: XCTestCase {
         XCTAssertNil(D.storageKey(forBehaviorKey: "2026-02-30"))
     }
 
+    func testAnEveningReminderOpensOnThatEveningsBehaviours() throws {
+        // The reminder is sent on 22 Oct, about that day. Its answers belong under the morning after.
+        let key = try XCTUnwrap(D.storageKey(forBehaviorKey: "2026-10-22"))
+        XCTAssertEqual(key, "2026-10-23")
+        XCTAssertTrue(D.isSelectable(key, today: "2026-10-22"))
+        XCTAssertTrue(D.words(forStorageKey: key, today: "2026-10-22").isToday, "Opened that evening: Today")
+        XCTAssertTrue(D.words(forStorageKey: key, today: "2026-10-23").isYesterday, "Opened next morning: Yesterday")
+        // Heads-Up's "Log how you feel" opens the same Today.
+        XCTAssertEqual(D.todayStorageKey(today: "2026-10-22"), key)
+    }
+
     func testKeysRollOverMonthYearAndLeapDay() {
         XCTAssertEqual(D.storageKey(forBehaviorKey: "2026-10-31"), "2026-11-01")
         XCTAssertEqual(D.storageKey(forBehaviorKey: "2026-12-31"), "2027-01-01")

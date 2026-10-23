@@ -37,6 +37,13 @@ struct CoachingRootView: View {
     @State private var qaComposeOpened = false
     #endif
 
+    /// `day` is a storage key (see `JournalBehaviorDay`): `todayStorageKey()` opens on Today, the evening's
+    /// behaviours. Nothing, or a day that cannot be picked, opens on Yesterday.
+    init(day: String? = nil) {
+        let open = day.flatMap { JournalBehaviorDay.isSelectable($0) ? $0 : nil }
+        _dayKey = State(initialValue: open ?? JournalBehaviorDay.yesterdayStorageKey())
+    }
+
     private var isCurrentDayLoaded: Bool { loadedDay == dayKey }
     private var words: JournalBehaviorDay.Words { JournalBehaviorDay.words(forStorageKey: dayKey, today: todayKey) }
     private var loadKey: String { "\(repo.refreshSeq)|\(dayKey)" }

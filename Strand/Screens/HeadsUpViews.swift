@@ -666,7 +666,8 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
             .accessibilityIdentifier("headsUp.detail")
         }
         .sheet(isPresented: $showingJournal) {
-            CoachingRootView()
+            // "Check in tonight" is about this evening's behaviours: the Journal's Today.
+            CoachingRootView(day: JournalBehaviorDay.todayStorageKey())
                 .sheetScreenScaffoldEnvironment(onClose: { showingJournal = false })
         }
     }
