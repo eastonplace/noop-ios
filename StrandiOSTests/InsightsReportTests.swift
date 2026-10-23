@@ -149,6 +149,44 @@ final class InsightsReportTests: XCTestCase {
 
 @MainActor
 final class InsightsHistoryRepositoryTests: XCTestCase {
+    func testJoinedStoreOpenWaitsForDatabaseIdentityBeforeLoadingInsights() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: "my-whoop")
+        let day = Repository.localDayKey(Date())
+        let source = try XCTUnwrap(repo.computedReadIds.first)
+        try await store.upsertDailyMetrics([
+            DailyMetric(day: day, totalSleepMin: 420, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: 55, avgHrv: 60, recovery: 80,
+                        strain: 45, exerciseCount: nil)
+        ], deviceId: source)
+        let opening = Task<WhoopStore?, Never> { store }
+        repo.setOpeningStoreForTesting(opening)
+        let identityStarted = expectation(description: "Joined opener hydrates database identity")
+        var identityContinuation: CheckedContinuation<Void, Never>?
+        repo.todayHealthSnapshotDatabaseIdentityReadHook = {
+            repo.todayHealthSnapshotDatabaseIdentityReadHook = nil
+            await withCheckedContinuation { continuation in
+                identityContinuation = continuation
+                identityStarted.fulfill()
+            }
+        }
+        var completed = false
+        let loading = Task {
+            let report = await InsightsLoader.load(repo: repo)
+            completed = true
+            return report
+        }
+        await fulfillment(of: [identityStarted], timeout: 5)
+        XCTAssertFalse(completed, "The report must wait for the real database identity")
+        XCTAssertNil(repo.todayHealthSnapshotDatabaseIdentityForTesting())
+        identityContinuation?.resume()
+        let report = await loading.value
+        let databaseID = try await store.databaseInstanceId()
+        XCTAssertEqual(repo.todayHealthSnapshotDatabaseIdentityForTesting(), databaseID)
+        XCTAssertFalse(repo.notificationSourceContext.hasPrefix("unavailable:"))
+        XCTAssertEqual(report.daysOfData, 1, "Identity hydration must not invalidate a healthy joined first read")
+    }
+
     func testSharedLoaderRejectsSourceAdoptionDuringColdStorePreparation() async throws {
         let repo = Repository(deviceId: "my-whoop")
         repo.setStoreForTesting(try await WhoopStore.inMemory())

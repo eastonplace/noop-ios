@@ -485,6 +485,14 @@ final class Repository: ObservableObject {
         editedDayRescoreQueue = EditedDayRescoreQueue(defaults: nil)
     }
 
+    /// Exercise the single-flight join branch without opening the app's on-disk database.
+    /// The opening task supplies a real isolated store; the joining read must hydrate its identity.
+    func setOpeningStoreForTesting(_ opening: Task<WhoopStore?, Never>) {
+        store = nil
+        storeOpenTask = opening
+        editedDayRescoreQueue = EditedDayRescoreQueue(defaults: nil)
+    }
+
     /// Deterministic test seam for the authoritative exact-day Sleep read. It exercises the database-failure
     /// branch without scheduler timing or a damaged shared database. Production always uses `.database`.
     enum TodayHealthSnapshotSleepReadOverride: Equatable {
@@ -3040,7 +3048,10 @@ final class Repository: ObservableObject {
         let computedIDs = computedReadIds
         let refresh = refreshSeq
         let journal = journalRevision
-        guard !Task.isCancelled, await ensureStore() != nil else { return false }
+        guard !Task.isCancelled, let store = await ensureStore() else { return false }
+        // Joining an in-flight open can return the handle before its original caller hydrates identity.
+        // Complete that step ourselves before the loader captures notificationSourceContext.
+        await cacheTodayHealthSnapshotDatabaseIdentity(from: store, expectedGeneration: generation)
         return !Task.isCancelled && generation == storeOpenGeneration && owner == deviceId
             && sourceState == liveSourceState && importedIDs == importedReadIds && computedIDs == computedReadIds
             && refresh == refreshSeq && journal == journalRevision
