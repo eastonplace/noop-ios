@@ -50,10 +50,9 @@ enum AppChangelog {
     static let releases: [Release] = [
         .fork("2.0.0", "NOOP 2.0", "October 2026", [
             Feature("heart.text.square.fill", .heart, "Heads-Up", "See when your body looks run down, and why."),
-            Feature("book.closed.fill", .journal, "One-page Journal", "Tap what happened; every tap saves. Dictate notes, add a Coach widget."),
+            Feature("book.closed.fill", .journal, "Journal and Insights", "Tap what happened; Insights spot your bedtime and training patterns."),
             Feature("flame.fill", .strain, "Training load and targets", "Preview daily targets and see your training load mix."),
             Feature("dumbbell.fill", .strain, "Lift plans and imports", "Review progression or import CSV and Excel routines."),
-            Feature("sparkles", .accent, "Insights from your data", "Bedtime, sleep and training patterns, no Journal needed."),
             Feature("figure.walk", .accent, "Workout review and export", "Review detected types and share measured GPX or FIT routes."),
             Feature("waveform.path.ecg", .stress, "Your stress baseline", "Compare hourly stress with your own normal."),
             Feature("heart.fill", .hrv, "Reliable daily data", "Cleaner scores, filtered steps and protected history."),
