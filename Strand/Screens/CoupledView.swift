@@ -721,6 +721,8 @@ struct PaperPillarDetailView: View {
     @State private var strainDay: StrainDayResult?
     /// Whether this appearance has already refreshed the live day score (see `loadStrainDay`).
     @State private var ranLiveStrainPass = false
+    /// The ⓘ explainer open from a section header on this page, if any.
+    @State private var metricInfo: MetricInfo?
 
     private var accent: Color {
         switch kind {
@@ -829,6 +831,7 @@ struct PaperPillarDetailView: View {
         // Strain only: one bounded, off-main pass over the day's readings. A new key (another day, a refresh, the
         // hero moving) cancels the one in flight.
         .task(id: strainLoadKey) { await loadStrainDay() }
+        .metricInfoSheet($metricInfo)
     }
 
     private struct StrainLoadKey: Hashable {
@@ -948,7 +951,8 @@ struct PaperPillarDetailView: View {
             DrillInSeparator()
             // The steps the pass scored, so the row's line and its spoken text agree with its number; the calendar
             // day's total only before a pass has landed.
-            StrainScorePartsSection(parts: parts, steps: strainDay?.steps ?? latestDay?.steps, isToday: isToday)
+            StrainScorePartsSection(parts: parts, steps: strainDay?.steps ?? latestDay?.steps, isToday: isToday,
+                                    infoAction: { metricInfo = .strainScore })
         }
         DrillInSeparator()
         StrainActivitiesSection(workouts: strainWorkouts, isToday: isToday)
@@ -977,7 +981,9 @@ struct PaperPillarDetailView: View {
                 title: kind == .charge ? String(localized: "Morning recovery") : String(localized: "Day strain"),
                 systemImage: kind == .charge ? "heart.fill" : "flame.fill",
                 tint: pillarDomainTint,
-                trailing: .custom(AnyView(heroPill))
+                trailing: .custom(AnyView(heroPill)),
+                infoAction: { metricInfo = kind == .charge ? .recovery : .strain },
+                infoAccessibilityLabel: (kind == .charge ? MetricInfo.recovery : MetricInfo.strain).accessibilityLabel
             )
             heroDial
             heroLine

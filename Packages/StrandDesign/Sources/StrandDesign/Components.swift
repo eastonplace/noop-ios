@@ -185,10 +185,15 @@ public struct NoopCard<Content: View>: View {
 public struct SectionHeader: View {
     let overline: LocalizedStringKey?; let title: LocalizedStringKey; let trailing: String?
     let systemImage: String?; let tint: DomainTint
+    /// When set, a bare ⓘ sits at the trailing edge; the caller presents the explainer (usually a `MetricInfoSheet`).
+    let infoAction: (() -> Void)?
+    let infoAccessibilityLabel: LocalizedStringKey
     public init(_ title: LocalizedStringKey, overline: LocalizedStringKey? = nil, trailing: String? = nil,
-                systemImage: String? = nil, tint: DomainTint = .neutral) {
+                systemImage: String? = nil, tint: DomainTint = .neutral,
+                infoAction: (() -> Void)? = nil, infoAccessibilityLabel: LocalizedStringKey = "More info") {
         self.title = title; self.overline = overline; self.trailing = trailing
         self.systemImage = systemImage; self.tint = tint
+        self.infoAction = infoAction; self.infoAccessibilityLabel = infoAccessibilityLabel
     }
     public var body: some View {
         #if os(iOS)
@@ -196,7 +201,8 @@ public struct SectionHeader: View {
             // SectionHeader's trailing value is display-only. Interactive headers must supply
             // their own Button/NavigationLink so link blue never lies about a static status/count.
             SectionEyebrow(title, systemImage: systemImage, tint: tint,
-                           trailing: trailing.map { .text($0) } ?? .none)
+                           trailing: trailing.map { .text($0) } ?? .none,
+                           infoAction: infoAction, infoAccessibilityLabel: infoAccessibilityLabel)
         } else {
             classic
         }
@@ -219,6 +225,9 @@ public struct SectionHeader: View {
                 // SectionHeader's trailing value is display-only. Interactive headers must supply
                 // their own Button/NavigationLink so link blue never lies about a static status/count.
                 Text(trailing).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+            }
+            if let infoAction {
+                InfoGlyphButton(accessibilityLabel: infoAccessibilityLabel, action: infoAction)
             }
         }
     }
@@ -363,8 +372,9 @@ public struct StatTile<Accessory: View>: View {
         // caller pinning a fixed height, not from maxHeight: .infinity alone.
         .frame(minHeight: NoopMetrics.tileHeight, maxHeight: .infinity)
         // One VoiceOver stop per tile (label, value, caption, delta) instead of up
-        // to four fragmented stops; the decorative sparkline is hidden above.
-        .accessibilityElement(children: .combine)
+        // to four fragmented stops; the decorative sparkline is hidden above. A tile with an accessory (the ⓘ) keeps
+        // it as its own VoiceOver element: a combined element would swallow the button.
+        .accessibilityElement(children: Accessory.self == EmptyView.self ? .combine : .contain)
     }
 }
 

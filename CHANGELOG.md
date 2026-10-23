@@ -47,6 +47,11 @@ CI work in PR76 removes duplicate package testing and selects checks by change t
 - **Coach brief widget.** Add a completed, consented daily brief to the Home Screen, with captured metrics and generation time.
 - **GPS route export.** Share measured route portions as GPX or FIT, retaining measured timestamps and pause/restart segments. Coordinate-only legacy routes remain readable.
 
+- **Sleep at a glance.** A compact summary, shorter stage chart, stage-vs-typical detail and expandable heart-rate comparisons reduce scrolling. Night details and the 30-night duration chart stay available; sleep need and balance share Tonight, and the existing wake alarm remains accessible.
+- **Training load focus.** Review four weeks of workout heart-rate zone minutes grouped into low aerobic, high aerobic and anaerobic load. Training Load adds intensity and sport views with week-by-week contributions; the method explains its data requirements and ranges.
+
+- **Score guides everywhere.** Shared information sheets explain each score or metric, what its ranges mean, how to read the displayed result and how it is calculated. Guides are available from Today, Trends, Sleep, health, stress, training-load and insight screens.
+
 ## 1.8.1
 
 October 2026: Steadier readings and scores.

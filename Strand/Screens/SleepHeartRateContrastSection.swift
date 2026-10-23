@@ -269,74 +269,45 @@ struct SleepHeartRateContrastSection: View {
         state = .ready(result)
     }
 
-    /// A waiting state in the section's own frame: the eyebrow, then a spinner (or the quiet reason) beside what
-    /// NOOP is doing or needs.
+    /// A waiting state as the collapsed row: what NOOP is doing or needs is the value, the reason opens beneath it.
     private func statusCard(title: String, detail: String, showsProgress: Bool) -> some View {
-        FlatSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart) {
-            HStack(alignment: .top, spacing: NoopMetrics.space3) {
-                if showsProgress {
-                    ProgressView()
-                        .tint(DomainTint.heart.accent)
-                        .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(StrandFont.subhead.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text(detail)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        SleepExpandableRow(systemImage: "heart.fill", tint: .heart, label: "Sleep vs awake", value: title) {
+            if showsProgress {
+                ProgressView().tint(DomainTint.heart.accent).accessibilityHidden(true)
             }
+            Text(detail)
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .accessibilityElement(children: .combine)
     }
 
-    /// The comparison: awake and asleep means side by side (bright number, muted unit), what the difference is in a
-    /// sentence, then the method and coverage in quieter ink. Descriptive only, and the section says so.
+    /// The comparison as one row: asleep against awake mean ("53 vs 74 bpm") with the difference on the right. It
+    /// opens to what the difference is in a sentence, then the method and coverage in quieter ink. Descriptive only.
     private func resultCard(_ result: SleepHeartRateContrast.Result) -> some View {
-        FlatSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart,
-                     trailing: .pill("Descriptive", tone: .neutral)) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: NoopMetrics.space4) {
-                    comparisonValue("Awake", bpm: result.wakeMeanBpm)
-                    comparisonValue("Asleep", bpm: result.sleepMeanBpm)
-                }
-                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                    comparisonValue("Awake", bpm: result.wakeMeanBpm)
-                    comparisonValue("Asleep", bpm: result.sleepMeanBpm)
-                }
-            }
-
+        let delta = result.sleepMinusWakeBpm
+        let rounded = Int(abs(delta).rounded())
+        return SleepExpandableRow(
+            systemImage: "heart.fill", tint: .heart, label: "Sleep vs awake",
+            value: String(localized: "\(String(format: "%.0f", result.sleepMeanBpm)) vs \(String(format: "%.0f", result.wakeMeanBpm)) bpm"),
+            delta: rounded == 0 ? "0" : "\(delta < 0 ? "−" : "+")\(rounded)",
+            deltaCaption: String(localized: "bpm asleep"),
+            deltaColor: delta < -0.5 ? StrandPalette.statusPositive : StrandPalette.textTertiary,
+            spokenSummary: accessibilitySummary(result)
+        ) {
             Text(deltaText(result.sleepMinusWakeBpm))
-                .font(StrandFont.body)
+                .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                Text("Previous wake span · recorded naps excluded · one-minute means")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Coverage: awake \(percent(result.wakeCoverage)) · asleep \(percent(result.sleepCoverage)). This does not change Resting HR, Charge, Rest, Effort, or any other score.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilitySummary(result))
-    }
-
-    private func comparisonValue(_ title: LocalizedStringKey, bpm: Double) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(StrandFont.micro)
+            Text("Previous wake span · recorded naps excluded · one-minute means")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Coverage: awake \(percent(result.wakeCoverage)) · asleep \(percent(result.sleepCoverage)). This does not change Resting HR, Charge, Rest, Effort, or any other score.")
+                .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
-            HeroValue(value: String(format: "%.0f", bpm), unit: "bpm", size: 30)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func deltaText(_ delta: Double) -> String {
@@ -424,10 +395,10 @@ struct PreSleepHeartRateFeedbackSection: View {
         }
     }
 
-    /// The opt-in: what it compares, what it stores, and one chip to turn it on. Nothing is stored until it is on.
+    /// The opt-in: a collapsed "Off" row that opens to what it compares, what it stores, and one chip to turn it on.
+    /// Nothing is stored until it is on.
     private var optInCard: some View {
-        FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("Off", tone: .neutral)) {
+        preSleepRow(value: String(localized: "Off")) {
             Text("Compare your mean heart rate during the 30 minutes before main sleep with your own recent nights.")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -446,35 +417,18 @@ struct PreSleepHeartRateFeedbackSection: View {
             .opacity(actionInFlight ? 0.55 : 1)
             actionFailureIfNeeded
         }
-        .accessibilityElement(children: .contain)
     }
 
     private var loadingCard: some View {
-        FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("On", tone: .neutral)) {
-            HStack(alignment: .top, spacing: NoopMetrics.space3) {
-                ProgressView()
-                    .tint(DomainTint.heart.accent)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Building your pre-sleep view")
-                        .font(StrandFont.subhead.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Reading the nightly summaries stored on this device.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-            }
+        preSleepRow(value: String(localized: "Building your pre-sleep view")) {
+            Text("Reading the nightly summaries stored on this device.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
         }
-        .accessibilityElement(children: .combine)
     }
 
     private var buildingCard: some View {
-        FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("On", tone: .neutral)) {
-            Text("Needs another complete pre-sleep window")
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
+        preSleepRow(value: String(localized: "Needs another complete pre-sleep window")) {
             Text("Keep your strap on for the 30 minutes before main sleep. NOOP needs at least 10 valid heart-rate samples.")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -484,38 +438,51 @@ struct PreSleepHeartRateFeedbackSection: View {
         }
     }
 
-    /// The reading: the night's pre-sleep mean as the hero value, what it is against the personal baseline in a
-    /// sentence, then the context and the honesty line in quieter ink.
+    /// The reading as one row: the night's pre-sleep mean ("64 bpm") with its difference from the personal baseline
+    /// on the right. It opens to what that is in a sentence, then the context and the honesty line in quieter ink.
     private func enabledCard(_ feedback: PreSleepHeartRateFeedback.Feedback) -> some View {
-        FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("On", tone: .neutral)) {
-            if let observation = feedback.observation {
-                HeroValue(value: String(format: "%.0f", observation.meanBpm), unit: "bpm")
-            }
-            Text(feedbackHeadline(feedback))
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                Text(feedbackDetail(feedback))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
+        let comparison = feedback.eligibility == .eligible ? feedback.comparison : nil
+        let rounded = comparison.map { Int(abs($0.deltaBpm).rounded()) }
+        return preSleepRow(
+            value: feedback.observation.map { String(localized: "\(String(format: "%.0f", $0.meanBpm)) bpm") }
+                ?? feedbackHeadline(feedback),
+            delta: comparison.flatMap { c in rounded.map { $0 == 0 ? "0" : "\(c.deltaBpm < 0 ? "−" : "+")\($0)" } },
+            deltaCaption: comparison.map { String(localized: "vs \($0.baselineNights) nights") },
+            deltaColor: comparison.map { $0.deltaBpm < -0.5 ? StrandPalette.statusPositive
+                : ($0.deltaBpm > 0.5 ? StrandPalette.statusWarning : StrandPalette.textTertiary) } ?? StrandPalette.textTertiary
+        ) {
+            if feedback.observation != nil {
+                Text(feedbackHeadline(feedback))
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                if let context = journalContext(feedback), !context.isEmpty {
-                    Text("Journal context: \(context). Context is not a cause.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Text("Descriptive only. This does not change Resting HR, Charge, Rest, Effort, or any other score.")
+            }
+            Text(feedbackDetail(feedback))
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let context = journalContext(feedback), !context.isEmpty {
+                Text("Journal context: \(context). Context is not a cause.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Text("Descriptive only. This does not change Resting HR, Charge, Rest, Effort, or any other score.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
             actionFailureIfNeeded
             turnOffButton
         }
-        .accessibilityElement(children: .contain)
+    }
+
+    /// Every pre-sleep state is the same collapsed row; only its value, delta and explanation change.
+    private func preSleepRow<Detail: View>(
+        value: String, delta: String? = nil, deltaCaption: String? = nil,
+        deltaColor: Color = StrandPalette.textTertiary, @ViewBuilder detail: @escaping () -> Detail
+    ) -> some View {
+        SleepExpandableRow(systemImage: "heart.text.square", tint: .heart, label: "Pre-sleep HR", value: value,
+                           delta: delta, deltaCaption: deltaCaption, deltaColor: deltaColor, detail: detail)
     }
 
     @ViewBuilder

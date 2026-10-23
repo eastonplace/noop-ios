@@ -59,9 +59,12 @@ public struct FlatSection<Content: View>: View {
         tint: DomainTint = .neutral,
         trailing: EyebrowTrailing = .none,
         contentSpacing: CGFloat = WidgetMetrics.contentSpacing,
+        infoAction: (() -> Void)? = nil,
+        infoAccessibilityLabel: LocalizedStringKey = "More info",
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.eyebrow = SectionEyebrow(title, systemImage: systemImage, tint: tint, trailing: trailing)
+        self.eyebrow = SectionEyebrow(title, systemImage: systemImage, tint: tint, trailing: trailing,
+                                    infoAction: infoAction, infoAccessibilityLabel: infoAccessibilityLabel)
         self.spacing = contentSpacing
         self.content = content
     }
@@ -73,9 +76,12 @@ public struct FlatSection<Content: View>: View {
         tint: DomainTint = .neutral,
         trailing: EyebrowTrailing = .none,
         contentSpacing: CGFloat = WidgetMetrics.contentSpacing,
+        infoAction: (() -> Void)? = nil,
+        infoAccessibilityLabel: LocalizedStringKey = "More info",
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.eyebrow = SectionEyebrow(title: title, systemImage: systemImage, tint: tint, trailing: trailing)
+        self.eyebrow = SectionEyebrow(title: title, systemImage: systemImage, tint: tint, trailing: trailing,
+                                    infoAction: infoAction, infoAccessibilityLabel: infoAccessibilityLabel)
         self.spacing = contentSpacing
         self.content = content
     }

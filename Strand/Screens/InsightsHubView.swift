@@ -34,6 +34,8 @@ struct InsightsHubView: View {
     @EnvironmentObject private var repo: Repository
     @StateObject private var model = InsightsHubViewModel()
     @State private var showJournal = false
+    /// The ⓘ explainer open from the Dose-response header, if any.
+    @State private var metricInfo: MetricInfo?
 
     /// The currently-selected outcome for the ranked feed (Charge / HRV / Sleep / RHR).
     @State private var outcome: InsightsHubViewModel.Outcome = .recovery
@@ -80,6 +82,7 @@ struct InsightsHubView: View {
             applyFilter()
         }
         .onChangeCompat(of: filter) { _ in applyFilter() }
+        .metricInfoSheet($metricInfo)
         .sheet(isPresented: $showJournal) {
             #if os(iOS)
             CoachingRootView()
@@ -325,7 +328,9 @@ struct InsightsHubView: View {
 
     private var doseSection: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Dose-response", overline: "Personal curve · prior-shrunk")
+            SectionHeader("Dose-response", overline: "Personal curve · prior-shrunk",
+                          infoAction: { metricInfo = .doseResponse },
+                          infoAccessibilityLabel: MetricInfo.doseResponse.accessibilityLabel)
             if model.doseCards.isEmpty {
                 PaperCard {
                     Text(String(localized: "Log alcohol or late caffeine with an amount and NOOP fits a personal dose curve: how much each extra unit tends to move your numbers. Until then it shows typical patterns, clearly labelled as not yet yours."))

@@ -18,6 +18,8 @@ struct IntelligenceView: View {
     // leaf-scoping pattern), so a tick refreshes only that note.
 
     @State private var range: IntelRange = .month
+    /// The ⓘ explainer open from the forecast header, if any.
+    @State private var metricInfo: MetricInfo?
 
     // Strain display scale (#268) — routes every Strain value/label on this screen. Display-only.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
@@ -99,6 +101,7 @@ struct IntelligenceView: View {
                 .disabled(intelligence.computing)
             }
         }
+        .metricInfoSheet($metricInfo)
     }
 
     /// The day list narrowed to the selected window. `nil` cutoff (ALL) shows everything.
@@ -143,7 +146,9 @@ struct IntelligenceView: View {
     private func forecastCard(_ f: RecoveryForecast) -> some View {
         let frac = min(max(f.charge / 100.0, 0), 1)
         return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Tomorrow's Recovery", overline: "Evening forecast", trailing: String(localized: "Estimate"))
+            SectionHeader("Tomorrow's Recovery", overline: "Evening forecast", trailing: String(localized: "Estimate"),
+                          infoAction: { metricInfo = .recoveryForecast },
+                          infoAccessibilityLabel: MetricInfo.recoveryForecast.accessibilityLabel)
             PaperCard(padding: 20) {
                 VStack(spacing: 14) {
                     // The signature liquid gauge: a filling vessel tinted to the forecast Charge, with the

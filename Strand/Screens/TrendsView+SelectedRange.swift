@@ -41,7 +41,9 @@ extension TrendsView {
                     LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
                     tone: load.map { TrainingLoadCopy.tone($0.state) } ?? .neutral
                 ),
-                showsChevron: true
+                showsChevron: true,
+                infoAction: { metricInfo = .trainingLoad },
+                infoAccessibilityLabel: MetricInfo.trainingLoad.accessibilityLabel
             )
             trainingLoadBody(load)
             Text("Based on daily Strain. Descriptive only; it does not change Readiness.")
@@ -81,6 +83,9 @@ extension TrendsView {
                         startLabel: String(localized: "\(load.sparkSpanDays) days ago"),
                         endLabel: String(localized: "Today")
                     )
+                }
+                if let loadFocus {
+                    LoadFocusCardRow(summary: loadFocus)
                 }
             }
         } else {
@@ -126,7 +131,8 @@ extension TrendsView {
         return [title, status,
                 String(localized: "Recent load") + " " + trainingLoadNumber(load.acute),
                 String(localized: "Fitness base") + " " + trainingLoadNumber(load.chronic),
-                String(localized: "Form") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
+                String(localized: "Form") + " " + trainingLoadBalance(load.balance)]
+            .joined(separator: ", ") + (loadFocus.map { ". " + LoadFocusCardRow.spoken($0) } ?? "")
     }
 
     // MARK: - Selected range
@@ -284,7 +290,9 @@ extension TrendsView {
                 title: String(localized: "Scores"),
                 systemImage: "chart.line.uptrend.xyaxis",
                 tint: .neutral,
-                trailing: .text(selectedRange.summarySubtitle)
+                trailing: .text(selectedRange.summarySubtitle),
+                infoAction: { metricInfo = .trendScores },
+                infoAccessibilityLabel: MetricInfo.trendScores.accessibilityLabel
             )
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 trendSummaryRow(

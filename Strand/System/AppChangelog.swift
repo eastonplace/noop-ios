@@ -50,14 +50,14 @@ enum AppChangelog {
     static let releases: [Release] = [
         .fork("2.0.0", "NOOP 2.0", "October 2026", [
             Feature("heart.text.square.fill", .heart, "Heads-Up", "See when your body looks run down, and why."),
-            Feature("book.closed.fill", .journal, "One-tap Journal", "One page that saves as you tap, plus dictated notes."),
-            Feature("flame.fill", .strain, "Daily training targets", "Preview a plan from your recent load and recovery."),
+            Feature("book.closed.fill", .journal, "One-tap Journal", "Taps save themselves. Dictate notes, add a Coach widget."),
+            Feature("flame.fill", .strain, "Training load and targets", "Preview daily targets and see your training load mix."),
             Feature("dumbbell.fill", .strain, "Lift plans and imports", "Review progression or import CSV and Excel routines."),
-            Feature("figure.walk", .accent, "Workout review and export", "Check a detected workout's type; share GPS routes."),
+            Feature("figure.walk", .accent, "Workout review and export", "Review detected types and share measured GPX or FIT routes."),
             Feature("waveform.path.ecg", .stress, "Your stress baseline", "Compare hourly stress with your own normal."),
-            Feature("checkmark.shield.fill", .hrv, "Steadier data", "Cleaner scores, and strap changes keep your history."),
-            Feature("alarm.fill", .sleep, "Confirmed strap alarms", "Wake times check the current strap's reply."),
-            Feature("rectangle.on.rectangle", .journal, "Coach brief widget", "Add your daily Coach brief to the Home Screen."),
+            Feature("heart.fill", .hrv, "Reliable daily data", "Cleaner scores, filtered steps and protected history."),
+            Feature("bed.double.fill", .sleep, "Sleep and alarms", "Sleep need and stages at a glance; alarms check your strap."),
+            Feature("info.circle", .accent, "Score guides everywhere", "See what each metric means and how to read yours."),
         ]),
         .fork("1.8.1", "Steadier readings and scores", "October 2026", [
             Feature("antenna.radiowaves.left.and.right", .accent, "Connection control", "Disconnect and Forget keep your strap released."),

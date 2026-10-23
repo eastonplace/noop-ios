@@ -192,7 +192,7 @@ These are the pieces needed to build the design. None of them are in this PR.
 
 ## What was built
 
-This list covers PR #77, build 246 of the held 2.0.0 batch.
+This list covers PR #77, build 248 of the held 2.0.0 batch.
 
 **Data**
 

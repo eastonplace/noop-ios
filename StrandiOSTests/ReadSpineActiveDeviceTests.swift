@@ -21,40 +21,70 @@ final class ReadSpineActiveDeviceTests: XCTestCase {
                     spo2Pct: nil, skinTempDevC: nil, respRateBpm: 14, steps: nil, activeKcalEst: nil)
     }
 
+    private func rolloverFixtures(calendar: Calendar) throws -> [(firstSample: Date, expectedDay: Date)] {
+        var fixtures: [(firstSample: Date, expectedDay: Date)] = []
+        // The 300- and 600-sample windows finish before, straddle, or start after the 04:00 rollover.
+        for (hour, minute, expectedDay) in [(3, 50, 21), (3, 58, 22), (4, 5, 22)] {
+            let first = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 22,
+                                                                        hour: hour, minute: minute)))
+            let expected = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: expectedDay)))
+            fixtures.append((first, expected))
+        }
+        return fixtures
+    }
+
+    /// Independent calendar expectation for the last actual seeded sample, without Repository's day helpers.
+    private func expectedLatestDay(_ samples: [HRSample], calendar: Calendar) throws -> Date {
+        let last = Date(timeIntervalSince1970: TimeInterval(try XCTUnwrap(samples.last).ts))
+        let midnight = calendar.startOfDay(for: last)
+        let offset = calendar.component(.hour, from: last) < 4 ? -1 : 0
+        return try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: midnight))
+    }
+
     /// The core regression: re-point the active-strap read id to the re-added strap, then the read deviceId
     /// equals the WRITE (Collector) id, and a latest-data lookup finds the LIVE data written under the NEW id.
     /// The lookup now unions, so the most-recent day across BOTH ids wins (the fresh today, not the stale day).
     @MainActor
     func testReadFollowsActiveIdAfterReAdd() async throws {
-        let store = try await WhoopStore.inMemory()
-        try await store.upsertDevice(id: canonicalId, mac: nil, name: "WHOOP")
-        try await store.upsertDevice(id: newId, mac: nil, name: "WHOOP")
+        let calendar = Calendar.current
+        for fixture in try rolloverFixtures(calendar: calendar) {
+            let store = try await WhoopStore.inMemory()
+            try await store.upsertDevice(id: canonicalId, mac: nil, name: "WHOOP")
+            try await store.upsertDevice(id: newId, mac: nil, name: "WHOOP")
 
-        // Stale canonical data sits months in the past; the re-added strap's data is TODAY, under newId.
-        let now = Int(Date().timeIntervalSince1970)
-        let staleBase = now - 120 * 86_400
-        let freshBase = now - 2 * 3_600   // a couple of hours ago (squarely "today")
-        try await store.insert(Streams(hr: (0..<300).map { HRSample(ts: staleBase + $0, bpm: 50) }), deviceId: canonicalId)
-        try await store.insert(Streams(hr: (0..<300).map { HRSample(ts: freshBase + $0, bpm: 70) }), deviceId: newId)
+            // Stale canonical data sits months in the past; the fresh window belongs to the re-added strap.
+            let staleStart = try XCTUnwrap(calendar.date(byAdding: .day, value: -120, to: fixture.firstSample))
+            let staleBase = Int(staleStart.timeIntervalSince1970)
+            let freshBase = Int(fixture.firstSample.timeIntervalSince1970)
+            let staleSamples = (0..<300).map { HRSample(ts: staleBase + $0, bpm: 50) }
+            let freshSamples = (0..<300).map { HRSample(ts: freshBase + $0, bpm: 70) }
+            try await store.insert(Streams(hr: staleSamples), deviceId: canonicalId)
+            try await store.insert(Streams(hr: freshSamples), deviceId: newId)
 
-        let repo = Repository(deviceId: canonicalId)
-        repo.setStoreForTesting(store)
+            let repo = Repository(deviceId: canonicalId)
+            repo.setStoreForTesting(store)
 
-        // Seeded with the canonical id, the latest data is the stale canonical day.
-        let staleLatest = await repo.latestDataDayStart()
-        XCTAssertEqual(staleLatest, Repository.logicalDayStart(Date(timeIntervalSince1970: TimeInterval(staleBase))),
-                       "before re-point the read model sees only the canonical namespace")
+            // Seeded with the canonical id, the latest data is the stale canonical day.
+            let staleExpected = try expectedLatestDay(staleSamples, calendar: calendar)
+            let explicitStaleDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -120, to: fixture.expectedDay))
+            XCTAssertEqual(staleExpected, explicitStaleDay)
+            let staleLatest = await repo.latestDataDayStart()
+            XCTAssertEqual(staleLatest, staleExpected,
+                           "before re-point the read model sees only the canonical namespace")
 
-        // Re-add → re-point. The active-strap read id now equals the write id.
-        let moved = repo.adoptActiveDeviceId(newId)
-        XCTAssertTrue(moved, "adopting a different active id must move the active-strap read id")
-        XCTAssertEqual(repo.deviceId, newId, "active-strap read id must equal the write (Collector) id after re-add")
+            // Re-add → re-point. The active-strap read id now equals the write id.
+            let moved = repo.adoptActiveDeviceId(newId)
+            XCTAssertTrue(moved, "adopting a different active id must move the active-strap read id")
+            XCTAssertEqual(repo.deviceId, newId, "active-strap read id must equal the write (Collector) id after re-add")
 
-        // The latest data is now TODAY's (union picks the most recent across both ids), not the stale day.
-        let freshLatest = await repo.latestDataDayStart()
-        XCTAssertEqual(freshLatest, Repository.logicalDayStart(Date(timeIntervalSince1970: TimeInterval(freshBase))),
-                       "after re-point the auto-land reads today's live data under the new id, not the stale day")
-        XCTAssertNotEqual(freshLatest, staleLatest, "Today must not snap back to the stale namespace's day")
+            // The union picks the last fresh sample across both ids, even when its window straddles 04:00.
+            let freshExpected = try expectedLatestDay(freshSamples, calendar: calendar)
+            XCTAssertEqual(freshExpected, fixture.expectedDay)
+            let freshLatest = await repo.latestDataDayStart()
+            XCTAssertEqual(freshLatest, freshExpected,
+                           "after re-point the auto-land reads today's live data under the new id, not the stale day")
+            XCTAssertNotEqual(freshLatest, staleLatest, "Today must not snap back to the stale namespace's day")
+        }
     }
 
     /// UNION MODEL update: the HR facades now read the UNION of the active strap + canonical, so a re-added
@@ -136,45 +166,53 @@ final class ReadSpineActiveDeviceTests: XCTestCase {
     /// surfaces, and (iii) Today does NOT snap to a stale day (the auto-land anchor is the fresh live day).
     @MainActor
     func testImportedHistoryUnderCanonicalSurvivesReAddWithLiveData() async throws {
-        let store = try await WhoopStore.inMemory()
-        try await store.upsertDevice(id: canonicalId, mac: nil, name: "WHOOP")
+        let calendar = Calendar.current
+        for fixture in try rolloverFixtures(calendar: calendar) {
+            let store = try await WhoopStore.inMemory()
+            try await store.upsertDevice(id: canonicalId, mac: nil, name: "WHOOP")
 
-        // (1) Import history lands under the CANONICAL id (this is the STABLE import target). Three days,
-        // a few days back, so they are clearly NOT today.
-        let importedDays = (3...5).map { offset -> DailyMetric in
-            let day = Repository.localDayKey(Date().addingTimeInterval(-Double(offset) * 86_400))
-            return dailyMetric(day: day, recovery: 55 + Double(offset))
+            // (1) Import history lands under the CANONICAL id (this is the STABLE import target).
+            // Three earlier calendar days are anchored to the same fixed window as the live samples.
+            let importedDays = try (3...5).map { offset -> DailyMetric in
+                let date = try XCTUnwrap(calendar.date(byAdding: .day, value: -offset, to: fixture.firstSample))
+                let day = Repository.localDayKey(date, calendar: calendar)
+                return dailyMetric(day: day, recovery: 55 + Double(offset))
+            }
+            _ = try await store.upsertDailyMetrics(importedDays, deviceId: canonicalId)
+
+            let repo = Repository(deviceId: canonicalId)
+            repo.setStoreForTesting(store)
+            // Keep the rolling refresh window on the fixture, with every live sample behind its clock.
+            repo.setTodayHealthSnapshotTestNow(fixture.firstSample.addingTimeInterval(90 * 60))
+            await repo.refresh()
+            XCTAssertEqual(repo.days.count, importedDays.count, "the canonical import is the baseline before any re-add")
+
+            // (2) Re-add a strap: the Collector writes fresh LIVE raw under its new id.
+            // The import target STAYS canonical (we do NOT move it).
+            try await store.upsertDevice(id: newId, mac: nil, name: "WHOOP")
+            let liveBase = Int(fixture.firstSample.timeIntervalSince1970)
+            let seededLive = (0..<600).map { HRSample(ts: liveBase + $0, bpm: 72) }
+            try await store.insert(Streams(hr: seededLive), deviceId: newId)
+            repo.adoptActiveDeviceId(newId)
+            await repo.refresh()
+
+            // (i) the imported canonical days STILL surface.
+            for d in importedDays {
+                XCTAssertNotNil(repo.days.first(where: { $0.day == d.day }),
+                                "imported canonical day \(d.day) must still surface after the re-add")
+            }
+
+            // (ii) the re-added strap's live HR surfaces under the new id.
+            let liveSamples = await repo.hrSamples(from: liveBase, to: liveBase + 600)
+            XCTAssertTrue(liveSamples.contains { $0.bpm == 72 }, "the re-added strap's live HR must surface")
+
+            // (iii) Today anchors on the last actual live sample's day, not the stale imported days.
+            let expected = try expectedLatestDay(seededLive, calendar: calendar)
+            XCTAssertEqual(expected, fixture.expectedDay)
+            let landDay = await repo.latestDataDayStart()
+            XCTAssertEqual(landDay, expected,
+                           "Today must anchor on the fresh live day, not a stale imported day")
         }
-        _ = try await store.upsertDailyMetrics(importedDays, deviceId: canonicalId)
-
-        let repo = Repository(deviceId: canonicalId)
-        repo.setStoreForTesting(store)
-        await repo.refresh()
-        XCTAssertEqual(repo.days.count, importedDays.count, "the canonical import is the baseline before any re-add")
-
-        // (2) Re-add a strap: fresh registry id, active becomes "whoop-uuid". The Collector writes today's
-        // LIVE raw under that id. The import target STAYS canonical (we do NOT move it).
-        try await store.upsertDevice(id: newId, mac: nil, name: "WHOOP")
-        let now = Int(Date().timeIntervalSince1970)
-        let liveBase = now - 90 * 60   // 1.5h ago → today
-        try await store.insert(Streams(hr: (0..<600).map { HRSample(ts: liveBase + $0, bpm: 72) }), deviceId: newId)
-        repo.adoptActiveDeviceId(newId)
-        await repo.refresh()
-
-        // (i) the imported canonical days STILL surface.
-        for d in importedDays {
-            XCTAssertNotNil(repo.days.first(where: { $0.day == d.day }),
-                            "imported canonical day \(d.day) must still surface after the re-add")
-        }
-
-        // (ii) the re-added strap's live HR surfaces under the new id.
-        let liveSamples = await repo.hrSamples(from: liveBase, to: liveBase + 600)
-        XCTAssertTrue(liveSamples.contains { $0.bpm == 72 }, "the re-added strap's live HR must surface")
-
-        // (iii) Today does NOT snap to a stale day: the auto-land anchor is the fresh live day.
-        let landDay = await repo.latestDataDayStart()
-        XCTAssertEqual(landDay, Repository.logicalDayStart(Date(timeIntervalSince1970: TimeInterval(liveBase))),
-                       "Today must anchor on the fresh live day, not a stale imported day")
     }
 
     // MARK: - #316 / @63 step activity-class union (the Steps tile icon)

@@ -223,6 +223,8 @@ struct VitalitySection: View {
     @State private var vitality: Double?
     @State private var bodyAge: Double?
     @State private var loaded = false
+    /// The ⓘ explainer open from the Vitality header, if any.
+    @State private var metricInfo: MetricInfo?
 
     private var contributions: [VitalityEngine.Contribution] {
         let last7 = repo.days.suffix(7)
@@ -249,7 +251,9 @@ struct VitalitySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow("Vitality", systemImage: "sparkles", tint: HealthTint.vitality,
-                           trailing: .text(String(localized: "Weekly")))
+                           trailing: .text(String(localized: "Weekly")),
+                           infoAction: { metricInfo = .vitality },
+                           infoAccessibilityLabel: MetricInfo.vitality.accessibilityLabel)
             if let v = vitality, let ba = bodyAge {
                 hero(vitality: v, bodyAge: ba)
             } else if loaded {
@@ -258,6 +262,7 @@ struct VitalitySection: View {
                 HealthEmptyNote(symbol: "sparkles", text: "Reading your Vitality…")
             }
         }
+        .metricInfoSheet($metricInfo)
         .task(id: repo.refreshSeq) { await load() }
     }
 

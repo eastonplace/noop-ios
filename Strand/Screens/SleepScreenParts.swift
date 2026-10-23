@@ -35,14 +35,17 @@ extension FlatSectionSeparator {
 /// state words ("Fair", "Good", "Optimal") come from. With no score the arc is a row of quiet dots and a dash.
 struct SleepScoreDial: View {
     let score: Double?
+    /// The hero's small ring: 76pt with a 6pt line, so it sits beside the headline instead of above it.
+    var compact = false
     @ScaledMetric(relativeTo: .title) private var side: CGFloat = 112
+    @ScaledMetric(relativeTo: .title) private var compactSide: CGFloat = 76
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
-    private let lineWidth: CGFloat = 8
+    private var lineWidth: CGFloat { compact ? 6 : 8 }
     private let bandTicks: [Double] = [0.5, 0.7, 0.85]
 
-    private var diameter: CGFloat { min(side, 148) }
+    private var diameter: CGFloat { compact ? min(compactSide, 112) : min(side, 148) }
     private var fraction: Double { min(max((score ?? 0) / 100, 0), 1) }
     private var accent: Color { DomainTint.sleep.accent }
     private var trackColor: Color {
@@ -57,7 +60,7 @@ struct SleepScoreDial: View {
 
     /// The empty dial's track: round dots evenly spaced about 13.5pt apart with one centred on each end of the arc.
     private func dottedTrack(radius: CGFloat) -> some View {
-        let pitch: CGFloat = 13.5
+        let pitch: CGFloat = compact ? 10 : 13.5
         let length = 2 * .pi * radius * (2.0 / 3.0)
         let intervals = max(1, Int((length / pitch).rounded()))
         return ForEach(0...intervals, id: \.self) { index in
@@ -104,7 +107,7 @@ struct SleepScoreDial: View {
 
 // MARK: - Hero
 
-/// The opening section: the score dial beside its state word and a line of context, then the night's three
+/// The opening section: a small score ring beside its state word and a line of context, then the night's four
 /// headline numbers. `source` names where the night's numbers came from (the real merge winner), at the
 /// eyebrow's trailing edge like a record date.
 struct SleepHeroSection: View {
@@ -113,13 +116,17 @@ struct SleepHeroSection: View {
     let message: String
     let facts: [FactStrip.Fact]
     let source: String?
+    /// Opens the Sleep score explainer from the header's ⓘ. Absent, the header has no ⓘ.
+    var infoAction: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
             SectionEyebrow("Sleep score", systemImage: "moon.stars.fill", tint: .sleep,
-                           trailing: source.map { .text($0) } ?? .none)
+                           trailing: source.map { .text($0) } ?? .none,
+                           infoAction: infoAction,
+                           infoAccessibilityLabel: MetricInfo.sleepScore.accessibilityLabel)
             GaugeLayout {
-                SleepScoreDial(score: score)
+                SleepScoreDial(score: score, compact: true)
             } rows: {
                 VStack(alignment: .leading, spacing: 4) {
                     if let headline {
@@ -219,7 +226,7 @@ struct SleepStageChart: View {
     private let highlighted: SleepStage?
 
     @ScaledMetric(relativeTo: .caption2) private var gutter: CGFloat = 40
-    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 128
+    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 70
 
     private static let laneOrder: [SleepStage] = [.awake, .rem, .light, .deep]
     private static let barThickness: CGFloat = 10
@@ -321,32 +328,37 @@ struct SleepStageChart: View {
 
 // MARK: - Stage rows
 
-/// One stage of the night: its dot and name, a slim bar of its share of the night, the share and the duration.
-/// A button: selecting a row lights that stage up on the chart and recedes the rest (tap again to clear).
-struct SleepStageBreakdownRow: View {
+/// One stage of the night in a ~28pt row: its dot and name, a bar of tonight's minutes with a tick at the typical
+/// mark, and on the right the difference from typical ("+7m", better in the positive tint, worse muted). With no
+/// typical it shows the duration and no tick. Press and hold swaps the right side for the exact time and share
+/// ("1h 38m · 23%"); VoiceOver always has them in the label, so nothing needs the hold.
+struct SleepStageTypicalRow: View {
     let stage: SleepStage
     let presentation: SleepStageRowPresentation
-    let isSelected: Bool
-    let othersSelected: Bool
-    let action: () -> Void
+    let typical: Double?
+    /// Minutes the full bar stands for, shared by the four rows so the bars compare with one another.
+    let scaleMaximum: Double
+    let isHeld: Bool
+    let accessibilityLabel: String
+    /// Called with true when the hold registers and false when the finger lifts or the scroll takes over.
+    let onHold: (Bool) -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
-    // Column widths follow the text they hold, so a larger Dynamic Type never wraps a share or clips a duration.
-    @ScaledMetric(relativeTo: .caption) private var nameWidth: CGFloat = 66
-    @ScaledMetric(relativeTo: .caption2) private var shareWidth: CGFloat = 36
-    @ScaledMetric(relativeTo: .body) private var durationWidth: CGFloat = 74
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .caption) private var nameWidth: CGFloat = 62
+    @ScaledMetric(relativeTo: .caption) private var trailingWidth: CGFloat = 92
 
     private var color: Color { StrandPalette.sleepStageColor(stage) }
 
-    private var bar: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule(style: .continuous).fill(StrandPalette.surfaceInset)
-                Capsule(style: .continuous).fill(color)
-                    .frame(width: max(presentation.fraction > 0 ? 4 : 0, proxy.size.width * presentation.fraction))
-            }
-        }
-        .frame(height: 6)
-        .accessibilityHidden(true)
+    private var trailingText: String {
+        if isHeld { return "\(presentation.duration) · \(presentation.percent)%" }
+        guard let delta = presentation.shortDelta else { return presentation.duration }
+        return presentation.isOnTypical ? String(localized: "on typical") : delta
+    }
+
+    private var trailingColor: Color {
+        if isHeld { return StrandPalette.textPrimary }
+        guard presentation.shortDelta != nil, !presentation.isOnTypical else { return StrandPalette.textSecondary }
+        return presentation.deltaTone == .positive ? StrandPalette.statusPositive : StrandPalette.textTertiary
     }
 
     private var name: some View {
@@ -356,203 +368,200 @@ struct SleepStageBreakdownRow: View {
         }
     }
 
-    private var share: some View {
-        Text("\(presentation.percent)%").font(StrandFont.micro).monospacedDigit()
-            .foregroundStyle(StrandPalette.textTertiary)
+    private var bar: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous).fill(StrandPalette.surfaceInset)
+                Capsule(style: .continuous).fill(color)
+                    .frame(width: max(presentation.minutes > 0 ? 4 : 0,
+                                      width * CGFloat(min(1, presentation.minutes / scaleMaximum))))
+                if let typical, typical > 0 {
+                    Capsule(style: .continuous).fill(StrandPalette.textPrimary.opacity(0.85))
+                        .frame(width: 2, height: 14)
+                        .offset(x: min(width - 2, max(0, width * CGFloat(min(1, typical / scaleMaximum)) - 1)))
+                }
+            }
+            .frame(height: proxy.size.height)
+        }
+        .frame(height: 14)
+        .accessibilityHidden(true)
     }
 
-    private var duration: some View {
-        Text(presentation.duration).font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary)
+    private var trailing: some View {
+        Text(trailingText)
+            .font(StrandFont.caption.weight(.semibold)).monospacedDigit()
+            .foregroundStyle(trailingColor)
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 
     var body: some View {
-        Button(action: action) {
-            Group {
-                if typeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                            name
-                            share
-                            Spacer(minLength: NoopMetrics.space2)
-                            duration
-                        }
-                        bar
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                        name
+                        Spacer(minLength: NoopMetrics.space2)
+                        trailing
                     }
-                } else {
-                    HStack(spacing: NoopMetrics.space3) {
-                        name.frame(width: nameWidth, alignment: .leading)
-                        bar
-                        share.frame(width: shareWidth, alignment: .trailing)
-                        duration.frame(width: durationWidth, alignment: .trailing)
-                    }
+                    bar
+                }
+            } else {
+                HStack(spacing: NoopMetrics.space3) {
+                    name.frame(width: nameWidth, alignment: .leading)
+                    bar
+                    trailing.frame(width: trailingWidth, alignment: .trailing)
                 }
             }
-            .frame(minHeight: 44)
-            .padding(.horizontal, NoopMetrics.space2)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(color.opacity(isSelected ? 0.13 : 0)))
-            .opacity(othersSelected ? 0.5 : 1)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(minHeight: 28)
+        .contentShape(Rectangle())
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isHeld)
+        .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 24, perform: { onHold(true) },
+                            onPressingChanged: { pressing in if !pressing { onHold(false) } })
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(stage.label): \(SleepSpokenDuration.text(minutes: presentation.minutes)), \(presentation.percent) percent of the night")
-        .accessibilityHint("Highlights this stage on the sleep chart")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
-/// One stage against the user's typical: dot, name and share, last night's duration and its difference from
-/// typical, then a bar of last night with a tick at the typical mark.
-struct SleepTypicalRow: View {
-    let stage: SleepStage
-    let value: Double
-    let typical: Double?
-    let scaleMaximum: Double
-    let percent: Int
-    let duration: String
-    let delta: String?
-    let deltaIsGood: Bool?
-    /// The presentation's own verdict that the night is within half a minute of typical (no text sniffing, so it
-    /// holds in every language).
-    let isOnTypical: Bool
+// MARK: - Collapsed rows
+
+/// A one-line read that opens on tap to its explanation: a tinted symbol, the label over the primary value, an
+/// optional delta with a caption on the right, and a chevron. The explanation animates open (Reduce Motion: no
+/// animation). `spokenSummary` replaces the default VoiceOver reading when the on-screen text would be misread.
+struct SleepExpandableRow<Detail: View>: View {
+    let systemImage: String
+    let tint: DomainTint
+    let label: LocalizedStringKey
+    let value: String
+    var delta: String? = nil
+    var deltaCaption: String? = nil
+    var deltaColor: Color = StrandPalette.textTertiary
+    var spokenSummary: String? = nil
+    @ViewBuilder var detail: () -> Detail
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var isExpanded = false
 
-    private var color: Color { StrandPalette.sleepStageColor(stage) }
-
-    /// A difference under half a minute reads "on typical" in words, not "+0m vs typ".
-    private var deltaText: String? {
-        guard let delta else { return nil }
-        return isOnTypical ? String(localized: "on typical") : delta
-    }
-
-    private var deltaColor: Color {
-        if isOnTypical { return StrandPalette.textTertiary }
-        switch deltaIsGood {
-        case .some(true): return StrandPalette.statusPositive
-        case .some(false): return StrandPalette.statusWarning
-        case .none: return StrandPalette.textTertiary
+    private var deltaBlock: some View {
+        VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 1) {
+            if let delta {
+                Text(delta).font(StrandFont.bodyNumber).foregroundStyle(deltaColor).lineLimit(1)
+            }
+            if let deltaCaption {
+                Text(deltaCaption).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+            }
         }
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            Circle().fill(color).frame(width: 8, height: 8).accessibilityHidden(true)
-            Text(stage.label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-            Text("\(percent)%").font(StrandFont.micro).monospacedDigit().foregroundStyle(StrandPalette.textTertiary)
+        HStack(spacing: NoopMetrics.space3) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint.accent)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(tint.accent.opacity(0.14)))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
+                Text(value).font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            }
             Spacer(minLength: NoopMetrics.space2)
-            Text(duration).font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary).lineLimit(1)
-            if let deltaText {
-                Text(deltaText).font(StrandFont.micro)
-                    .foregroundStyle(deltaColor)
-                    .lineLimit(1)
-            }
+            if !typeSize.isAccessibilitySize { deltaBlock }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .accessibilityHidden(true)
         }
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 2) { header }
-            } else {
-                header
-            }
-            GeometryReader { proxy in
-                let width = proxy.size.width
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous).fill(StrandPalette.surfaceInset)
-                    Capsule(style: .continuous).fill(color)
-                        .frame(width: width * CGFloat(min(1, max(0, value / scaleMaximum))))
-                    if let typical, typical > 0 {
-                        Capsule(style: .continuous).fill(StrandPalette.textPrimary.opacity(0.85))
-                            .frame(width: 2, height: 14)
-                            .offset(x: min(width - 2, max(0, width * CGFloat(min(1, typical / scaleMaximum)) - 1)))
-                    }
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            Button {
+                if reduceMotion { isExpanded.toggle() } else { withAnimation(StrandMotion.press) { isExpanded.toggle() } }
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    header
+                    if typeSize.isAccessibilitySize { deltaBlock }
                 }
-                .frame(height: proxy.size.height)
             }
-            .frame(height: 14)
-            .accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-// MARK: - Night detail tiles
-
-/// One metric of the displayed night: a tinted symbol and label, the value with its unit muted, the metric's own
-/// recent history as a quiet sparkline when it has one, and "typical" as a tertiary caption. Always the same
-/// order, so a row of tiles keeps its labels and values on shared lines whether or not a tile has a trend.
-struct SleepMetricTile: View {
-    let label: LocalizedStringKey
-    let value: String
-    var caption: String? = nil
-    let systemImage: String
-    var tint: DomainTint = .sleep
-    var series: [Double]? = nil
-    @ScaledMetric(relativeTo: .title2) private var valueSize: CGFloat = 26
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 6) {
-                // A fixed box so symbols of different heights never move the label or the value below it.
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(tint.accent)
-                    .frame(width: 16, height: 16)
-                    .accessibilityHidden(true)
-                Text(label)
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(1)
-            }
-            UnitValueText(value: value, size: valueSize, weight: .bold)
-            if let series, series.count > 1 {
-                Sparkline(values: series,
-                          gradient: Gradient(colors: [tint.accent.opacity(0.55), tint.accent]),
-                          lineWidth: 1.5, showsHover: false)
-                    .frame(height: 26)
-                    .accessibilityHidden(true)
-            }
-            if let caption {
-                Text(caption)
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(label))
+            .accessibilityValue(Text(verbatim: spokenSummary ?? [value, delta, deltaCaption].compactMap { $0 }.joined(separator: ", ")))
+            .accessibilityHint(isExpanded ? "Hides the details" : "Shows the details")
+            if isExpanded {
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) { detail() }
+                    .padding(.leading, 30 + NoopMetrics.space3)
+                    .padding(.bottom, NoopMetrics.space2)
+                    .transition(reduceMotion ? .identity : .opacity)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .accessibilityElement(children: .combine)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// Tiles in rows of two (one column at accessibility sizes) with a hairline between rows and even air either
-/// side of it. No hairline at the ends: the sections around it draw those.
-struct SleepMetricGrid: View {
-    let tiles: [SleepMetricTile]
-    @Environment(\.dynamicTypeSize) private var typeSize
+// MARK: - Chip flow
 
-    private var columns: Int { typeSize.isAccessibilitySize ? 1 : 2 }
+/// Chips left to right, wrapping between chips and within a chip that exceeds the available width.
+struct SleepChipFlow: Layout {
+    var spacing: CGFloat
 
-    var body: some View {
-        let rows = stride(from: 0, to: tiles.count, by: columns).map { start in
-            Array(start..<min(start + columns, tiles.count))
+    struct Geometry {
+        struct Item {
+            let origin: CGPoint
+            let proposedWidth: CGFloat
         }
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
-                if rowIndex > 0 {
-                    TodaySectionSeparator(above: 0, below: 0)
+        let items: [Item]
+        let size: CGSize
+
+        init(width: CGFloat?, spacing: CGFloat, count: Int, measure: (Int, CGFloat?) -> CGSize) {
+            let availableWidth = width.flatMap { $0.isFinite ? max(0, $0) : nil } ?? .infinity
+            var items: [Item] = []
+            var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, maxX: CGFloat = 0
+            for index in 0..<count {
+                let ideal = measure(index, nil)
+                var proposedWidth = min(ideal.width, availableWidth)
+                var measured = measure(index, proposedWidth)
+                // Native text layout can round a constrained chip one pixel wider. Re-measure its
+                // actual content once with that overflow removed, retaining the new wrapped height.
+                if measured.width > availableWidth {
+                    proposedWidth = max(0, proposedWidth - (measured.width - availableWidth))
+                    measured = measure(index, proposedWidth)
                 }
-                HStack(alignment: .top, spacing: NoopMetrics.space5) {
-                    ForEach(row, id: \.self) { tiles[$0] }
-                    if row.count < columns {
-                        Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
-                    }
+                if x > 0, x + measured.width > availableWidth {
+                    x = 0; y += rowHeight + spacing; rowHeight = 0
                 }
-                .padding(.top, rowIndex > 0 ? FlatSectionRhythm.rowAir : 0)
-                .padding(.bottom, rowIndex < rows.count - 1 ? FlatSectionRhythm.rowAir : 0)
+                items.append(Item(origin: CGPoint(x: x, y: y), proposedWidth: proposedWidth))
+                x += measured.width + spacing
+                maxX = max(maxX, x - spacing)
+                rowHeight = max(rowHeight, measured.height)
             }
+            self.items = items
+            size = CGSize(width: maxX, height: y + rowHeight)
+        }
+    }
+
+    private func geometry(_ subviews: Subviews, width: CGFloat?) -> Geometry {
+        Geometry(width: width, spacing: spacing, count: subviews.count) { index, proposedWidth in
+            subviews[index].sizeThatFits(ProposedViewSize(width: proposedWidth, height: nil))
+        }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        geometry(subviews, width: proposal.width).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let layout = geometry(subviews, width: bounds.width)
+        for (subview, item) in zip(subviews, layout.items) {
+            subview.place(at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
+                          proposal: ProposedViewSize(width: item.proposedWidth, height: nil))
         }
     }
 }
@@ -663,10 +672,30 @@ enum SleepStageShares {
     }
 }
 
-/// Where the Sleep tab shows the V2 "Tonight's need" breakdown. `SleepPerformanceV2Prefs`: `.off` keeps the legacy
-/// score authoritative with no V2 UI at all (and no store reads); `.shadow` computes and persists V2 alongside the
-/// legacy score and shows the need breakdown as explanatory context (the Sleep "Night detail" need tile already
-/// reads the same V2 series); `.on` makes V2 the production score. So it shows in shadow and on.
+/// A recorded total for this exact displayed night. It remains useful when V2's component series are absent.
+struct SleepNeedFallbackPresentation: Equatable {
+    enum Source: Equatable { case onDevice, whoop }
+    let wakeDay: String
+    let minutes: Double
+    let source: Source
+
+    static func resolve(wakeDay: String, onDevice: (String) -> Double?,
+                        imported: (String) -> Double?) -> Self? {
+        if let minutes = onDevice(wakeDay), minutes.isFinite, minutes > 0 {
+            return Self(wakeDay: wakeDay, minutes: minutes, source: .onDevice)
+        }
+        if let minutes = imported(wakeDay), minutes.isFinite, minutes > 0 {
+            return Self(wakeDay: wakeDay, minutes: minutes, source: .whoop)
+        }
+        return nil
+    }
+
+    static func shouldShow(mode: SleepPerformanceV2Prefs.Mode, breakdownDay: String?, wakeDay: String) -> Bool {
+        !SleepNeedBreakdownVisibility.isVisible(mode: mode) || breakdownDay != wakeDay
+    }
+}
+
+/// Off retains the recorded total without V2 component UI or component reads. Shadow/on may show the breakdown.
 enum SleepNeedBreakdownVisibility {
     static func isVisible(mode: SleepPerformanceV2Prefs.Mode) -> Bool {
         switch mode {

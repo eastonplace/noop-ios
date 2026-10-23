@@ -16,6 +16,7 @@ private struct TrendsCivilContext: Equatable {
 
 struct TrendsView: View {
     @EnvironmentObject private var repo: Repository
+    @EnvironmentObject private var profile: ProfileStore
 
     @State private var showingReport = false
     @State private var loadedData = TrendsLoadedData.empty
@@ -30,6 +31,18 @@ struct TrendsView: View {
     @State var selectedRange: TrendRange = .month
     /// Zero is the current Monday-Sunday digest; negative values step backward.
     @State var weekOffset: Int
+    /// Load focus for the Training load card: nil until read, and while there is too little heart rate for it.
+    @State private var loadedLoadFocus: LoadFocus.Summary?
+    @State private var loadedLoadFocusKey: WorkoutFocusTaskKey?
+    private var loadFocusTaskKey: WorkoutFocusTaskKey {
+        WorkoutFocusTaskKey(scope: repo.workoutFocusReadScope, anchorDay: loadedData.anchorDay,
+                            timeZoneIdentifier: loadedData.timeZoneIdentifier)
+    }
+    var loadFocus: LoadFocus.Summary? {
+        loadedLoadFocusKey == loadFocusTaskKey ? loadedLoadFocus : nil
+    }
+    /// The ⓘ explainer open from a Trends card header, if any.
+    @State var metricInfo: MetricInfo?
 
     init(initialWeekOffset: Int = 0) {
         _weekOffset = State(initialValue: TrendsBounds.clampWeekOffset(initialWeekOffset))
@@ -133,6 +146,8 @@ struct TrendsView: View {
         .sheet(isPresented: $showingReport) {
             TrendsReportSheet(days: canonicalDays)
         }
+        // One ⓘ sheet for every Trends header (Scores, Training load, Weekly readout), outside any tappable card.
+        .metricInfoSheet($metricInfo)
         .background {
             TimelineView(.periodic(from: .now, by: 60)) { timeline in
                 Color.clear
@@ -155,6 +170,21 @@ struct TrendsView: View {
         }
         .task(id: screenSnapshotKey) {
             await rebuildScreenSnapshot()
+        }
+        // Reuse only committed, source-owned inputs; changed context hides its previous result.
+        .task(id: loadFocusTaskKey) {
+            let key = loadFocusTaskKey
+            do {
+                let result = try await repo.loadFocus(anchorDay: key.anchorDay,
+                                                       timeZoneIdentifier: key.timeZoneIdentifier)
+                guard !Task.isCancelled, key == loadFocusTaskKey, !key.scope.isFenced else { return }
+                if case .ready(let summary) = result { loadedLoadFocus = summary } else { loadedLoadFocus = nil }
+                loadedLoadFocusKey = key
+            } catch {
+                guard !Task.isCancelled, key == loadFocusTaskKey else { return }
+                loadedLoadFocus = nil
+                loadedLoadFocusKey = key
+            }
         }
     }
 

@@ -143,6 +143,8 @@ struct InsightsView: View {
     }
 
     @State private var outcome: Outcome = .recovery
+    /// The ⓘ explainer open from the Metric Relationships header, if any.
+    @State private var metricInfo: MetricInfo?
 
     // MARK: Personal-experiment state (LOCAL ONLY, UserDefaults-backed, single user)
     //
@@ -263,6 +265,7 @@ struct InsightsView: View {
                 }
             }
         }
+        .metricInfoSheet($metricInfo)
         // #860 item 4: key on the data-refresh seq AND today's day-key, so the journal re-loads both on a
         // data change and the moment the calendar day rolls over (driven by the foreground/appear refresh
         // of `currentDayKey` below), so yesterday's answers leave "Today" and the new day starts fresh.
@@ -1162,7 +1165,9 @@ struct InsightsView: View {
         // the four Pearson correlations no longer run per render.
         let rels = relationships
         return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Metric Relationships", overline: "Pearson r")
+            SectionHeader("Metric Relationships", overline: "Pearson r",
+                          infoAction: { metricInfo = .metricRelationships },
+                          infoAccessibilityLabel: MetricInfo.metricRelationships.accessibilityLabel)
 
             if rels.isEmpty {
                 PaperCard {
