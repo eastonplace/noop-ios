@@ -252,6 +252,31 @@ final class HeadsUpModelTests: XCTestCase {
         XCTAssertEqual(leading, "6 of \(HeadsUpSnapshot.nightsNeeded) nights")
     }
 
+    // MARK: Checked before warning you
+
+    func testNoAnswersAreKeptApartFromYesAndFromNeverAsked() {
+        let day: Set<String> = [key(1), key(2)]
+        let journal = [
+            JournalEntry(day: key(1), question: "Did you drink any alcohol?", answeredYes: false, notes: nil),
+            JournalEntry(day: key(1), question: "Did you use a sauna?", answeredYes: false, notes: nil),
+            JournalEntry(day: key(2), question: "Did you use a sauna?", answeredYes: true, notes: nil),
+        ]
+        let context = HeadsUpBuilder.context(days: day, journal: journal)
+        XCTAssertEqual(context.causes, [.sauna])
+        XCTAssertEqual(context.answeredNo, [.alcohol], "A yes on any day beats a no on another")
+        XCTAssertFalse(context.answeredNo.contains(.stress), "Never asked is not a no")
+    }
+
+    func testSnapshotCarriesNoAnswers() {
+        let journal = [JournalEntry(day: key(39), question: "Did you drink any alcohol?", answeredYes: false,
+                                    notes: nil)]
+        let snapshot = HeadsUpBuilder.snapshot(days: history(count: 40, spiked: 2), journal: journal,
+                                               enabled: true).snapshot
+        XCTAssertEqual(snapshot.phase, .scored(.raised), "A no never softens a read")
+        XCTAssertEqual(snapshot.answeredNo, [.alcohol])
+        XCTAssertEqual(snapshot.causes, [])
+    }
+
     // MARK: Elsewhere today
 
     private func firstPaint(day: String, sleepMinutes: Double, strain: Double, recovery: Double) -> TodayHealthSnapshot {

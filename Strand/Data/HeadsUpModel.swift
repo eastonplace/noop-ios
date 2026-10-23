@@ -63,6 +63,9 @@ struct HeadsUpSnapshot: Equatable, Sendable {
     let signals: [Signal]
     /// Causes logged in the read's window.
     let causes: Set<Cause>
+    /// Causes the Journal answered no to in the read's window (and never yes), so the page can tell "ruled out"
+    /// from "not asked".
+    var answeredNo: Set<Cause> = []
     /// The parallel distance's confidence word, only on a raised read.
     let confidence: String?
     /// The last `historyLength` mornings, oldest first.
@@ -94,6 +97,8 @@ enum HeadsUpBuilder {
     /// The Journal answers in a read's window that the engine can use.
     struct JournalContext: Equatable, Sendable {
         var causes: Set<HeadsUpSnapshot.Cause> = []
+        /// Causes answered no and never yes in the window: shown as "No", never fed to the engine.
+        var answeredNo: Set<HeadsUpSnapshot.Cause> = []
         var unwellDay: String?
         var alreadyUnwell: Bool { unwellDay != nil }
     }
@@ -128,19 +133,31 @@ enum HeadsUpBuilder {
         Set(question.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init))
     }
 
-    /// The causes answered yes on any of `days`.
+    /// The causes a question is about, by whole words.
+    private static func causes(of question: String) -> Set<HeadsUpSnapshot.Cause> {
+        let questionWords = words(question)
+        var found: Set<HeadsUpSnapshot.Cause> = []
+        if !questionWords.isDisjoint(with: alcoholWords) { found.insert(.alcohol) }
+        if !questionWords.isDisjoint(with: workoutWords) { found.insert(.hardWorkout) }
+        if !questionWords.isDisjoint(with: saunaWords) { found.insert(.sauna) }
+        if !questionWords.isDisjoint(with: stressWords) { found.insert(.stress) }
+        return found
+    }
+
+    /// The causes answered yes on any of `days`, and the ones answered only no.
     static func context(days: Set<String>, journal: [JournalEntry]) -> JournalContext {
         var context = JournalContext()
-        for entry in journal where entry.answeredYes && days.contains(entry.day) {
-            let questionWords = words(entry.question)
-            if !questionWords.isDisjoint(with: alcoholWords) { context.causes.insert(.alcohol) }
-            if !questionWords.isDisjoint(with: workoutWords) { context.causes.insert(.hardWorkout) }
-            if !questionWords.isDisjoint(with: saunaWords) { context.causes.insert(.sauna) }
-            if !questionWords.isDisjoint(with: stressWords) { context.causes.insert(.stress) }
-            if !questionWords.isDisjoint(with: unwellWords), context.unwellDay.map({ entry.day > $0 }) ?? true {
-                context.unwellDay = entry.day
+        for entry in journal where days.contains(entry.day) {
+            if entry.answeredYes {
+                context.causes.formUnion(causes(of: entry.question))
+                if !words(entry.question).isDisjoint(with: unwellWords), context.unwellDay.map({ entry.day > $0 }) ?? true {
+                    context.unwellDay = entry.day
+                }
+            } else {
+                context.answeredNo.formUnion(causes(of: entry.question))
             }
         }
+        context.answeredNo.subtract(context.causes)
         return context
     }
 
@@ -307,6 +324,7 @@ enum HeadsUpBuilder {
             signals: latest.signals,
             causes: latestContext.causes,
             confidence: result.level == .raised ? IllnessConfidence.band(latest.distance.distance) : nil,
+            answeredNo: latestContext.answeredNo,
             history: history(days, journal: journal),
             unwellDay: latestContext.unwellDay)
         return (snapshot, latest)

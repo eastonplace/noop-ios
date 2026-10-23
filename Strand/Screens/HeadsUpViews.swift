@@ -618,6 +618,9 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshot == rhs.snapshot && lhs.context == rhs.context
+    /// The width reserved for a bare row symbol, so the text beside it lines up row to row.
+    private static let iconColumn: CGFloat = 24
+
     }
 
     private var tone: Color { HeadsUpPresentation.tone(snapshot.phase) }
@@ -848,9 +851,9 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(HeadsUpSnapshot.Cause.allCases.enumerated()), id: \.element) { index, cause in
                     if index > 0 { FlatRowSeparator() }
-                    checkRow(cause, logged: snapshot.causes.contains(cause))
+                    checkRow(cause)
                 }
-                Text("From your Journal. Logging these is how Heads-Up tells a big night from a real heads-up.")
+                Text("Logging these helps Heads-Up tell a big night from getting sick.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -859,28 +862,33 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
         }
     }
 
-    private func checkRow(_ cause: HeadsUpSnapshot.Cause, logged: Bool) -> some View {
-        HStack(spacing: NoopMetrics.space3) {
+    /// One thing the Journal can explain a move with: logged yes ("Logged"), answered no ("No"), or never asked
+    /// ("Not logged", no tick: a tick beside it would read as if it had been logged).
+    private func checkRow(_ cause: HeadsUpSnapshot.Cause) -> some View {
+        let logged = snapshot.causes.contains(cause)
+        let ruledOut = !logged && snapshot.answeredNo.contains(cause)
+        return HStack(spacing: NoopMetrics.space3) {
             Image(systemName: HeadsUpPresentation.causeIcon(cause))
                 .font(StrandFont.footnote.weight(.semibold))
-                .foregroundStyle(logged ? StrandPalette.textPrimary : StrandPalette.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(StrandPalette.chipFill, in: Circle())
+                .foregroundStyle(logged ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                .frame(width: Self.iconColumn, alignment: .leading)
                 .accessibilityHidden(true)
             Text(verbatim: HeadsUpPresentation.causeName(cause))
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.textPrimary)
             Spacer(minLength: NoopMetrics.space2)
             if logged {
-                ValuePill(String(localized: "Logged · likely cause"), tint: StrandPalette.textSecondary)
+                Text("Logged")
+                    .font(StrandFont.footnote.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+            } else if ruledOut {
+                Text("No")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
             } else {
-                Label {
-                    Text("Not logged")
-                } icon: {
-                    Image(systemName: "checkmark")
-                }
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
+                Text("Not logged")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
             }
         }
         .frame(minHeight: 52)
