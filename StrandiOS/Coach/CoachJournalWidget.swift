@@ -144,13 +144,11 @@ struct CoachJournalWidget: View {
     }
 
     @ViewBuilder private var checkInContent: some View {
-        // The widget shows today unless a day was chosen in the full Journal; say so only then.
-        if day != Repository.localDayKey(Date()) {
-            Text(verbatim: FriendlyDayLabel.label(forDayKey: day))
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .accessibilityIdentifier("coach.journal.day")
-        }
+        // Which day this logs, in the Journal's own words: "Yesterday" unless another day was chosen in the full Journal.
+        Text(verbatim: JournalBehaviorDay.words(forStorageKey: day).moodTitle)
+            .font(StrandFont.caption)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .accessibilityIdentifier("coach.journal.day")
 
         if items.isEmpty {
             Text("Choose what to track in the full Journal.")

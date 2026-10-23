@@ -95,7 +95,7 @@ struct JournalEntryComposer: View {
     }
 
     private var dayLabel: String {
-        FriendlyDayLabel.label(forDayKey: presentation.day)
+        JournalBehaviorDay.label(forStorageKey: presentation.day)
     }
 
     private var includedCount: Int { edits.filter(\.included).count }
@@ -288,7 +288,7 @@ struct JournalEntryComposer: View {
             .accessibilityHidden(true)
     }
 
-    /// One mic glyph. It sits in a filled circle only while recording, so the live state is visible at a glance.
+    /// One bare mic glyph. It turns red while recording, so the live state is visible at a glance.
     private var dictationRow: some View {
         HStack(spacing: NoopMetrics.space3) {
             Button {
@@ -299,14 +299,11 @@ struct JournalEntryComposer: View {
                 }
             } label: {
                 ZStack {
-                    if voice.phase == .recording {
-                        Circle().fill(StrandPalette.error).frame(width: 40, height: 40)
-                    }
                     switch voice.phase {
                     case .requestingPermission, .finishing:
                         ProgressView()
                     case .recording:
-                        Image(systemName: "mic.fill").foregroundStyle(StrandPalette.onInk)
+                        Image(systemName: "mic.fill").foregroundStyle(StrandPalette.error)
                     case .idle:
                         Image(systemName: "mic").foregroundStyle(StrandPalette.accent)
                     }
