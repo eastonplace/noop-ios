@@ -213692,6 +213692,39 @@
           }
         }
       }
+    },
+    "Number (%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number (%@)"
+          }
+        }
+      }
+    },
+    "Amount (%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amount (%@)"
+          }
+        }
+      }
+    },
+    "The Journal counts this one, so its answer stays as an amount.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Journal counts this one, so its answer stays as an amount."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -15,6 +15,8 @@ enum CoachingCheckInGroup: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     /// The group's name as the Journal's lists show it, looked up in the string table.
     var title: LocalizedStringKey { LocalizedStringKey(rawValue) }
+    /// The same name as plain text, for a menu that takes a string.
+    var displayName: String { String(localized: String.LocalizationValue(rawValue)) }
     var icon: String {
         switch self {
         case .sleep: return "moon"
@@ -27,6 +29,7 @@ enum CoachingCheckInGroup: String, CaseIterable, Identifiable {
 }
 
 func coachingPresentationGroup(for item: JournalCatalogItem) -> CoachingCheckInGroup {
+    if let picked = item.coachingGroup.flatMap(CoachingCheckInGroup.init(rawValue:)) { return picked }
     switch item.group {
     case .nutrition: return .fuel
     case .supplements: return .supplements
@@ -128,6 +131,57 @@ enum JournalQuestionEditing {
 
     static func answer(of item: JournalCatalogItem) -> Answer { item.kind.isNumeric ? .number : .yesNo }
 
+    /// What the Journal tile for a question really does. A question that counts an amount (drinks, minutes, doses, or any
+    /// Number question) shows a stepper, whatever its saved type says, so the page reports what the tile uses.
+    enum AnswerKind: Equatable {
+        case yesNo
+        /// A Number question the user made; `unit` is its unit label when it has one.
+        case number(unit: String?)
+        /// A question the Journal always counts (alcohol, caffeine, magnesium, sauna). Its answer type is fixed, because
+        /// turning it into Yes / No or a plain number would lose the dose its insights read.
+        case fixedAmount(unit: String)
+    }
+
+    static func answerKind(of item: JournalCatalogItem) -> AnswerKind {
+        var asYesNo = item
+        asYesNo.kind = .bool
+        if let fixed = coachingQuantity(for: asYesNo) {
+            // The tile reads the same function, so its unit is the one to name.
+            return .fixedAmount(unit: coachingQuantity(for: item)?.unit.plural ?? fixed.unit.plural)
+        }
+        if item.kind.isNumeric {
+            let unit = item.kind.unitLabel.flatMap { $0.isEmpty ? nil : $0 }
+            return .number(unit: unit)
+        }
+        return .yesNo
+    }
+
+    /// The row's value text: "Yes / No", "Number", "Number (L)" or "Amount (drinks)".
+    static func answerTitle(_ kind: AnswerKind) -> String {
+        switch kind {
+        case .yesNo: return Answer.yesNo.title
+        case .number(let unit):
+            guard let unit else { return Answer.number.title }
+            return String(localized: "Number (\(unit))")
+        case .fixedAmount(let unit): return String(localized: "Amount (\(unit))")
+        }
+    }
+
+    /// The Journal group a question moves to. The list and the Journal's tiles both read it, so they never disagree.
+    static func setGroup(_ group: CoachingCheckInGroup, for canonical: String, in catalog: JournalCatalogStore) {
+        catalog.setCoachingGroup(canonical, to: group.rawValue)
+    }
+
+    /// The questions in the order the list shows them: the Journal's groups in the Journal's order, each group by the
+    /// questions' own order, with empty groups left out.
+    static func grouped(_ items: [JournalCatalogItem]) -> [GroupedQuestions] {
+        CoachingCheckInGroup.allCases.compactMap { group in
+            let inGroup = items.filter { coachingPresentationGroup(for: $0) == group }
+                .sorted { ($0.sortIndex, $0.display) < ($1.sortIndex, $1.display) }
+            return inGroup.isEmpty ? nil : GroupedQuestions(group: group, items: inGroup)
+        }
+    }
+
     /// Yes / No is `.bool`. Number starts without a unit, and a question that already counts keeps the unit it has.
     static func setAnswer(_ answer: Answer, for canonical: String, in catalog: JournalCatalogStore) {
         switch answer {
@@ -171,6 +225,12 @@ enum JournalQuestionEditing {
     }
 }
 
+struct GroupedQuestions: Identifiable {
+    let group: CoachingCheckInGroup
+    let items: [JournalCatalogItem]
+    var id: String { group.rawValue }
+}
+
 // MARK: - Edit questions
 
 /// Everything about the questions the Journal asks, in one place: which are on, and (one tap in) each one's name,
@@ -180,7 +240,6 @@ struct CoachingBehaviorSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var catalog = JournalCatalogStore()
     @State private var importedQuestions: [String] = []
-    @State private var activeSet: CoachingBehaviorSet?
     @State private var memberships: [CoachingBehaviorMembership] = []
     @State private var showAdd = false
     @State private var openedQuestion: String?
@@ -197,26 +256,12 @@ struct CoachingBehaviorSettingsView: View {
         return memberships.first { JournalCatalogStore.norm($0.canonicalQuestion) == key }
     }
 
-    private struct GroupedQuestions: Identifiable {
-        let group: CoachingCheckInGroup
-        let items: [JournalCatalogItem]
-        var id: String { group.rawValue }
-    }
-
-    private var groupedItems: [GroupedQuestions] {
-        let all = items
-        return CoachingCheckInGroup.allCases.compactMap { group in
-            let inGroup = all.filter { coachingPresentationGroup(for: $0) == group }
-                .sorted { ($0.sortIndex, $0.display) < ($1.sortIndex, $1.display) }
-            return inGroup.isEmpty ? nil : GroupedQuestions(group: group, items: inGroup)
-        }
-    }
+    private var groupedItems: [GroupedQuestions] { JournalQuestionEditing.grouped(items) }
 
     var body: some View {
         ScreenScaffold(title: "Edit questions", subtitle: "What the Journal asks", backAction: { dismiss() }) {
             VStack(alignment: .leading, spacing: 0) {
-                FlatSection("Your questions", systemImage: "checklist", tint: .journal,
-                            trailing: .text(activeSet?.name ?? String(localized: "Daily fundamentals"))) {
+                FlatSection("Your questions", systemImage: "checklist", tint: .journal) {
                     VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                         Text("Turn a question off to stop being asked. Tap one to rename it, move it or change its answer.")
                             .font(StrandFont.footnote)
@@ -277,7 +322,7 @@ struct CoachingBehaviorSettingsView: View {
                 HStack(spacing: NoopMetrics.space3) {
                     Image(systemName: coachingIcon(for: item))
                         .font(StrandFont.body)
-                        .foregroundStyle(coachingTint(for: item))
+                        .foregroundStyle(StrandPalette.textSecondary)
                         .frame(width: 24)
                         .accessibilityHidden(true)
                     Text(verbatim: name)
@@ -348,7 +393,6 @@ struct CoachingBehaviorSettingsView: View {
                                        sortIndex: index, isActive: true, isQuickAdd: index < 6)
         }
         if let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) {
-            activeSet = set
             memberships = (try? await store.coachingMemberships(setId: set.id)) ?? []
         }
     }
@@ -441,28 +485,49 @@ struct JournalQuestionPage: View {
     }
 
     private var groupRow: some View {
-        let current = item?.group ?? .other
-        return menuRow("Group", value: current.title, identifier: "journal.question.\(slug).group") {
-            ForEach(JournalGroup.displayOrder, id: \.self) { group in
+        let current = item.map(coachingPresentationGroup(for:)) ?? .training
+        return menuRow("Group", value: current.displayName, identifier: "journal.question.\(slug).group") {
+            ForEach(CoachingCheckInGroup.allCases) { group in
                 Button {
-                    catalog.setGroup(canonical, to: group)
+                    JournalQuestionEditing.setGroup(group, for: canonical, in: catalog)
                     onChanged()
                 } label: {
-                    if group == current { Label(group.title, systemImage: "checkmark") } else { Text(group.title) }
+                    if group == current { Label(group.displayName, systemImage: "checkmark") } else { Text(group.displayName) }
                 }
             }
         }
     }
 
-    private var answerRow: some View {
-        let current = item.map(JournalQuestionEditing.answer(of:)) ?? .yesNo
-        return menuRow("Answer", value: current.title, identifier: "journal.question.\(slug).answer") {
-            ForEach(JournalQuestionEditing.Answer.allCases, id: \.self) { answer in
-                Button {
-                    JournalQuestionEditing.setAnswer(answer, for: canonical, in: catalog)
-                    onChanged()
-                } label: {
-                    if answer == current { Label(answer.title, systemImage: "checkmark") } else { Text(answer.title) }
+    @ViewBuilder private var answerRow: some View {
+        let kind = item.map(JournalQuestionEditing.answerKind(of:)) ?? .yesNo
+        let value = JournalQuestionEditing.answerTitle(kind)
+        if case .fixedAmount = kind {
+            // The Journal counts this one, so there is nothing to choose: say what it does, and why.
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: NoopMetrics.space3) {
+                    Text("Answer").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                    Spacer(minLength: 8)
+                    Text(verbatim: value).font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
+                }
+                .frame(minHeight: 56)
+                Text("The Journal counts this one, so its answer stays as an amount.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, NoopMetrics.space2)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("journal.question.\(slug).answer")
+        } else {
+            let current = item.map(JournalQuestionEditing.answer(of:)) ?? .yesNo
+            menuRow("Answer", value: value, identifier: "journal.question.\(slug).answer") {
+                ForEach(JournalQuestionEditing.Answer.allCases, id: \.self) { answer in
+                    Button {
+                        JournalQuestionEditing.setAnswer(answer, for: canonical, in: catalog)
+                        onChanged()
+                    } label: {
+                        if answer == current { Label(answer.title, systemImage: "checkmark") } else { Text(answer.title) }
+                    }
                 }
             }
         }
@@ -560,7 +625,7 @@ private struct CoachingAddBehaviorSheet: View {
     let onAdded: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var group: JournalGroup = .other
+    @State private var group: CoachingCheckInGroup = .training
 
     private var canAdd: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -569,10 +634,13 @@ private struct CoachingAddBehaviorSheet: View {
             ScreenScaffold(title: "Add a question") {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     CompactFormField("Question name", text: $name)
-                    NoopDropdown("Group", options: JournalGroup.displayOrder, selection: $group) { $0.title }
+                    NoopDropdown("Group", options: CoachingCheckInGroup.allCases, selection: $group) { $0.displayName }
                     Button {
                         let canonical = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                        catalog.addCustom(canonical, group: group)
+                        if catalog.item(for: canonical) == nil {
+                            catalog.addCustom(canonical)
+                            JournalQuestionEditing.setGroup(group, for: canonical, in: catalog)
+                        }
                         onAdded(canonical)
                         dismiss()
                     } label: {

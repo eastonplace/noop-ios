@@ -65,7 +65,82 @@ final class JournalQuestionSettingsTests: XCTestCase {
         XCTAssertEqual(coachingPresentationGroup(for: moved), .supplements)
     }
 
+    func testPickingAGroupShowsTheQuestionUnderItInTheListAndOnTheTiles() throws {
+        let catalog = try makeCatalog()
+        for target in CoachingCheckInGroup.allCases {
+            JournalQuestionEditing.setGroup(target, for: alcohol, in: catalog)
+            let all = catalog.resolvedItems(imported: [], includeHidden: true)
+
+            // The Edit questions list.
+            let listed = JournalQuestionEditing.grouped(all)
+            let home = listed.first { $0.items.contains { $0.canonical == alcohol } }
+            XCTAssertEqual(home?.group, target, "the list should show Alcohol under \(target.rawValue)")
+
+            // The Journal's tiles come in the list's order, so Alcohol sits inside that group's run of tiles.
+            let tiles = JournalQuickLogTile.tiles(from: all, active: [])
+            XCTAssertEqual(tiles.map(\.id), listed.flatMap(\.items).map(\.canonical),
+                           "the Journal's tiles follow the list's groups")
+        }
+    }
+
+    func testAPickedGroupIsSavedAndNeverChangesTheKey() throws {
+        let name = "JournalQuestionSettingsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        let catalog = JournalCatalogStore(defaults: defaults)
+        catalog.addCustom("Did you nap?")
+        JournalQuestionEditing.setGroup(.sleep, for: "Did you nap?", in: catalog)
+        JournalQuestionEditing.setGroup(.supplements, for: magnesium, in: catalog)
+
+        let reloaded = JournalCatalogStore(defaults: defaults)
+        let nap = try item("Did you nap?", in: reloaded)
+        XCTAssertEqual(nap.canonical, "Did you nap?")
+        XCTAssertEqual(coachingPresentationGroup(for: nap), .sleep)
+        XCTAssertEqual(coachingPresentationGroup(for: try item(magnesium, in: reloaded)), .supplements)
+    }
+
+    func testAQuestionSavedBeforeGroupsWerePickableStillOpens() throws {
+        let json = #"{"canonical":"Did you nap?","kind":{"bool":{}},"group":"other","sortIndex":0,"hidden":false,"custom":true}"#
+        let decoded = try JSONDecoder().decode(JournalCatalogItem.self, from: Data(json.utf8))
+        XCTAssertNil(decoded.coachingGroup)
+        XCTAssertEqual(coachingPresentationGroup(for: decoded), .training, "Other still lists under Training & activity")
+    }
+
     // MARK: Answer
+
+    func testThePageReportsWhatTheJournalTileActuallyDoes() throws {
+        let catalog = try makeCatalog()
+        for item in catalog.resolvedItems(imported: [], includeHidden: true) {
+            let tile = JournalQuickLogTile(item: item)
+            switch JournalQuestionEditing.answerKind(of: item) {
+            case .yesNo: XCTAssertNil(tile.amount, "\(item.canonical) is Yes / No on the page, so its tile must not count")
+            case .number, .fixedAmount: XCTAssertNotNil(tile.amount, "\(item.canonical) counts on its tile, so the page must say so")
+            }
+        }
+    }
+
+    func testQuestionsTheJournalCountsAreFixedAndNameTheirUnit() throws {
+        let catalog = try makeCatalog()
+        let expected: [String: String] = [alcohol: "drinks", "Did you use a sauna?": "min", magnesium: "doses",
+                                          "Did you have caffeine late in the day?": "servings"]
+        for (question, unit) in expected {
+            XCTAssertEqual(JournalQuestionEditing.answerKind(of: try item(question, in: catalog)),
+                           .fixedAmount(unit: unit), question)
+        }
+        XCTAssertEqual(JournalQuestionEditing.answerTitle(.fixedAmount(unit: "drinks")), "Amount (drinks)")
+        XCTAssertEqual(JournalQuestionEditing.answerKind(of: try item("Did you view a screen in bed?", in: catalog)), .yesNo)
+    }
+
+    func testANumberQuestionNamesItsUnit() throws {
+        let catalog = try makeCatalog()
+        catalog.addCustom("Water", kind: .numeric(unitLabel: "L"))
+        catalog.addCustom("Steps goal", kind: .numeric(unitLabel: nil))
+        XCTAssertEqual(JournalQuestionEditing.answerKind(of: try item("Water", in: catalog)), .number(unit: "L"))
+        XCTAssertEqual(JournalQuestionEditing.answerTitle(.number(unit: "L")), "Number (L)")
+        XCTAssertEqual(JournalQuestionEditing.answerTitle(JournalQuestionEditing.answerKind(of: try item("Steps goal", in: catalog))),
+                       "Number")
+    }
+
 
     func testAnswerConvertsBetweenYesNoAndNumber() throws {
         let catalog = try makeCatalog()
@@ -92,10 +167,11 @@ final class JournalQuestionSettingsTests: XCTestCase {
 
     func testABuiltInQuestionCanChangeItsAnswerToo() throws {
         let catalog = try makeCatalog()
-        JournalQuestionEditing.setAnswer(.number, for: magnesium, in: catalog)
-        let changed = try item(magnesium, in: catalog)
+        let screen = "Did you view a screen in bed?"
+        JournalQuestionEditing.setAnswer(.number, for: screen, in: catalog)
+        let changed = try item(screen, in: catalog)
         XCTAssertTrue(changed.kind.isNumeric)
-        XCTAssertEqual(changed.canonical, magnesium)
+        XCTAssertEqual(changed.canonical, screen)
         XCTAssertFalse(changed.custom)
     }
 
