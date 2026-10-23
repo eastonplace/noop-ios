@@ -28,6 +28,8 @@ final class JournalQuickLogModel: ObservableObject {
 
     /// The day the values below belong to. nil while a day is loading: nothing can be tapped until it is set.
     @Published private(set) var dayKey: String?
+    /// A replacement data source starts a new UI generation even when its selected day is unchanged.
+    private(set) var sourceContext: String?
     @Published private(set) var tiles: [JournalQuickLogTile] = []
     /// Taps made on this page (and anything stored natively). Imported answers sit beside them, never on top.
     @Published private(set) var native = JournalQuickLog.DayValues()
@@ -45,7 +47,7 @@ final class JournalQuickLogModel: ObservableObject {
     private(set) var changeEpoch = 0
     private var generation = 0
     private var inFlight = 0
-    /// Accepted actions keep their order across day changes. A newer tap must follow the whole older bulk action.
+    /// Accepted actions keep their order across day and source changes. New taps follow the whole older bulk action.
     private var writeTail: Task<Void, Never>?
 
     var effective: JournalQuickLog.DayValues { JournalQuickLog.merged(native: native, imported: imported) }
@@ -60,24 +62,26 @@ final class JournalQuickLogModel: ObservableObject {
     /// Whether the tile has an answer of its own that "Clear" would remove (an imported answer cannot be cleared here).
     func hasNativeAnswer(_ tile: JournalQuickLogTile) -> Bool { native.isAnswered(tile.id) }
 
-    /// The page moves to another day: nothing shows, and nothing can be tapped, until that day's answers arrive.
+    /// The page changes day or source: nothing shows or accepts taps until the replacement values arrive.
     func reset() {
         generation += 1
         inFlight = 0
         dayKey = nil
+        sourceContext = nil
         native = .init()
         imported = .init()
         earlier = .init()
     }
 
-    /// Fresh values from a read that began when `changeEpoch` was `epoch`. For the day already on screen they are
-    /// applied only if nothing was tapped since and no write is still on its way; the next read catches up.
-    func seed(day: String, tiles: [JournalQuickLogTile], native: JournalQuickLog.DayValues,
+    /// Fresh values from a read that began when `changeEpoch` was `epoch`. For the same day and source they apply
+    /// only if nothing was tapped since and no write is still on its way. A replacement source starts fresh.
+    func seed(day: String, sourceContext: String, tiles: [JournalQuickLogTile], native: JournalQuickLog.DayValues,
               imported: JournalQuickLog.DayValues, earlier: JournalQuickLog.DayValues, epoch: Int) {
-        if dayKey != day {
+        if dayKey != day || self.sourceContext != sourceContext {
             generation += 1
             inFlight = 0
             dayKey = day
+            self.sourceContext = sourceContext
             self.tiles = tiles
             self.native = native
             self.imported = imported
@@ -165,7 +169,7 @@ final class JournalQuickLogModel: ObservableObject {
 
     // MARK: Writing
 
-    private var canAct: Bool { dayKey != nil && writer.canWrite() }
+    private var canAct: Bool { dayKey != nil && sourceContext != nil && writer.canWrite() }
 
     private func commit(_ steps: [Step]) {
         guard let day = dayKey, !steps.isEmpty else { return }

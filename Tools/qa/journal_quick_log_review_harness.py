@@ -34,6 +34,18 @@ def main():
     helpers = read('Strand/Screens/JournalQuestions.swift').split('// MARK: - Editing rules')[0]
     helpers = helpers.replace('import StrandDesign', '').replace('import WhoopStore', '')
     model = declaration(read('Strand/Screens/JournalQuickLogSection.swift'), '@MainActor\nfinal class JournalQuickLogModel')
+    # Old revisions cannot accept a source identity. Forward the new test fixture signature to their
+    # unchanged day-only seed so the regression fails on stale answers, rather than an API compile error.
+    if 'func seed(day: String, sourceContext: String' not in model:
+        model += r"""
+@MainActor extension JournalQuickLogModel {
+    func seed(day: String, sourceContext: String, tiles: [JournalQuickLogTile],
+              native: JournalQuickLog.DayValues, imported: JournalQuickLog.DayValues,
+              earlier: JournalQuickLog.DayValues, epoch: Int) {
+        seed(day: day, tiles: tiles, native: native, imported: imported, earlier: earlier, epoch: epoch)
+    }
+}
+"""
     root_writer = declaration(read('Strand/Screens/CoachingRootView.swift'), 'private var writer: JournalQuickLogModel.Writer')
     load_key = declaration(read('Strand/Screens/CoachingRootView.swift'), 'private var loadKey: String')
     saves = '\n'.join(declaration(read('Strand/Data/Repository.swift'), prefix) for prefix in [
@@ -142,12 +154,12 @@ struct CoachingBehaviorMembership {
                 saved.append((day, write))
                 if saved.count == 1 { await withCheckedContinuation { release = $0 } }
             }, clear: { _, _ in }, canWrite: { true }, didWrite: { callbackCount += 1 })
-            model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+            model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
             model.markRest()
             for _ in 0..<1000 where release == nil { try? await Task.sleep(for: .milliseconds(1)) }
             check(release != nil, "bulk save reached suspended first write")
             if reset { model.reset() }
-            model.seed(day: "2026-10-21", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+            model.seed(day: "2026-10-21", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
             // A different host Writer must not take over an already accepted run.
             var replacementWrites = 0
             model.writer = .init(save: { _, _ in replacementWrites += 1 }, clear: { _, _ in }, canWrite: { true }, didWrite: { callbackCount += 1 })
@@ -159,6 +171,53 @@ struct CoachingBehaviorMembership {
             check(model.answeredCount == 0 && model.dayKey == "2026-10-21" && callbackCount == 0,
                   "old completion cannot publish into the new day")
         }
+        let switchedRepo = Repository()
+        let switchedModel = JournalQuickLogModel()
+        switchedModel.writer = RootWriter(repo: switchedRepo).value
+        switchedModel.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles,
+                           native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        switchedRepo.holdNextStore = true
+        let plainTile = tiles.first { $0.amount == nil }!
+        switchedModel.tap(plainTile)
+        for _ in 0..<1000 where switchedRepo.releaseStore == nil { try? await Task.sleep(for: .milliseconds(1)) }
+        check(switchedRepo.releaseStore != nil && switchedModel.state(of: plainTile) == .yes,
+              "old-source optimistic answer is visible while its store open is suspended")
+        switchedRepo.journalEntrySourceContext = "store-B"
+        switchedRepo.fixture = FixtureStore()
+        switchedModel.writer = RootWriter(repo: switchedRepo).value
+        switchedModel.seed(day: "2026-10-22", sourceContext: "store-B", tiles: tiles,
+                           native: .init(), imported: .init(), earlier: .init(), epoch: switchedModel.changeEpoch)
+        check(switchedModel.state(of: plainTile) == .unanswered,
+              "same-day new-source seed clears old optimistic answer despite old in-flight write")
+        switchedRepo.releaseStore?.resume()
+        try? await Task.sleep(for: .milliseconds(20))
+        check(switchedRepo.journalRevision == 0 && switchedModel.state(of: plainTile) == .unanswered,
+              "blocked old-source completion emits no revision and leaves new source blank")
+        switchedModel.tap(plainTile)
+        for _ in 0..<1000 where switchedRepo.journalRevision < 1 { try? await Task.sleep(for: .milliseconds(1)) }
+        check(switchedRepo.fixture?.entries[Repository.journalDeviceId]?.last?.answeredYes == true,
+              "first new-source tap uses blank state and the replacement writer")
+        let queuedRepo = Repository()
+        let queuedModel = JournalQuickLogModel()
+        queuedModel.writer = RootWriter(repo: queuedRepo).value
+        queuedModel.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles,
+                         native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        queuedRepo.holdNextStore = true
+        queuedModel.tap(plainTile)
+        for _ in 0..<1000 where queuedRepo.releaseStore == nil { try? await Task.sleep(for: .milliseconds(1)) }
+        queuedRepo.journalEntrySourceContext = "store-B"
+        queuedRepo.fixture = FixtureStore()
+        queuedModel.seed(day: "2026-10-22", sourceContext: "store-B", tiles: tiles,
+                         native: .init(), imported: .init(), earlier: .init(), epoch: queuedModel.changeEpoch)
+        queuedModel.writer = RootWriter(repo: queuedRepo).value
+        queuedModel.tap(plainTile)
+        try? await Task.sleep(for: .milliseconds(20))
+        check(queuedRepo.fixture?.mutations == 0,
+              "source reset preserves accepted write tail before new-source operation")
+        queuedRepo.releaseStore?.resume()
+        for _ in 0..<1000 where queuedRepo.journalRevision < 1 { try? await Task.sleep(for: .milliseconds(1)) }
+        check(queuedRepo.journalRevision == 1 && queuedRepo.fixture?.mutations == 1,
+              "only the replacement-source operation persists after the old tail unblocks")
         let identity = RootLoadIdentity(repo: repo)
         let initialLoad = identity.value
         repo.journalRevision += 1
@@ -212,14 +271,14 @@ struct CoachingBehaviorMembership {
                 }
                 saved.append((day, write))
             }, clear: { _, _ in }, canWrite: { true }, didWrite: {})
-            model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+            model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
             model.markRest()
             for _ in 0..<1000 where release == nil { try? await Task.sleep(for: .milliseconds(1)) }
             if returnToOriginalDay {
                 model.reset()
-                model.seed(day: "2026-10-21", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+                model.seed(day: "2026-10-21", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
                 model.reset()
-                model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+                model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
             }
             let changedTile = tiles.last!
             model.set(changedTile, yes: true)

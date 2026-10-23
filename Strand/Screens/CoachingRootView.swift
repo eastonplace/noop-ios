@@ -27,6 +27,7 @@ struct CoachingRootView: View {
     /// The day the mood and note above were read for. Taps wait until it matches `dayKey`, so a quick switch of
     /// day never writes one day's answers into another.
     @State private var loadedDay: String?
+    @State private var loadedSourceContext: String?
     /// Days with at least one answer (imported or tapped), for the dots and the streak.
     @State private var loggedDays: Set<String> = []
     @State private var stacks: [CoachingStack] = []
@@ -45,16 +46,19 @@ struct CoachingRootView: View {
         _dayKey = State(initialValue: open ?? JournalBehaviorDay.yesterdayStorageKey())
     }
 
-    private var isCurrentDayLoaded: Bool { loadedDay == dayKey }
+    private var isCurrentSourceLoaded: Bool {
+        !repo.verifiedExternalSurfaceFenced && loadedSourceContext == repo.journalEntrySourceContext
+    }
+    private var isCurrentDayLoaded: Bool { loadedDay == dayKey && isCurrentSourceLoaded }
     private var words: JournalBehaviorDay.Words { JournalBehaviorDay.words(forStorageKey: dayKey, today: todayKey) }
     private var loadKey: String {
-        "\(repo.refreshSeq)|\(repo.journalRevision)|\(repo.journalEntrySourceContext)|\(dayKey)|\(catalogRevision)"
+        "\(repo.refreshSeq)|\(repo.journalRevision)|\(repo.journalEntrySourceContext)|\(repo.verifiedExternalSurfaceFenced)|\(dayKey)|\(catalogRevision)"
     }
 
     var body: some View {
         NavigationStack {
             ScreenScaffold(title: "Journal") {
-                if loaded {
+                if loaded && isCurrentSourceLoaded {
                     VStack(alignment: .leading, spacing: 0) {
                         JournalQuickLogProgress(model: log) {
                             CoachJournalDayPicker(day: dayKey, onSelect: select(day:))
@@ -201,7 +205,9 @@ struct CoachingRootView: View {
 
     /// The selected day counts as logged as soon as it has an answer, before anything reloads.
     private var loggedNow: Set<String> {
-        JournalQuickLog.loggedDays(loggedDays, day: dayKey, values: log.dayKey == dayKey ? log.effective : nil)
+        JournalQuickLog.loggedDays(loggedDays, day: dayKey,
+                                   values: log.dayKey == dayKey && log.sourceContext == repo.journalEntrySourceContext
+                                       ? log.effective : nil)
     }
 
     private var historySection: some View {
@@ -277,6 +283,7 @@ struct CoachingRootView: View {
         catalog.reloadFromDefaults()
         let catalogItems = catalog.items
         let sourceIdentity = repo.journalEntrySourceIdentity
+        guard let sourceContext = try? await repo.journalEntryContext() else { return }
         let day = dayKey
         let epoch = log.changeEpoch
         let earlierDay = JournalBehaviorDay.shifted(day, by: -1) ?? day
@@ -315,15 +322,15 @@ struct CoachingRootView: View {
         let dayValues = await repo.journalDayValues(day: day)
         let earlierValues = await repo.journalDayValues(day: earlierDay)
         var details = JournalEntryDayDetails(note: "", mood: nil)
-        if let context = try? await repo.journalEntryContext(),
-           let read = try? await repo.journalDayDetails(day: day, sourceContext: context) {
+        if let read = try? await repo.journalDayDetails(day: day, sourceContext: sourceContext) {
             details = read
         } else {
             details.mood = await repo.mood(day: day)
         }
         // The person may have switched day while this was reading; the newer load owns the page.
         guard !Task.isCancelled, day == dayKey, catalog.items == catalogItems,
-              !repo.verifiedExternalSurfaceFenced, sourceIdentity == repo.journalEntrySourceIdentity else { return }
+              !repo.verifiedExternalSurfaceFenced, sourceIdentity == repo.journalEntrySourceIdentity,
+              sourceContext == repo.journalEntrySourceContext else { return }
         todayKey = Repository.localDayKey(Date())
         importedQuestions = questions
         stacks = loadedStacks
@@ -331,12 +338,14 @@ struct CoachingRootView: View {
         loggedDays = Set(all.map(\.day))
         note = details.note.trimmingCharacters(in: .whitespacesAndNewlines)
         mood = details.mood
-        loadedDay = day
-        log.writer = writer
-        log.seed(day: day, tiles: JournalQuickLogTile.tiles(from: resolved, active: active),
+        log.seed(day: day, sourceContext: sourceContext,
+                 tiles: JournalQuickLogTile.tiles(from: resolved, active: active),
                  native: dayValues.native, imported: dayValues.imported,
                  earlier: JournalQuickLog.merged(native: earlierValues.native, imported: earlierValues.imported),
                  epoch: epoch)
+        log.writer = writer
+        loadedDay = day
+        loadedSourceContext = sourceContext
         loaded = true
     }
 
