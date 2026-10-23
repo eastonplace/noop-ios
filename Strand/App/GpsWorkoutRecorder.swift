@@ -1,6 +1,7 @@
 import Foundation
 import CoreLocation
 import StrandAnalytics   // WorkoutsTrace + TestCentre: the GPS-fix line for the Workouts test mode
+import WorkoutRouteExport
 
 // MARK: - GPS workout recording on Apple (#524)
 //
@@ -24,8 +25,8 @@ import StrandAnalytics   // WorkoutsTrace + TestCentre: the GPS-fix line for the
 //                     (startTs + sport), holding the encoded polyline + distance for that session. The
 //                     shared `WhoopStore.WorkoutRow` carries no route column on Apple, so the route lives
 //                     here and is read back by WorkoutDetailView — exactly how `moments` / `sleepMarks` /
-//                     the durable active-workout snapshot already persist on Apple. On-device only; never
-//                     leaves the phone.
+//                     the durable active-workout snapshot already persist on Apple. Stored locally;
+//                     GPX/FIT leaves the app only through a user-requested export.
 //   • `GpsWorkoutRecorder` — the thin CoreLocation wrapper. Requests When-In-Use, streams fixes through
 //                     `TrackFilter` into an accumulating route, and exposes live distance/pace. FAILS
 //                     SAFE everywhere: on a Mac with no location hardware, or when permission is denied /
@@ -220,8 +221,9 @@ final class TrackFilter {
     /// Accept one strictly newer, non-duplicate fix. A long gap may move far without creating a line
     /// across the map. Short-interval teleports still fail the speed gate.
     func acceptWithMetadata(_ fix: RawFix) -> TrackFilterAcceptedFix? {
-        guard fix.accuracyM.isFinite, fix.accuracyM >= 0, fix.accuracyM <= maxAccuracyM else { return nil }
-        guard (-90...90).contains(fix.lat), (-180...180).contains(fix.lon) else { return nil }
+        guard fix.accuracyM.isFinite, fix.accuracyM >= 0, fix.accuracyM <= maxAccuracyM,
+              fix.lat.isFinite, fix.lon.isFinite,
+              (-90...90).contains(fix.lat), (-180...180).contains(fix.lon) else { return nil }
 
         let point = RouteMath.LatLng(fix.lat, fix.lon)
         var startsNewSegment = false
@@ -267,7 +269,7 @@ final class TrackFilter {
 
 /// The route persisted for one finished workout: the encoded polyline + the GPS distance it implies.
 /// A tiny `Codable` value, the unit a `RouteStore` keys by a workout's natural key.
-struct WorkoutRoute: Equatable, Codable {
+struct WorkoutRoute: Equatable, Codable, Sendable {
     /// Google precision-5 polyline of the captured route (`RouteMath.encode`).
     var polyline: String
     /// Total GPS distance in metres (`RouteMath.totalMeters` of the captured points).
@@ -275,18 +277,23 @@ struct WorkoutRoute: Equatable, Codable {
     /// Segment-aware representation. Legacy rows omit this field and continue to decode from `polyline`.
     /// New rows keep `polyline` as their first segment for safe downgrade behavior, never a flattened bridge.
     var segmentPolylines: [String]?
+    /// Only measured segments carry export metadata. Legacy polylines remain drawable without
+    /// timestamps or guessed accuracy. A restored legacy prefix is not included in this array.
+    var pointSegments: [[RecordedRoutePoint]]?
 
     init(polyline: String, distanceM: Double) {
         self.polyline = polyline
         self.distanceM = distanceM
         segmentPolylines = nil
+        pointSegments = nil
     }
 
-    init(segmentPolylines: [String], distanceM: Double) {
+    init(segmentPolylines: [String], distanceM: Double, pointSegments: [[RecordedRoutePoint]]? = nil) {
         let nonempty = segmentPolylines.filter { !RouteMath.decode($0).isEmpty }
         self.polyline = nonempty.first ?? ""
         self.distanceM = distanceM
         self.segmentPolylines = nonempty
+        self.pointSegments = pointSegments
     }
 
     var decodedSegments: [[RouteMath.LatLng]] {
@@ -297,12 +304,44 @@ struct WorkoutRoute: Equatable, Codable {
     var hasDrawableSegment: Bool {
         decodedSegments.contains { $0.count >= 2 }
     }
+
+    var hasExportableMeasurements: Bool {
+        guard let pointSegments else { return false }
+        guard (try? RouteExporter.validate(pointSegments)) != nil else { return false }
+        // Export metadata must describe the saved map, including segment boundaries. A corrupt or
+        // mismatched metadata array must never export a different route from the one being shown.
+        let polylines = segmentPolylines?.isEmpty == false ? segmentPolylines! : [polyline]
+        var cursor = polylines.startIndex
+        for segment in pointSegments {
+            let encoded = RouteMath.encode(segment.map { .init($0.latitude, $0.longitude) })
+            while cursor < polylines.endIndex, polylines[cursor] != encoded { cursor += 1 }
+            guard cursor < polylines.endIndex else { return false }
+            cursor += 1
+        }
+        return true
+    }
+
+    var hasUnmeasuredSegments: Bool {
+        decodedSegments.reduce(0) { $0 + $1.count }
+            > (pointSegments ?? []).reduce(0) { $0 + $1.count }
+    }
+
+    private enum CodingKeys: String, CodingKey { case polyline, distanceM, segmentPolylines, pointSegments }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        polyline = try values.decode(String.self, forKey: .polyline)
+        distanceM = try values.decode(Double.self, forKey: .distanceM)
+        segmentPolylines = try values.decodeIfPresent([String].self, forKey: .segmentPolylines)
+        // Damaged optional export metadata must not hide otherwise valid historical route maps.
+        pointSegments = try? values.decodeIfPresent([[RecordedRoutePoint]].self, forKey: .pointSegments)
+    }
 }
 
 /// On-device persistence for finished GPS routes, keyed by a workout's natural key (startTs + sport) so a
 /// saved row can look its route back up. The shared `WhoopStore.WorkoutRow` carries no route column on
 /// Apple, so the polyline lives here — mirroring how `moments` / `sleepMarks` / the active-workout
-/// snapshot already persist to `UserDefaults`. Never leaves the device.
+/// snapshot already persist to `UserDefaults`. Export is an explicit user action.
 ///
 /// The codec (`encodeMap` / `decodeMap`) is pure (no `UserDefaults` dependency) so the persist round-trip
 /// is unit-testable; `store` / `load` / `remove` just thread a `UserDefaults` through it. Bounded so a
@@ -312,8 +351,8 @@ enum RouteStore {
     /// Single `UserDefaults` key holding a JSON `[key: WorkoutRoute]` map. Namespaced like `moments`.
     static let defaultsKey = "noop.workoutRoutes"
 
-    /// Cap on stored routes — newest kept, oldest evicted (keys sort by the leading startTs). A route is
-    /// a handful of bytes, but this keeps the map from growing unboundedly across an install's lifetime.
+    /// Cap on stored routes — newest kept, oldest evicted (keys sort by the leading startTs).
+    /// Timestamped measurements live with their polylines so backups and deletion stay consistent.
     static let maxRoutes = 400
 
     /// Natural key for a session's route: "<startTs>|<sport>". Stable across launches; matches the
@@ -328,6 +367,11 @@ enum RouteStore {
     /// already-clean map fails (never expected for this shape).
     static func encodeMap(_ map: [String: WorkoutRoute]) -> Data? {
         let clean = map.filter { $0.value.distanceM.isFinite && $0.value.distanceM >= 0 }
+            .mapValues { route in
+                var route = route
+                if route.pointSegments != nil, !route.hasExportableMeasurements { route.pointSegments = nil }
+                return route
+            }
         return try? JSONEncoder().encode(clean)
     }
 
@@ -472,6 +516,9 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     private var filterPolicy: GpsTrackPolicy = .standard
     private var filter = TrackFilter()
     private var segments: [[RouteMath.LatLng]] = []
+    /// Shape matches `segments`; nil points are a legacy route restored without measurements.
+    private var pointMeasurements: [[GpsPointMeasurement?]] = []
+    private var lastRecordedTimestampMs: Int64?
     private var sessionID: UUID?
     private var startMs: Int64 = 0
     private var startsNewSegmentOnNextFix = true
@@ -498,6 +545,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     func seedDemoRoute(points: [RouteMath.LatLng], elapsedSeconds: Double,
                        paused: Bool = false, signalLost: Bool = false) {
         segments = points.isEmpty ? [] : [points]
+        pointMeasurements = points.isEmpty ? [] : [points.map { _ in nil }]
+        lastRecordedTimestampMs = nil
         pointCount = points.count
         distanceM = RouteMath.totalMeters(points)
         paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsedSeconds)
@@ -568,6 +617,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     /// A re-arm resets the track. Returns immediately — fixes arrive asynchronously via the delegate.
     func start(sessionID: UUID = UUID(), startMs: Int64, sport: String = WorkoutCatalog.defaultSportName) {
         segments.removeAll()
+        pointMeasurements.removeAll()
+        lastRecordedTimestampMs = nil
         filterPolicy = .forSport(sport)
         filter = TrackFilter(policy: filterPolicy)
         self.sessionID = sessionID
@@ -620,9 +671,20 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     func capturedRoute() -> WorkoutRoute? {
         let drawableSegments = segments.filter { $0.count >= 2 }
         guard !drawableSegments.isEmpty else { return nil }
+        let measuredSegments: [[RecordedRoutePoint]] = segments.indices.compactMap { index in
+            let segment = segments[index]
+            guard segment.count >= 2, pointMeasurements.indices.contains(index),
+                  pointMeasurements[index].count == segment.count,
+                  pointMeasurements[index].allSatisfy({ $0 != nil }) else { return nil }
+            return zip(segment, pointMeasurements[index]).compactMap { point, measurement in
+                measurement.map { RecordedRoutePoint(latitude: point.lat, longitude: point.lon,
+                    timestampMs: $0.timestampMs, horizontalAccuracyM: $0.horizontalAccuracyM) }
+            }
+        }
         return WorkoutRoute(
             segmentPolylines: drawableSegments.map(RouteMath.encode),
-            distanceM: distanceM
+            distanceM: distanceM,
+            pointSegments: measuredSegments.isEmpty ? nil : measuredSegments
         )
     }
 
@@ -638,6 +700,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
                  sport: String = WorkoutCatalog.defaultSportName) {
         guard snapshot.isValid else { return }
         segments = snapshot.segments
+        pointMeasurements = snapshot.pointMeasurements ?? snapshot.segments.map { $0.map { _ in nil } }
+        lastRecordedTimestampMs = pointMeasurements.flatMap { $0 }.compactMap { $0?.timestampMs }.last
         sessionID = snapshot.sessionID
         startMs = snapshot.workoutStartMs
         rawFixCount = snapshot.rawFixCount
@@ -783,24 +847,33 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         var appendedPoints: [ActiveGpsJournalPoint] = []
         appendedPoints.reserveCapacity(fixes.count)
         for fix in fixes {
+            // CoreLocation may deliver cached fixes on start/resume. Do not export a point from before
+            // this workout, or let resetting the speed filter make the route's timeline go backwards.
+            guard fix.tMs >= startMs, fix.tMs > 0, fix.tMs <= 253_402_300_799_999,
+                  lastRecordedTimestampMs.map({ fix.tMs > $0 }) ?? true else { continue }
             if let accepted = filter.acceptWithMetadata(fix) {
                 let pt = accepted.point
+                let measurement = GpsPointMeasurement(timestampMs: fix.tMs, horizontalAccuracyM: fix.accuracyM)
                 let beginsSegment = startsNewSegmentOnNextFix
                     || accepted.startsNewSegment
                     || segments.isEmpty
                 if beginsSegment {
                     segments.append([pt])
+                    pointMeasurements.append([measurement])
                     startsNewSegmentOnNextFix = false
                 } else {
                     if let previous = segments[segments.count - 1].last {
                         distanceM += RouteMath.haversineMeters(previous, pt)
                     }
                     segments[segments.count - 1].append(pt)
+                    pointMeasurements[pointMeasurements.count - 1].append(measurement)
                 }
+                lastRecordedTimestampMs = fix.tMs
                 pointCount += 1
                 appendedPoints.append(ActiveGpsJournalPoint(
                     point: pt,
-                    startsNewSegment: beginsSegment
+                    startsNewSegment: beginsSegment,
+                    measurement: measurement
                 ))
             }
         }
@@ -868,11 +941,13 @@ extension GpsWorkoutRecorder: @preconcurrency CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         // CoreLocation hands us an UNTRUSTED batch — map to RawFix and let TrackFilter bound-check every
         // field (accuracy, coordinate range, speed) before any of it reaches the stored route.
-        let fixes: [RawFix] = locations.map {
-            RawFix(lat: $0.coordinate.latitude,
+        let fixes: [RawFix] = locations.compactMap {
+            let milliseconds = $0.timestamp.timeIntervalSince1970 * 1_000
+            guard milliseconds.isFinite, milliseconds > 0, milliseconds <= 253_402_300_799_999 else { return nil }
+            return RawFix(lat: $0.coordinate.latitude,
                    lon: $0.coordinate.longitude,
                    accuracyM: $0.horizontalAccuracy,
-                   tMs: Int64($0.timestamp.timeIntervalSince1970 * 1000))
+                   tMs: Int64(milliseconds))
         }
         ingest(fixes)
     }

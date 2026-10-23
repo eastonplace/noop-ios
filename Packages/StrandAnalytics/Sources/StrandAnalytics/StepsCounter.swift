@@ -1,37 +1,73 @@
 import Foundation
 import WhoopProtocol
 
-/// Wrap-aware step derivation from the strap's cumulative `step_motion_counter@57`, shared by the daily
-/// total (`AnalyticsEngine.analyzeDay`) and any windowed total (a manual workout's `[start, end]`, #398).
-///
-/// `step_motion_counter@57` is a CUMULATIVE u16 running counter: it climbs while you move, holds flat when
-/// still, and wraps at 65536. The number of motion ticks over a set of time-ordered records is the SUM of
-/// WRAP-AWARE increments of that counter — `delta = (cur - prev) & 0xFFFF` — with a per-user
-/// `stepTicksPerStep` calibration applied by the caller AFTERWARDS (this returns the raw pre-calibration
-/// tick total, so the two callers can never disagree on the counter math). The raw total is an ESTIMATE
-/// (@57 counts motion ticks, not validated steps), not cloud/clinical parity.
-///
-/// Kept byte-for-byte in lockstep with the Kotlin twin `StepsCounter.stepsInWindow`.
+/// Wrap-aware motion ticks shared by daily, physiological-cycle and workout estimates. Calibration is
+/// applied by callers. The strap's counter and activity classes remain estimates, not validated steps.
 public enum StepsCounter {
-    /// The largest wrap-aware increment treated as real motion between two adjacent 1 Hz records. A delta
-    /// at/above this is a big time-gap / disconnect boundary between sync sessions (or a firmware reboot,
-    /// byte-indistinguishable from a u16 wrap), NOT real steps — dropped so gaps don't inflate the total.
-    /// Real 1 Hz motion never ticks this fast between adjacent records. (#132/#276/#316)
     public static let maxStepDelta = 512
+    public static let maxTicksPerSecond = 4
 
-    /// Raw wrap-aware motion-tick total across `samples` — the sum of positive consecutive
-    /// `step_motion_counter@57` increments in `[1, maxStepDelta)`. Sorts by `ts` internally, so the caller
-    /// may pass an unsorted window (already filtered to the range it cares about). Returns `nil` when there
-    /// are fewer than two samples or no forward movement (so "no data" stays distinct from a real zero).
-    /// The caller applies its `stepTicksPerStep` calibration to the returned ticks.
+    /// Classified records count only walking/running. Fully unclassified legacy windows retain the
+    /// counter estimate, with the same rate/reset safeguards. Invalid or conflicting records never join
+    /// two independent counter runs. An empty or entirely stationary window retains the existing nil API.
     public static func stepsInWindow(_ samples: [StepSample]) -> Int? {
-        let sorted = samples.sorted { $0.ts < $1.ts }
-        if sorted.count < 2 { return nil }
         var total = 0
-        for i in 1..<sorted.count {
-            let delta = (sorted[i].counter - sorted[i - 1].counter) & 0xFFFF  // wrap-aware u16 increment
-            if delta >= 1 && delta < maxStepDelta { total += delta }  // ignore a delta >= 512 (gap/reset)
-        }
+        forEachIncrement(in: samples) { _, ticks, _ in total += ticks }
         return total > 0 ? total : nil
+    }
+
+    public static func shouldCountDelta(activityClass: Int?, hasActivityClasses: Bool) -> Bool {
+        !hasActivityClasses || activityClass == 1 || activityClass == 2
+    }
+
+    public static func isPlausibleDelta(previousTs: Int, currentTs: Int, delta: Int) -> Bool {
+        guard delta > 0, delta < maxStepDelta, currentTs > previousTs else { return false }
+        let (elapsed, overflow) = currentTs.subtractingReportingOverflow(previousTs)
+        guard !overflow else { return false }
+        // Clamp before multiplication so malformed dates cannot overflow the rate guard.
+        return delta <= min(elapsed, maxStepDelta) * maxTicksPerSecond
+    }
+
+    /// One canonical pass for ordinary and sleep-aware totals. `newRun` also breaks a pending sleep
+    /// gait bout after an invalid counter, reset, conflicting duplicate, or non-locomotion record.
+    static func forEachIncrement(in samples: [StepSample],
+                                 _ visit: (_ timestamp: Int, _ ticks: Int, _ newRun: Bool) -> Void) {
+        let sorted = samples.sorted { $0.ts < $1.ts }
+        let hasClasses = sorted.contains { (0...65_535).contains($0.counter) && $0.activityClass != nil }
+        var previous: StepSample?
+        var newRun = true
+        var index = 0
+        while index < sorted.count {
+            var end = index + 1
+            while end < sorted.count, sorted[end].ts == sorted[index].ts { end += 1 }
+            let group = sorted[index..<end]
+            index = end
+            let first = group.first!
+            guard (0...65_535).contains(first.counter), group.allSatisfy({ $0.counter == first.counter }) else {
+                previous = nil
+                newRun = true
+                continue
+            }
+            // Equal-counter duplicates resolve independently of order. A known non-gait class wins a
+            // contradictory same-second annotation instead of inventing locomotion.
+            let classes = group.compactMap(\.activityClass)
+            let activity = classes.filter { $0 != 1 && $0 != 2 }.min() ?? classes.min()
+            let current = StepSample(ts: first.ts, counter: first.counter, activityClass: activity)
+            let prior = previous
+            previous = current
+            guard let prior else { continue }
+            guard shouldCountDelta(activityClass: current.activityClass, hasActivityClasses: hasClasses) else {
+                newRun = true
+                continue
+            }
+            let delta = (current.counter - prior.counter) & 0xffff
+            if delta == 0 { continue }
+            guard isPlausibleDelta(previousTs: prior.ts, currentTs: current.ts, delta: delta) else {
+                newRun = true
+                continue
+            }
+            visit(current.ts, delta, newRun)
+            newRun = false
+        }
     }
 }

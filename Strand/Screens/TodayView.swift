@@ -360,7 +360,16 @@ struct TodayView: View {
     @State private var stressHistoryAvailable = false
     /// Today's intraday stress read for the ribbon (same DaytimeStress proxy the Stress
     /// screens use). nil until loaded; `.empty` when the day has no scorable hours.
-    @State private var daytimeStress: DaytimeStress.Result?
+    @State private var loadedDaytimeStress: DaytimeStress.Result?
+    @State private var publishedStressRibbonKey: ForegroundStressTaskKey?
+    @Environment(\.scenePhase) private var stressScenePhase
+
+    private var daytimeStress: DaytimeStress.Result? {
+        publishedStressRibbonKey == stressRibbonTaskKey ? loadedDaytimeStress : nil
+    }
+    @AppStorage(PersonalStressBaselinePreference.enabledKey) private var personalStressBaselineEnabled = false
+    @State private var stressRibbonLoadState = LatestWinsLoadState()
+    @State private var stressCalendarRevision = 0
     @State private var fitnessAgeToday: Double?
     @State private var vitalityToday: Double?
     /// Distinct days + sleep sessions imported from a Mi Band (Mi Fitness), for the Data Sources row.
@@ -1820,24 +1829,39 @@ struct TodayView: View {
         }
     }
 
+    private var stressRibbonTaskKey: ForegroundStressTaskKey {
+        ForegroundStressTaskKey(scope: repo.stressReadScope, personalBaseline: personalStressBaselineEnabled,
+                                calendarRevision: stressCalendarRevision)
+    }
+
     private func loadDaytimeStressForRibbon() async {
-        let requestedDayKey = Repository.localDayKey(Date())
-        let calendar = Calendar.current
-        let start = Int(calendar.startOfDay(for: Date()).timeIntervalSince1970)
-        let end = Int(Date().timeIntervalSince1970)
-        let hr = await repo.hrSamples(from: start, to: end, limit: 200_000)
-        guard hr.count >= DaytimeStress.minHourHRSamples else {
-            daytimeStress = .empty
+        let requestID = stressRibbonLoadState.begin()
+        // Invalidate the cached dashboard presentation before the replacement read suspends.
+        refreshScreenSnapshot()
+        guard stressScenePhase == .active else {
+            _ = stressRibbonLoadState.finish(.cancelled, requestID: requestID)
             return
         }
-        let rr = (try? await repo.storeHandle()?.rrIntervals(
-            deviceId: repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
-        let offset = TimeZone.current.secondsFromGMT(for: Date())
-        let result = await Task.detached(priority: .utility) {
-            DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: offset)
-        }.value
-        guard !Task.isCancelled, requestedDayKey == Repository.localDayKey(Date()) else { return }
-        daytimeStress = result
+        guard await repo.storeHandle() != nil else { return }
+        let requestKey = stressRibbonTaskKey
+        do {
+            let read = try await repo.foregroundStressRead(personalBaseline: personalStressBaselineEnabled)
+            guard !Task.isCancelled, stressRibbonLoadState.owns(requestID),
+                  requestKey == stressRibbonTaskKey, read.scope == repo.stressReadScope else { return }
+            loadedDaytimeStress = read.daytime
+            publishedStressRibbonKey = requestKey
+            _ = stressRibbonLoadState.finish(.loaded, requestID: requestID)
+            refreshScreenSnapshot()
+        } catch is CancellationError {
+            _ = stressRibbonLoadState.finish(.cancelled, requestID: requestID)
+        } catch {
+            guard !Task.isCancelled, stressRibbonLoadState.owns(requestID),
+                  requestKey == stressRibbonTaskKey else { return }
+            loadedDaytimeStress = nil
+            publishedStressRibbonKey = requestKey
+            _ = stressRibbonLoadState.finish(.failed("Stress signals could not refresh."), requestID: requestID)
+            refreshScreenSnapshot()
+        }
     }
 
     /// 24 hour-slots for the ribbon: scored hours carry their 0–3 level and every
@@ -2082,6 +2106,8 @@ struct TodayView: View {
         ScreenScaffold(title: scaffoldTitle, onRefresh: {
                            model.ble.syncNow()
                            _ = await repo.refresh(.currentDay)
+                           // Raw-only corrections need not change daily rows or refreshSeq.
+                           stressCalendarRevision &+= 1
                        },
                        // PERF (scroll): lazy column so the scaffold materialises Today's content on demand.
                        // Today supplies its own inner eager VStack (below), so the staggered section reveal is
@@ -2136,8 +2162,20 @@ struct TodayView: View {
             offset: selectedDayOffset,
             presentationDay: "\(presentationDayLoadKey)|canonical:\(repo.canonicalHealth.presentationRevision)"
         )) { await loadAll() }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)) { _ in
+        // Foreground-only and independent of the daily-history cache: toggling the personal lens must
+        // refresh the hourly ribbon even when the stored daily scores did not change.
+        .task(id: stressRibbonTaskKey) { await loadDaytimeStressForRibbon() }
+        .onChangeCompat(of: stressScenePhase) { _ in
+            stressCalendarRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+            .receive(on: DispatchQueue.main)) { _ in
+            stressCalendarRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
+            .receive(on: DispatchQueue.main)) { _ in
             if notificationSelectedDayKey != nil { notificationTimeZoneIdentifier = TimeZone.current.identifier }
+            stressCalendarRevision &+= 1
         }
         // Freshness is time-based even while the repository is quiet. This is a one-shot task, not a
         // periodic redraw: it wakes only at the earliest direct metric-evidence expiry.
@@ -4652,9 +4690,7 @@ struct TodayView: View {
             stored: storedStress
         )
         stressToday = StressModel(days: repo.days, stored: storedStress)?.score
-        // Craft pass (003): the Today ribbon draws the REAL hourly curve — the old
-        // repeat-fill painted the whole day one color and lied about when stress ran high.
-        await loadDaytimeStressForRibbon()
+        // The independent foreground Stress task owns the real hourly curve and its selected lens.
         let fitnessAgeSeries = await fitnessAgeSeriesA
         let vitalitySeries = await vitalitySeriesA
         fitnessAgeToday = fitnessAgeSeries.last?.value

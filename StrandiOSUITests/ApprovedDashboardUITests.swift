@@ -40,6 +40,20 @@ final class ApprovedDashboardUITests: XCTestCase {
         launch(app, size: size)
         defer { app.terminate() }
         try requireDemoSeedReady(in: app)
+        if size == .accessibilityXXXL {
+            // Keep Today's real profile-button route separate from dashboard-content inspection.
+            let profile = app.buttons["app.settings"]
+            try reveal(profile, in: app, direction: .down, needsHitTarget: false)
+            XCTAssertTrue(app.buttons["app.deviceStatus"].label.contains("Today"), "The profile route starts on Today")
+            XCTAssertGreaterThanOrEqual(profile.frame.height + targetDimensionRoundingTolerance, 44)
+            profile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            try requireExists(app.navigationBars["Settings"], in: app)
+            try requireExists(app.buttons["settings.done"], in: app)
+            capture(app, "shared-battery-AX-today-opens-settings")
+            try closeSettingsToToday(in: app)
+            XCTAssertTrue(app.buttons["app.deviceStatus"].label.contains("Today"), "Done returns the profile route to Today")
+            capture(app, "shared-battery-AX-today-settings-dismissed")
+        }
         let tabs: [(String, String)] = [("0", "Today"), ("1", "Trends"), ("4", "Coach"), ("2", "Sleep")]
         for (tag, title) in tabs {
             let tab = app.buttons["app.tab.\(tag)"]
@@ -511,7 +525,9 @@ final class ApprovedDashboardUITests: XCTestCase {
     private func assertSettingsAccessibility() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        launch(app, size: .accessibilityXXXL)
+        // The separately selected shared-header XXXL case verifies Today's real profile-to-Settings route.
+        // This case owns native Settings-list routing and large-text dashboard content.
+        launch(app, route: "settings", size: .accessibilityXXXL)
         defer { app.terminate() }
         try requireDemoSeedReady(in: app)
         try openTodayDashboardSettings(in: app)

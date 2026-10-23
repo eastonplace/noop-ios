@@ -42,6 +42,18 @@ public enum DaytimeStress {
     public static let wakingStartHour: Int = 6
     public static let wakingEndHour: Int = 22
 
+    /// The personal lens changes only the hourly reference. Existing callers keep the same-day reference.
+    /// Its HR-only tuning follows ryanbr/noop's personal daytime lens; it is an approximate autonomic
+    /// signal, not a measure of psychological stress or a clinical threshold.
+    public enum ScoringMode: Equatable, Sendable {
+        case dayRelative
+        case baselineRelative(hr: BaselineState, rmssd: BaselineState?)
+    }
+
+    public static let baselineRelativeHighMarginBPM: Double = 15
+    /// Daytime wrist RMSSD is not admitted into the personal lens. The default day-relative path is unchanged.
+    public static let daytimeRMSSDScoringEnabled = false
+
     // MARK: - Output
 
     /// One hour of the daytime timeline. `level` is the shared 0–3 stress proxy, or nil
@@ -147,7 +159,8 @@ public enum DaytimeStress {
     ///
     /// Returns `.empty` when there isn't a single hour with enough HR to score.
     public static func analyze(hr: [HRSample], rr: [RRInterval],
-                               tzOffsetSeconds: Int = 0) -> Result {
+                               tzOffsetSeconds: Int = 0,
+                               mode: ScoringMode = .dayRelative) -> Result {
         // Off-wrist and malformed HR rows remain in raw storage but must not satisfy hourly coverage
         // or shift the calm reference. RR is a successive-beat metric, so late/out-of-order batches
         // must be chronological before bucketing; keep invalid beats for the gap-aware cleaner.
@@ -157,18 +170,34 @@ public enum DaytimeStress {
         // v7.0.2 perf (#707): buckets the day's full HR + R-R streams into per-hour aggregates and runs an
         // RMSSD per hour — invoked from the Stress view, so a `body` re-evaluation re-buckets the whole day.
         // Memoize on the streams' fingerprint + tz offset; result is a small `Result`, raw arrays not held.
+        // Include every baseline field consumed by scoring. Changing the personal reference must never
+        // reuse the same-day result (or another person's/source's personal result) for identical raw input.
+        let modeKey: ModeKey
+        switch mode {
+        case .dayRelative: modeKey = .dayRelative
+        case .baselineRelative(let hr, let rmssd):
+            modeKey = .baselineRelative(hr: hr.baseline, rmssd: rmssd?.baseline, spread: rmssd?.spread)
+        }
         let key = StressKey(
             hr: StreamFingerprint.of(hr, ts: { $0.ts }, quant: { Int($0.bpm) }),
             rr: StreamFingerprint.of(rr, ts: { $0.ts }, quant: { Int($0.rrMs) }),
-            tz: tzOffsetSeconds)
-        return analyzeCache.value(key) { analyzeUncached(hr: hr, rr: rr, tzOffsetSeconds: tzOffsetSeconds) }
+            tz: tzOffsetSeconds, mode: modeKey)
+        return analyzeCache.value(key) {
+            analyzeUncached(hr: hr, rr: rr, tzOffsetSeconds: tzOffsetSeconds, mode: mode)
+        }
     }
 
-    private struct StressKey: Hashable { let hr: StreamFingerprint; let rr: StreamFingerprint; let tz: Int }
+    private enum ModeKey: Hashable {
+        case dayRelative
+        case baselineRelative(hr: Double, rmssd: Double?, spread: Double?)
+    }
+    private struct StressKey: Hashable {
+        let hr: StreamFingerprint; let rr: StreamFingerprint; let tz: Int; let mode: ModeKey
+    }
     private static let analyzeCache = AnalyticsMemoCache<StressKey, Result>(capacity: 8)
 
     private static func analyzeUncached(hr: [HRSample], rr: [RRInterval],
-                                        tzOffsetSeconds: Int) -> Result {
+                                        tzOffsetSeconds: Int, mode: ScoringMode) -> Result {
         guard !hr.isEmpty else { return .empty }
 
         // 1) Bucket HR + R-R into LOCAL hour-of-day buckets, keyed by the bucket start
@@ -215,10 +244,24 @@ public enum DaytimeStress {
         let referenceAggs = aggs.filter { isWakingHour($0.bucket) }
         let hrMeans = referenceAggs.compactMap { $0.meanHR }
         let rmssdVals = referenceAggs.compactMap { $0.rmssd }
-        let refHR = calmReference(hrMeans, calmIsLow: true)         // calm HR is LOW
-        let refRMSSD = calmReference(rmssdVals, calmIsLow: false)   // calm HRV is HIGH
-        let sdHR = std(hrMeans, mean: mean(hrMeans))
-        let sdRMSSD = std(rmssdVals, mean: mean(rmssdVals))
+        let refHR: Double?
+        let refRMSSD: Double?
+        let sdHR: Double
+        let sdRMSSD: Double
+        switch mode {
+        case .dayRelative:
+            refHR = calmReference(hrMeans, calmIsLow: true)
+            refRMSSD = calmReference(rmssdVals, calmIsLow: false)
+            sdHR = std(hrMeans, mean: mean(hrMeans))
+            sdRMSSD = std(rmssdVals, mean: mean(rmssdVals))
+        case .baselineRelative(let hrBaseline, let rmssdBaseline):
+            refHR = hrBaseline.baseline
+            // Exactly +15 bpm maps to 2.0 on the existing 0–3 logistic scale. It does not turn a
+            // stress score into a percentage, and does not imply a norm for a particular clock hour.
+            sdHR = baselineRelativeHighMarginBPM / log(2)
+            refRMSSD = rmssdBaseline?.baseline
+            sdRMSSD = rmssdBaseline.map { max(1.253 * $0.spread, 1e-9) } ?? 0
+        }
 
         // 4) Score each waking-hour bucket on the shared 0–3 curve.
         var points: [HourPoint] = []

@@ -70,7 +70,7 @@
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>NOOP writes the metrics it computes from your strap back into Apple Health, on-device and only when you allow it.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>NOOP records your route during an outdoor workout to show distance, pace, and a map, and keeps recording while the screen is off. The route stays on your device. Nothing leaves it.</string>
+	<string>NOOP records your route during an outdoor workout to show distance, pace, and a map, and keeps recording while the screen is off. Routes stay on your device unless you choose to share or export them.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>NOOP uses your microphone only when you tap a microphone in Coach or Journal. Speech is transcribed on this iPhone.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

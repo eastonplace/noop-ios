@@ -43,6 +43,19 @@ final class GpsSportPolicyTests: XCTestCase {
         recorder.locationManager(manager, didUpdateLocations: fixes)
     }
 
+    func testStartingCyclingCapturesMeasuredRouteUnderTheFastPolicy() throws {
+        let manager = LocationManager()
+        let recorder = GpsWorkoutRecorder(manager: manager, makeBackgroundActivity: { nil })
+        defer { recorder.stop() }
+        recorder.start(startMs: startMs, sport: "Cycling")
+        deliver(recorder, manager, [location(meters: 0, second: 0), location(meters: 15, second: 1)])
+        let route = try XCTUnwrap(recorder.capturedRoute())
+        XCTAssertTrue(route.hasExportableMeasurements)
+        XCTAssertEqual(route.distanceM, 15, accuracy: 0.01)
+        XCTAssertEqual(route.pointSegments?.flatMap { $0 }.map(\.timestampMs), [startMs, startMs + 1_000])
+        XCTAssertEqual(recorder.persistenceCheckpoint()?.filterPolicy, .cycling)
+    }
+
     func testFastCyclingAndSnowTravelRetainsNineKilometers() throws {
         for policy in ["cycling", "snow"] {
             let (recorder, manager) = try recorder(policy: policy)
@@ -138,6 +151,9 @@ final class GpsSportPolicyTests: XCTestCase {
         let writer = ActiveGpsWorkoutPersistence.JournalWriter(defaults: defaults, directory: directory)
         XCTAssertTrue(writer.store(try XCTUnwrap(checkpoints.last), synchronously: true))
         let restored = try XCTUnwrap(writer.load())
+        XCTAssertEqual(restored.filterPolicy, .snow)
+        XCTAssertEqual(restored.pointMeasurements?.flatMap { $0 }.compactMap { $0?.timestampMs },
+                       [startMs, startMs + 1_000])
         let nextManager = LocationManager()
         let next = GpsWorkoutRecorder(manager: nextManager, makeBackgroundActivity: { nil })
         defer { next.stop() }
@@ -145,6 +161,11 @@ final class GpsSportPolicyTests: XCTestCase {
         deliver(next, nextManager, [location(meters: 10_000, second: 2), location(meters: 10_020, second: 3)])
         XCTAssertEqual(next.routeSegments.map(\.count), [2, 2])
         XCTAssertEqual(next.distanceM, 40, accuracy: 0.01)
+        let route = try XCTUnwrap(next.capturedRoute())
+        XCTAssertTrue(route.hasExportableMeasurements)
+        XCTAssertEqual(route.pointSegments?.map(\.count), [2, 2])
+        XCTAssertEqual(route.pointSegments?.flatMap { $0 }.map(\.timestampMs),
+                       [startMs, startMs + 1_000, startMs + 2_000, startMs + 3_000])
     }
 
     func testLongGapNeverAddsMissingTravelUnderFastPolicy() throws {

@@ -166,6 +166,13 @@ enum StrainDayLoader {
         let sleeps = rows.map {
             StrainCycleWindow.Sleep(start: $0.startTs, end: $0.endTs, effectiveStart: $0.effectiveStartTs)
         }
+        let stepSleepSessions = rows.map { row in
+            let stages = row.stagesJSON.flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONDecoder().decode([StageSegment].self, from: $0) } ?? []
+            return SleepSession(start: row.effectiveStartTs, end: row.endTs,
+                                efficiency: row.efficiency ?? 0, stages: stages,
+                                restingHR: row.restingHr, avgHRV: row.avgHrv)
+        }
 
         // Today follows the live score's own rule (the longest sleep that has begun and woke after the day started);
         // a past day wakes inside its own day. A past day's cycle is the nightly batch's (see `StrainBatchCycle`), so
@@ -204,9 +211,12 @@ enum StrainDayLoader {
         // The batch scores a past day on its cycle's step total, not the calendar day's.
         var steps = request.steps
         if !request.isToday {
-            let rows = await repo.stepSamples(from: cycleStartTs, to: endTs, limit: 200_000)
+            let readRows = await repo.stepSamples(from: cycleStartTs, to: endTs, limit: 200_000)
             guard !Task.isCancelled else { return nil }
-            steps = StrainBatchCycle.steps(rows, ticksPerStep: request.stepTicksPerStep) ?? request.steps
+            let rows = StrainBatchCycle.stepRows(readRows, from: cycleStartTs, to: endTs)
+            // Fall back only when this cycle has no records, not when its motion was all excluded.
+            steps = rows.isEmpty ? request.steps : StrainBatchCycle.steps(
+                rows, ticksPerStep: request.stepTicksPerStep, sleepSessions: stepSleepSessions)
         }
         #if DEBUG
         checkpoints.append(DispatchTime.now())

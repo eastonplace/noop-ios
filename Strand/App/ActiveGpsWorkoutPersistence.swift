@@ -1,39 +1,65 @@
 import Foundation
 
+/// Measurements are optional only for points restored from the coordinate-only v1/v2 journals.
+struct GpsPointMeasurement: Codable, Equatable, Sendable {
+    let timestampMs: Int64
+    let horizontalAccuracyM: Double?
+
+    var isValid: Bool {
+        timestampMs > 0 && timestampMs <= 253_402_300_799_999
+            && (horizontalAccuracyM.map { $0.isFinite && $0 >= 0 } ?? true)
+    }
+}
+
 /// One append-only GPS journal record. `startsNewSegment` is durable so a process-termination gap can
 /// never be reconstructed as a straight line between the last pre-termination fix and the first new fix.
 struct ActiveGpsJournalPoint: Equatable, Sendable {
     let point: RouteMath.LatLng
     let startsNewSegment: Bool
+    let measurement: GpsPointMeasurement?
+
+    init(point: RouteMath.LatLng, startsNewSegment: Bool, measurement: GpsPointMeasurement? = nil) {
+        self.point = point
+        self.startsNewSegment = startsNewSegment
+        self.measurement = measurement
+    }
 }
 
-/// Fixed-width codec for the active GPS journal. Every accepted point occupies 17 bytes:
-/// one segment-boundary byte followed by little-endian latitude and longitude bit patterns.
+/// v3 records are 33 bytes: flags, lat/lon, timestamp milliseconds, and optional accuracy metres.
+/// v2's 17-byte coordinate-only records remain readable; absent measurements stay absent on migration.
 enum ActiveGpsJournalCodec {
-    static let bytesPerPoint = 1 + (MemoryLayout<UInt64>.size * 2)
+    static let bytesPerPoint = 33
+    static let legacyBytesPerPoint = 17
 
-    static func encodedByteCount(for pointCount: Int) -> Int? {
-        guard pointCount >= 0 else { return nil }
-        let result = pointCount.multipliedReportingOverflow(by: bytesPerPoint)
+    static func encodedByteCount(for pointCount: Int, version: Int = 3) -> Int? {
+        guard pointCount >= 0, version == 2 || version == 3 else { return nil }
+        let result = pointCount.multipliedReportingOverflow(by: version == 2 ? legacyBytesPerPoint : bytesPerPoint)
         return result.overflow ? nil : result.partialValue
     }
 
     static func encode(_ points: [ActiveGpsJournalPoint]) -> Data {
         var data = Data()
         data.reserveCapacity(points.count * bytesPerPoint)
+        func append(_ value: UInt64) {
+            var value = value.littleEndian
+            withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+        }
         for record in points {
-            data.append(record.startsNewSegment ? 1 : 0)
-            var latitude = record.point.lat.bitPattern.littleEndian
-            var longitude = record.point.lon.bitPattern.littleEndian
-            withUnsafeBytes(of: &latitude) { data.append(contentsOf: $0) }
-            withUnsafeBytes(of: &longitude) { data.append(contentsOf: $0) }
+            var flags: UInt8 = record.startsNewSegment ? 1 : 0
+            if record.measurement != nil { flags |= 2 }
+            if record.measurement?.horizontalAccuracyM != nil { flags |= 4 }
+            data.append(flags)
+            append(record.point.lat.bitPattern)
+            append(record.point.lon.bitPattern)
+            append(UInt64(bitPattern: record.measurement?.timestampMs ?? 0))
+            append((record.measurement?.horizontalAccuracyM ?? 0).bitPattern)
         }
         return data
     }
 
-    static func decode(_ data: Data, count: Int) -> [ActiveGpsJournalPoint]? {
+    static func decode(_ data: Data, count: Int, version: Int = 3) -> [ActiveGpsJournalPoint]? {
         guard count >= 0,
-              let expectedBytes = encodedByteCount(for: count),
+              let expectedBytes = encodedByteCount(for: count, version: version),
               data.count == expectedBytes else { return nil }
         if count == 0 { return [] }
 
@@ -48,16 +74,29 @@ enum ActiveGpsJournalCodec {
         var output: [ActiveGpsJournalPoint] = []
         output.reserveCapacity(count)
         for index in 0..<count {
-            let offset = index * bytesPerPoint
+            let offset = index * (version == 2 ? legacyBytesPerPoint : bytesPerPoint)
             let marker = data[offset]
-            guard marker <= 1 else { return nil }
+            guard version == 2 ? marker <= 1 : marker <= 7 else { return nil }
             let latitude = Double(bitPattern: readUInt64(at: offset + 1))
             let longitude = Double(bitPattern: readUInt64(at: offset + 1 + MemoryLayout<UInt64>.size))
             guard latitude.isFinite, longitude.isFinite,
                   (-90...90).contains(latitude), (-180...180).contains(longitude) else { return nil }
+            var measurement: GpsPointMeasurement?
+            if version == 3 {
+                let timestamp = Int64(bitPattern: readUInt64(at: offset + 17))
+                let accuracy = Double(bitPattern: readUInt64(at: offset + 25))
+                if marker & 2 != 0 {
+                    measurement = GpsPointMeasurement(timestampMs: timestamp,
+                        horizontalAccuracyM: marker & 4 != 0 ? accuracy : nil)
+                    guard measurement?.isValid == true else { return nil }
+                } else {
+                    guard marker & 4 == 0, timestamp == 0, accuracy == 0 else { return nil }
+                }
+            }
             output.append(ActiveGpsJournalPoint(
                 point: RouteMath.LatLng(latitude, longitude),
-                startsNewSegment: marker == 1
+                startsNewSegment: marker & 1 != 0,
+                measurement: measurement
             ))
         }
         guard output.first?.startsNewSegment == true else { return nil }
@@ -72,12 +111,13 @@ enum ActiveGpsJournalCodec {
 /// Pending suffixes coalesce. Start/background flushes synchronously wait for the bounded pending suffix only.
 enum ActiveGpsWorkoutPersistence {
     struct Snapshot: Codable, Equatable, Sendable {
-        static let currentVersion = 2
+        static let currentVersion = 3
 
         let version: Int
         let sessionID: UUID
         let workoutStartMs: Int64
         let segments: [[RouteMath.LatLng]]
+        let pointMeasurements: [[GpsPointMeasurement?]]?
         let distanceM: Double
         let rawFixCount: Int
         let recordingWasActive: Bool
@@ -92,12 +132,19 @@ enum ActiveGpsWorkoutPersistence {
             rawFixCount: Int,
             recordingWasActive: Bool,
             hadTerminatedGap: Bool,
+            pointMeasurements: [[GpsPointMeasurement?]]? = nil,
             filterPolicy: GpsTrackPolicy? = nil
         ) {
             version = Self.currentVersion
             self.sessionID = sessionID
             self.workoutStartMs = workoutStartMs
             self.segments = segments.filter { !$0.isEmpty }
+            if let pointMeasurements, pointMeasurements.count == segments.count {
+                self.pointMeasurements = segments.indices.filter { !segments[$0].isEmpty }
+                    .map { pointMeasurements[$0] }
+            } else {
+                self.pointMeasurements = pointMeasurements
+            }
             self.distanceM = distanceM
             self.rawFixCount = rawFixCount
             self.recordingWasActive = recordingWasActive
@@ -108,7 +155,7 @@ enum ActiveGpsWorkoutPersistence {
         var acceptedPointCount: Int { segments.reduce(0) { $0 + $1.count } }
 
         var isValid: Bool {
-            guard version == Self.currentVersion,
+            guard version == Self.currentVersion || version == 2,
                   workoutStartMs > 0,
                   distanceM.isFinite,
                   distanceM >= 0,
@@ -119,6 +166,18 @@ enum ActiveGpsWorkoutPersistence {
                               && (-90...90).contains($0.lat) && (-180...180).contains($0.lon)
                       }
                   }) else { return false }
+            if let pointMeasurements {
+                guard pointMeasurements.count == segments.count else { return false }
+                var previousTime: Int64?
+                for index in segments.indices {
+                    guard pointMeasurements[index].count == segments[index].count else { return false }
+                    for measurement in pointMeasurements[index].compactMap({ $0 }) {
+                        guard measurement.isValid, measurement.timestampMs >= workoutStartMs,
+                              previousTime.map({ measurement.timestampMs > $0 }) ?? true else { return false }
+                        previousTime = measurement.timestampMs
+                    }
+                }
+            }
             let reconstructedDistance = segments.reduce(0.0) { $0 + RouteMath.totalMeters($1) }
             let tolerance = max(0.01, reconstructedDistance * 0.000_001)
             return abs(reconstructedDistance - distanceM) <= tolerance
@@ -148,14 +207,17 @@ enum ActiveGpsWorkoutPersistence {
                   appendedPoints.allSatisfy({
                       $0.point.lat.isFinite && $0.point.lon.isFinite
                           && (-90...90).contains($0.point.lat) && (-180...180).contains($0.point.lon)
+                          && ($0.measurement.map { $0.isValid && $0.timestampMs >= workoutStartMs } ?? true)
                   }) else { return false }
+            let times = appendedPoints.compactMap { $0.measurement?.timestampMs }
+            guard zip(times, times.dropFirst()).allSatisfy({ $0.0 < $0.1 }) else { return false }
             return expectedBasePointCount > 0 || appendedPoints.isEmpty
                 || appendedPoints.first?.startsNewSegment == true
         }
     }
 
     struct JournalMetadata: Codable, Equatable, Sendable {
-        static let currentVersion = 2
+        static let currentVersion = 3
 
         let version: Int
         let generation: UUID
@@ -430,11 +492,7 @@ enum ActiveGpsWorkoutPersistence {
         @discardableResult
         func replace(with snapshot: Snapshot) -> Bool {
             guard snapshot.isValid else { return false }
-            let records = snapshot.segments.flatMap { segment in
-                segment.enumerated().map {
-                    ActiveGpsJournalPoint(point: $0.element, startsNewSegment: $0.offset == 0)
-                }
-            }
+            let records = records(for: snapshot)
             return store(
                 Checkpoint(
                     sessionID: snapshot.sessionID,
@@ -449,6 +507,15 @@ enum ActiveGpsWorkoutPersistence {
                 ),
                 synchronously: true
             )
+        }
+
+        private func records(for snapshot: Snapshot) -> [ActiveGpsJournalPoint] {
+            snapshot.segments.enumerated().flatMap { segmentIndex, segment in
+                segment.enumerated().map { pointIndex, point in
+                    ActiveGpsJournalPoint(point: point, startsNewSegment: pointIndex == 0,
+                        measurement: snapshot.pointMeasurements?[segmentIndex][pointIndex])
+                }
+            }
         }
 
         func load() -> Snapshot? {
@@ -596,28 +663,45 @@ enum ActiveGpsWorkoutPersistence {
                 let generation: UUID
                 let priorChecksum: UInt64
                 let priorPointCount: Int
+                let writesNewJournal: Bool
+                let recordsToWrite: [ActiveGpsJournalPoint]
                 if request.resetsJournal {
                     generation = UUID()
                     priorChecksum = Self.checksumSeed
                     priorPointCount = 0
+                    writesNewJournal = true
+                    recordsToWrite = request.records
                 } else {
                     guard let previous,
-                          previous.version == JournalMetadata.currentVersion,
+                          previous.version == JournalMetadata.currentVersion || previous.version == 2,
                           previous.sessionID == request.checkpoint.sessionID,
                           previous.acceptedPointCount == request.basePointCount else {
                         throw CocoaError(.fileReadCorruptFile)
                     }
-                    generation = previous.generation
-                    priorChecksum = previous.checksum
-                    priorPointCount = previous.acceptedPointCount
+                    if previous.version == 2 {
+                        // Migrate once, on the first successful post-upgrade checkpoint. Commit a new
+                        // generation atomically so a failed migration leaves the v2 recovery intact.
+                        guard let legacy = load(metadata: previous) else { throw CocoaError(.fileReadCorruptFile) }
+                        generation = UUID()
+                        priorChecksum = Self.checksumSeed
+                        priorPointCount = 0
+                        writesNewJournal = true
+                        recordsToWrite = records(for: legacy) + request.records
+                    } else {
+                        generation = previous.generation
+                        priorChecksum = previous.checksum
+                        priorPointCount = previous.acceptedPointCount
+                        writesNewJournal = false
+                        recordsToWrite = request.records
+                    }
                 }
 
                 try faultInjector(.beforeFileWrite)
-                let suffixData = ActiveGpsJournalCodec.encode(request.records)
+                let suffixData = ActiveGpsJournalCodec.encode(recordsToWrite)
                 let journalURL = directory.appendingPathComponent(
                     "active-gps-\(generation.uuidString.lowercased()).bin"
                 )
-                if request.resetsJournal {
+                if writesNewJournal {
                     try writeDurably(suffixData, to: journalURL)
                     resetURL = journalURL
                 } else if !suffixData.isEmpty {
@@ -688,13 +772,13 @@ enum ActiveGpsWorkoutPersistence {
         }
 
         private func load(metadata: JournalMetadata) -> Snapshot? {
-            guard metadata.version == JournalMetadata.currentVersion,
+            guard metadata.version == JournalMetadata.currentVersion || metadata.version == 2,
                   metadata.workoutStartMs > 0,
                   metadata.distanceM.isFinite,
                   metadata.distanceM >= 0,
                   metadata.rawFixCount >= metadata.acceptedPointCount,
                   let expectedBytes = ActiveGpsJournalCodec.encodedByteCount(
-                    for: metadata.acceptedPointCount
+                    for: metadata.acceptedPointCount, version: metadata.version
                   ),
                   let directory else { return nil }
             let url = directory.appendingPathComponent(
@@ -705,15 +789,19 @@ enum ActiveGpsWorkoutPersistence {
             guard let data = try? handle.read(upToCount: expectedBytes),
                   data.count == expectedBytes,
                   Self.checksum(data) == metadata.checksum,
-                  let records = ActiveGpsJournalCodec.decode(data, count: metadata.acceptedPointCount)
+                  let records = ActiveGpsJournalCodec.decode(data, count: metadata.acceptedPointCount,
+                                                            version: metadata.version)
             else { return nil }
 
             var segments: [[RouteMath.LatLng]] = []
+            var measurements: [[GpsPointMeasurement?]] = []
             for record in records {
                 if record.startsNewSegment || segments.isEmpty {
                     segments.append([record.point])
+                    measurements.append([record.measurement])
                 } else {
                     segments[segments.count - 1].append(record.point)
+                    measurements[measurements.count - 1].append(record.measurement)
                 }
             }
             let snapshot = Snapshot(
@@ -724,6 +812,7 @@ enum ActiveGpsWorkoutPersistence {
                 rawFixCount: metadata.rawFixCount,
                 recordingWasActive: metadata.recordingWasActive,
                 hadTerminatedGap: metadata.hadTerminatedGap,
+                pointMeasurements: records.contains(where: { $0.measurement != nil }) ? measurements : nil,
                 filterPolicy: metadata.filterPolicy
             )
             return snapshot.isValid ? snapshot : nil

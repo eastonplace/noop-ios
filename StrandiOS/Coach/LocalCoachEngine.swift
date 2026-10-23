@@ -143,6 +143,8 @@ final class LocalCoachEngine: ObservableObject {
     private let model: (any LocalCoachModelDriver)?
     private let source: @MainActor () -> LocalCoachSourceScope
     private let records: @MainActor () -> String
+    private let publishDailyBrief: @MainActor (LocalCoachBriefKind, String, Date) -> Void
+    private let clearPublishedBrief: @MainActor () -> Void
     private var scope: LocalCoachSourceScope
     private var recordsToken: String
     private var sourceObserver: AnyCancellable?
@@ -196,8 +198,14 @@ final class LocalCoachEngine: ObservableObject {
         do { store = try .appLocal() }
         catch { store = nil; failure = LocalCoachErrorPrefix.storageUnavailable + error.localizedDescription }
         self.init(data: LocalCoachDataService(repo: repo), persistence: store,
-                  model: Self.makeModel(), source: source, records: { Self.recordsToken(of: repo) })
-        if let failure { storageError = failure; errorText = storageError; stateReadable = false }
+                  model: Self.makeModel(), source: source, records: { Self.recordsToken(of: repo) },
+                  publishDailyBrief: { kind, text, date in
+                      CoachBriefWidgetPublication.publish(kind: kind, text: text, generatedAt: date, repo: repo)
+                  }, clearPublishedBrief: { CoachBriefWidgetPublication.clear() })
+        if let failure {
+            storageError = failure; errorText = storageError; stateReadable = false
+            clearPublishedBrief()
+        }
         observe(repo)
     }
 
@@ -216,6 +224,8 @@ final class LocalCoachEngine: ObservableObject {
     init(data: (any LocalCoachDataAccess)?, persistence: LocalCoachPersistence?,
          model: (any LocalCoachModelDriver)?, source: @escaping @MainActor () -> LocalCoachSourceScope,
          records: @escaping @MainActor () -> String = { "" }, isPreview: Bool = false,
+         publishDailyBrief: @escaping @MainActor (LocalCoachBriefKind, String, Date) -> Void = { _, _, _ in },
+         clearPublishedBrief: @escaping @MainActor () -> Void = {},
          notificationCenter: NotificationCenter = .default) {
         self.data = data
         self.persistence = persistence
@@ -223,6 +233,8 @@ final class LocalCoachEngine: ObservableObject {
         self.model = model
         self.source = source
         self.records = records
+        self.publishDailyBrief = publishDailyBrief
+        self.clearPublishedBrief = clearPublishedBrief
         self.scope = source()
         self.recordsToken = records()
         self.isPreview = isPreview
@@ -245,6 +257,7 @@ final class LocalCoachEngine: ObservableObject {
         }
         if !isPreview, persistence != nil { loadSource(loadPreferences: true) }
         updateAvailability()
+        clearPublishedBriefIfUnavailable()
         if !isPreview, persistence != nil {
             protectedDataObserver = notificationCenter.addObserver(
                 forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main
@@ -425,6 +438,7 @@ final class LocalCoachEngine: ObservableObject {
         ensureConversation(title: text)
         let requestDate = Date()
         let requestCalendar = Calendar.autoupdatingCurrent
+        let requestRecords = records()
         // A brief names its own first read; a question is routed by its wording.
         let evidencePlan = brief.map(Self.briefPlan)
             ?? CoachEvidencePolicy.plan(for: text, now: requestDate, calendar: requestCalendar)
@@ -506,6 +520,14 @@ final class LocalCoachEngine: ObservableObject {
                 if let index = self.messages.firstIndex(where: { $0.id == assistant.id }) {
                     guard !self.messages[index].text.isEmpty else { throw LocalCoachFailure.contextFull }
                     if brief != nil { self.dailyBrief = self.messages[index].text }
+                    // Never publish streaming text, weekly summaries, or a response whose personal
+                    // records changed mid-generation. The widget carries the completed brief's values.
+                    if let brief, brief == .morning || brief == .evening,
+                       personal, self.preferences.enabled, self.preferences.usePersonalData,
+                       !self.source().fenced, self.records() == requestRecords,
+                       WidgetLogicalDay.isSameDay(requestDate, Date(), calendar: requestCalendar) {
+                        self.publishDailyBrief(brief, self.messages[index].text, Date())
+                    }
                 }
                 self.history = Array((request.history + self.messages.suffix(2)).suffix(12))
                 self.finish(token, started: started)
@@ -571,6 +593,7 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     func deleteConversation(_ id: UUID) {
+        clearPublishedBrief()
         if editWhileHydrating({ state in
             state.conversations.removeAll { $0.id == id }
             if state.selectedConversationID == id { state.selectedConversationID = nil }
@@ -614,11 +637,15 @@ final class LocalCoachEngine: ObservableObject {
             messages.removeSubrange(messages.index(after: index)..<messages.endIndex)
             state.conversations[conversation].messages = messages
             state.conversations[conversation].updatedAt = Date()
-        }) { return }
+        }) {
+            clearPublishedBrief()
+            return
+        }
         reconcileSource()
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.utf8.count <= 8_000, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         cancel()
+        clearPublishedBrief()
         messages[index].text = text
         messages[index].createdAt = Date()
         messages[index].evidence = []
@@ -660,7 +687,10 @@ final class LocalCoachEngine: ObservableObject {
         if editWhileHydrating({ state in
             state.memories.removeAll { $0.id == id }
             state.historyFloor = Date()
-        }) { return }
+        }) {
+            clearPublishedBrief()
+            return
+        }
         reconcileSource()
         invalidateHistory()
         memories.removeAll { $0.id == id }
@@ -914,6 +944,10 @@ final class LocalCoachEngine: ObservableObject {
     private func preferencesChanged(from previous: LocalCoachPreferences) {
         guard initialized, !isPreview, preferences != previous else { return }
         if isHydrating {
+            if (previous.enabled && !preferences.enabled)
+                || (previous.usePersonalData && !preferences.usePersonalData) {
+                clearPublishedBrief()
+            }
             if previous.enabled != preferences.enabled { preferenceEdits.insert("enabled") }
             if previous.usePersonalData != preferences.usePersonalData { preferenceEdits.insert("usePersonalData") }
             if previous.memoryEnabled != preferences.memoryEnabled { preferenceEdits.insert("memoryEnabled") }
@@ -942,8 +976,18 @@ final class LocalCoachEngine: ObservableObject {
         persistState()
     }
 
+    /// The saved settings arrive asynchronously. Preserve an already consented completed brief while
+    /// they load, then clear it if the real consent is off or unreadable. A source fence clears at once.
+    private func clearPublishedBriefIfUnavailable() {
+        guard !isPreview else { return }
+        if scope.fenced || (!isHydrating && (!settingsReadable || !preferences.enabled || !preferences.usePersonalData)) {
+            clearPublishedBrief()
+        }
+    }
+
     private func invalidateHistory() {
         cancel()
+        clearPublishedBrief()
         history = []
         historyFloor = Date()
     }
@@ -970,6 +1014,7 @@ final class LocalCoachEngine: ObservableObject {
         }
         cancel()
         scope = current
+        clearPublishedBrief()
         messages = []; conversations = []; memories = []; plan = nil; history = []
         selectedConversationID = nil
         snapshot = .empty
@@ -1091,6 +1136,7 @@ final class LocalCoachEngine: ObservableObject {
             }
             self.isHydrating = false
             self.hydrationTask = nil
+            self.clearPublishedBriefIfUnavailable()
             self.errorText = self.storageError
             self.preferenceEdits = []
             if let loadedPreferences, self.preferences != loadedPreferences {

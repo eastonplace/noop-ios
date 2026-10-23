@@ -187,6 +187,12 @@ public enum Baselines {
                                halfLifeB: 14.0, halfLifeS: 21.0),
         "strain": MetricCfg(minVal: 0.0, maxVal: 100.0, floorSpread: 5.0,
                             halfLifeB: 14.0, halfLifeS: 21.0),
+        // Independent daytime baselines for the opt-in Stress lens. Nightly Recovery inputs and
+        // Strain configs remain unchanged. Each value is one prior local day's daytime aggregate.
+        "daytime_hr": MetricCfg(minVal: 35.0, maxVal: 160.0, floorSpread: 3.0,
+                                halfLifeB: 14.0, halfLifeS: 21.0),
+        "daytime_rmssd": MetricCfg(minVal: 5.0, maxVal: 250.0, floorSpread: 7.0,
+                                   halfLifeB: 14.0, halfLifeS: 21.0),
     ]
 
     /// Convenience accessors for the standard configs.
@@ -195,6 +201,8 @@ public enum Baselines {
     public static var respCfg: MetricCfg { metricCfg["resp"]! }
     /// Baseline config for the RecoveryScorer Activity-Balance / previous-day-Effort term.
     public static var strainCfg: MetricCfg { metricCfg["strain"]! }
+    public static var daytimeHRCfg: MetricCfg { metricCfg["daytime_hr"]! }
+    public static var daytimeRMSSDCfg: MetricCfg { metricCfg["daytime_rmssd"]! }
 
     /// Convert a half-life in nights to an EWMA smoothing factor.
     static func lambda(halfLife: Double) -> Double {

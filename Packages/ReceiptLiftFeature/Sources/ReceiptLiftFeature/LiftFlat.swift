@@ -696,6 +696,35 @@ extension View {
   func liftPillLabel() -> some View { frame(maxWidth: .infinity) }
 }
 
+/// A quiet action: a glyph and a label in plain text, with no fill or capsule behind them. A 44pt tap target.
+struct LiftTextButton: View {
+  let title: LocalizedStringKey
+  var systemImage: String? = nil
+  /// Centred across the page, under a full-width primary button; otherwise it leads like the text around it.
+  var centered = false
+  let action: () -> Void
+
+  init(_ title: LocalizedStringKey, systemImage: String? = nil, centered: Bool = false, action: @escaping () -> Void) {
+    self.title = title; self.systemImage = systemImage; self.centered = centered; self.action = action
+  }
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: NoopMetrics.space2) {
+        if let systemImage {
+          Image(systemName: systemImage).font(.system(size: 14, weight: .semibold)).accessibilityHidden(true)
+        }
+        Text(title).fixedSize(horizontal: false, vertical: true)
+      }
+      .font(StrandFont.subhead.weight(.semibold))
+      .foregroundStyle(StrandPalette.textPrimary)
+      .frame(maxWidth: centered ? .infinity : nil, minHeight: 44, alignment: centered ? .center : .leading)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+  }
+}
+
 /// A 44pt pill for the timer's quick actions (a preset, plus or minus fifteen seconds, skip). Bigger than a chip because
 /// it is tapped between sets, often with a chalky thumb. `title` is already in the person's language. `fillsWidth` makes
 /// it take the whole column it is placed in, so a grid of presets lines up with the content above and below.

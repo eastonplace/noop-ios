@@ -832,6 +832,65 @@ final class LocalCoachEngineTests: XCTestCase {
         await engine.waitForHydration()
         return engine
     }
+
+    func testOnlyCompletedDailyBriefPublishesToWidget() async throws {
+        var published: [String] = []
+        let model = TestCoachModel()
+        model.body = { _, _, receive in
+            receive("Partial")
+            XCTAssertTrue(published.isEmpty)
+            receive("Completed morning brief")
+        }
+        let engine = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: try directory()),
+            model: model, source: { .init(storageID: "a", dataSourceID: "a", revision: "1") },
+            publishDailyBrief: { _, text, _ in published.append(text) })
+        engine.preferences.usePersonalData = true
+        await engine.generateBrief(kind: .morning)
+        XCTAssertEqual(published, ["Completed morning brief"])
+        model.body = { _, _, receive in receive("Weekly summary") }
+        await engine.generateBrief(kind: .weekly)
+        XCTAssertEqual(published, ["Completed morning brief"], "A weekly summary must not replace the daily widget")
+    }
+
+    func testInterruptedBriefNeverPublishesToWidget() async throws {
+        var published = 0
+        let model = TestCoachModel()
+        model.body = { _, _, receive in receive("Partial"); throw CancellationError() }
+        let engine = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: try directory()),
+            model: model, source: { .init(storageID: "a", dataSourceID: "a", revision: "1") },
+            publishDailyBrief: { _, _, _ in published += 1 })
+        engine.preferences.usePersonalData = true
+        await engine.generateBrief(kind: .evening)
+        XCTAssertEqual(published, 0)
+    }
+
+    func testChangedRecordsDuringBriefDoNotPublishMixedWidget() async throws {
+        var revision = "before"
+        var published = 0
+        let model = TestCoachModel()
+        model.body = { _, _, receive in revision = "after"; receive("Completed against earlier records") }
+        let engine = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: try directory()),
+            model: model, source: { .init(storageID: "a", dataSourceID: "a", revision: "1") },
+            records: { revision }, publishDailyBrief: { _, _, _ in published += 1 })
+        engine.preferences.usePersonalData = true
+        await engine.generateBrief(kind: .morning)
+        XCTAssertEqual(published, 0)
+    }
+
+    func testConsentRevocationAndDeletedConversationClearPublishedBrief() async throws {
+        var clears = 0
+        let engine = LocalCoachEngine(data: TestCoachData(), persistence: .init(directory: try directory()),
+            model: TestCoachModel(), source: { .init(storageID: "a", dataSourceID: "a", revision: "1") },
+            clearPublishedBrief: { clears += 1 })
+        engine.preferences.usePersonalData = true
+        await engine.generateBrief(kind: .morning)
+        let beforeRevocation = clears
+        engine.preferences.usePersonalData = false
+        XCTAssertEqual(clears, beforeRevocation + 1)
+        let beforeDeletion = clears
+        if let id = engine.conversations.first?.id { engine.deleteConversation(id) }
+        XCTAssertEqual(clears, beforeDeletion + 1)
+    }
 }
 
 @MainActor

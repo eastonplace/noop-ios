@@ -63,6 +63,90 @@ final class CoachPersistenceIOTests: XCTestCase {
         XCTAssertTrue(engine.conversations.isEmpty)
         XCTAssertTrue(engine.messages.isEmpty)
     }
+    func testWidgetBriefWaitsForHydratedConsentAndSurvivesAnAllowedRelaunch() async throws {
+        for allowed in [true, false] {
+            let store = LocalCoachPersistence(directory: try directory())
+            var saved = LocalCoachPreferences()
+            saved.enabled = true
+            saved.usePersonalData = allowed
+            try store.savePreferences(saved)
+            var clears = 0
+            let engine = LocalCoachEngine(data: nil, persistence: store, model: nil,
+                source: { .init(storageID: "a", dataSourceID: "a", revision: "1") },
+                clearPublishedBrief: { clears += 1 })
+            XCTAssertEqual(clears, 0, "Persisted consent has not been read yet")
+            await engine.waitForHydration()
+            XCTAssertEqual(clears, allowed ? 0 : 1,
+                "An allowed completed brief must survive relaunch; revoked consent must clear it")
+        }
+    }
+
+    func testDeletingConversationDuringHydrationImmediatelyClearsWidgetBrief() async throws {
+        let store = LocalCoachPersistence(directory: try directory())
+        var saved = LocalCoachPreferences()
+        saved.enabled = true
+        saved.usePersonalData = true
+        try store.savePreferences(saved)
+        let conversation = LocalCoachConversation(title: "Remove brief", messages: [.init(role: .assistant, text: "Private brief")])
+        try store.save(.init(sourceID: "a", conversations: [conversation], selectedConversationID: conversation.id))
+        var clears = 0
+        let engine = LocalCoachEngine(data: nil, persistence: store, model: nil,
+            source: { .init(storageID: "a", dataSourceID: "a", revision: "1") },
+            clearPublishedBrief: { clears += 1 })
+        engine.deleteConversation(conversation.id)
+        XCTAssertEqual(clears, 1, "The widget must not retain prose after the person deletes its conversation")
+        await engine.waitForHydration()
+        XCTAssertTrue(engine.conversations.isEmpty)
+    }
+
+    func testEditingMessageDuringAllowedHydrationImmediatelyClearsWidgetBrief() async throws {
+        let store = LocalCoachPersistence(directory: try directory())
+        var saved = LocalCoachPreferences()
+        saved.enabled = true
+        saved.usePersonalData = true
+        try store.savePreferences(saved)
+        let question = LocalCoachMessage(role: .user, text: "Original question")
+        let conversation = LocalCoachConversation(title: "Edit brief", messages: [
+            question, .init(role: .assistant, text: "Private brief from original question")
+        ])
+        try store.save(.init(sourceID: "a", conversations: [conversation], selectedConversationID: conversation.id))
+        var clears = 0
+        let engine = LocalCoachEngine(data: nil, persistence: store, model: nil,
+            source: { .init(storageID: "a", dataSourceID: "a", revision: "1") },
+            clearPublishedBrief: { clears += 1 })
+        XCTAssertTrue(engine.isHydrating)
+        XCTAssertEqual(clears, 0)
+        engine.editMessage(question.id, text: "Reviewed new question")
+        XCTAssertEqual(clears, 1, "The old brief must disappear as soon as its queued message edit is accepted")
+        await engine.flushPersistence()
+        XCTAssertEqual(clears, 1, "Allowed consent must not hide a missing immediate clear")
+        XCTAssertEqual(engine.messages.map(\.text), ["Reviewed new question"])
+        XCTAssertEqual(try store.load(sourceID: "a").conversations.first?.messages.map(\.text), ["Reviewed new question"])
+    }
+
+    func testDeletingMemoryDuringAllowedHydrationImmediatelyClearsWidgetBrief() async throws {
+        let store = LocalCoachPersistence(directory: try directory())
+        var saved = LocalCoachPreferences()
+        saved.enabled = true
+        saved.usePersonalData = true
+        saved.memoryEnabled = true
+        try store.savePreferences(saved)
+        let memory = LocalCoachMemory(category: .goals, text: "Private goal used by the brief")
+        try store.save(.init(sourceID: "a", memories: [memory]))
+        var clears = 0
+        let engine = LocalCoachEngine(data: nil, persistence: store, model: nil,
+            source: { .init(storageID: "a", dataSourceID: "a", revision: "1") },
+            clearPublishedBrief: { clears += 1 })
+        XCTAssertTrue(engine.isHydrating)
+        XCTAssertEqual(clears, 0)
+        engine.deleteMemory(memory.id)
+        XCTAssertEqual(clears, 1, "The widget must not retain a brief derived from the queued memory deletion")
+        await engine.flushPersistence()
+        XCTAssertEqual(clears, 1, "Allowed consent must not hide a missing immediate clear")
+        XCTAssertTrue(engine.memories.isEmpty)
+        XCTAssertTrue(try store.load(sourceID: "a").memories.isEmpty)
+    }
+
     func testQueuedSnapshotsFlushLatestDeletionAndPreferencesInOrder() async throws {
         let store = LocalCoachPersistence(directory: try directory())
         let writer = LocalCoachPersistenceWriter(store)

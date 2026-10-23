@@ -39,6 +39,12 @@ CI work in PR76 removes duplicate package testing and selects checks by change t
 
 - **Strap alarm confirmation (#69):** ordered WHOOP 4 writes and current-request readback confirm the wake time; missing confirmation ends with an explicit status.
 
+- **Personal stress baseline.** Opt into a bounded personal heart-rate reference for hourly stress, with clear building, provisional, established and stale states. Daily stress scores remain unchanged.
+- **Filtered step estimates.** Shared activity, rate, reset and duplicate checks include cross-midnight sleep context and consistent day/cycle/trace totals.
+- **Spreadsheet routine import.** Preview CSV or Excel routines, review custom exercises and import atomically. Existing saved routines and active sessions retain their ownership.
+- **Coach brief widget.** Add a completed, consented daily brief to the Home Screen, with captured metrics and generation time.
+- **GPS route export.** Share measured route portions as GPX or FIT, retaining measured timestamps and pause/restart segments. Coordinate-only legacy routes remain readable.
+
 ## 1.8.1
 
 October 2026: Steadier readings and scores.

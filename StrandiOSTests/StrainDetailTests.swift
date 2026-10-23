@@ -130,6 +130,17 @@ final class StrainBatchParityTests: XCTestCase {
     private let dayStart = 1_790_000_000
     private let maxHR = StrainScorer.tanakaHRmax(age: 34)
 
+    func testStoreInclusiveEndCannotCountTheNextCyclesFirstSample() {
+        let rows = [StepSample(ts: dayStart - 1, counter: 98),
+                    StepSample(ts: dayStart, counter: 100),
+                    StepSample(ts: dayStart + 1, counter: 102),
+                    StepSample(ts: dayStart + 2, counter: 104)]
+        let clipped = StrainBatchCycle.stepRows(rows, from: dayStart, to: dayStart + 2)
+        XCTAssertEqual(clipped.map(\.ts), [dayStart, dayStart + 1])
+        XCTAssertEqual(StrainBatchCycle.steps(clipped, ticksPerStep: 1), 2)
+        XCTAssertTrue(StrainBatchCycle.stepRows([rows.last!], from: dayStart, to: dayStart + 2).isEmpty)
+    }
+
     private func sleeps() -> [StrainCycleWindow.Sleep] {
         [.init(start: dayStart + 3_600, end: dayStart + 8 * 3_600, effectiveStart: dayStart + 1_800),   // the night
          .init(start: dayStart + 14 * 3_600, end: dayStart + 14 * 3_600 + 1_800, effectiveStart: dayStart + 14 * 3_600),  // a nap

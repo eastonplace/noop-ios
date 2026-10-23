@@ -10,7 +10,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "2.0.0"
-    CURRENT_PROJECT_VERSION: "244"
+    CURRENT_PROJECT_VERSION: "245"
     SWIFT_EMIT_LOC_STRINGS: YES
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: "479HYY24G2"
@@ -40,6 +40,8 @@ packages:
     path: Packages/StrandAnalytics
   StrandImport:
     path: Packages/StrandImport
+  WorkoutRouteExport:
+    path: Packages/WorkoutRouteExport
   StrandDesign:
     path: Packages/StrandDesign
   OuraProtocol:
@@ -102,7 +104,7 @@ targets:
           - com.noopapp.noop.historysync
           - "$(PRODUCT_BUNDLE_IDENTIFIER).rescore"
         NSBluetoothAlwaysUsageDescription: "NOOP connects directly to your WHOOP strap over Bluetooth to read heart rate, R-R intervals, battery, and sensor data locally on your iPhone. Nothing leaves your device."
-        NSLocationWhenInUseUsageDescription: "NOOP records your route during an outdoor workout to show distance, pace, and a map, and keeps recording while the screen is off. The route stays on your device. Nothing leaves it."
+        NSLocationWhenInUseUsageDescription: "NOOP records your route during an outdoor workout to show distance, pace, and a map, and keeps recording while the screen is off. Routes stay on your device unless you choose to share or export them."
         NSHealthShareUsageDescription: "NOOP reads your own Apple Health data on-device to compute recovery, strain, and sleep. Nothing leaves your device."
         NSHealthUpdateUsageDescription: "NOOP writes the metrics it computes from your strap back into Apple Health, on-device and only when you allow it."
         NSMicrophoneUsageDescription: "NOOP uses your microphone only when you tap a microphone in Coach or Journal. Speech is transcribed on this iPhone."
@@ -138,6 +140,7 @@ targets:
       - package: OuraProtocol
       - package: StrandAnalytics
       - package: StrandImport
+      - package: WorkoutRouteExport
       - package: StrandDesign
       - package: ReceiptLiftFeature
       - package: CoachPresentation
@@ -181,6 +184,7 @@ targets:
     dependencies:
       - package: ReceiptLiftActivity
       - package: StrandDesign
+      - package: NoopPhase34Core
 
   NOOPiOSTests:
     type: bundle.unit-test
@@ -195,6 +199,7 @@ targets:
       - package: StrandDesign
       - package: StrandAnalytics
       - package: WhoopProtocol
+      - package: WorkoutRouteExport
       - package: WhoopStore
       - package: NoopPhase34Core
       - package: OuraProtocol

@@ -50,13 +50,13 @@ enum AppChangelog {
     static let releases: [Release] = [
         .fork("2.0.0", "NOOP 2.0", "October 2026", [
             Feature("flame.fill", .strain, "Daily training targets", "Preview a plan from your recent load and recovery."),
-            Feature("dumbbell.fill", .strain, "Reviewed Lift progression", "Review suggested weights before your next session."),
-            Feature("mic.fill", .journal, "Voice Journal", "Dictate a note and review answers before saving."),
-            Feature("book.closed.fill", .journal, "Journal in Coach", "Review daily notes, mood and recovery patterns."),
+            Feature("dumbbell.fill", .strain, "Lift plans and imports", "Review progression or import CSV and Excel routines."),
+            Feature("book.closed.fill", .journal, "Coach and Journal", "Dictate daily notes and add a Coach brief widget."),
             Feature("figure.walk", .accent, "Workout type review", "Check a detected workout's type before saving."),
-            Feature("waveform.path.ecg", .hrv, "Reliable daily scores", "Cleaner daily scores, weekly totals and widget readings."),
-            Feature("checkmark.shield.fill", .accent, "Protected history", "Strap changes and sync keep saved data with its source."),
-            Feature("heart.text.square.fill", .sleep, "Apple Health continuity", "Sync and cleanup preserve saved sleep and recovery."),
+            Feature("waveform.path.ecg", .stress, "Your stress baseline", "Compare hourly stress with your own normal."),
+            Feature("heart.fill", .hrv, "Reliable daily scores", "Cleaner readings, filtered steps and weekly totals."),
+            Feature("checkmark.shield.fill", .sleep, "Protected history", "Strap changes and Health sync preserve saved data."),
+            Feature("square.and.arrow.up", .strain, "GPS route export", "Share measured workout routes as GPX or FIT."),
             Feature("alarm.fill", .sleep, "Confirmed strap alarms", "Wake times check the current strap's reply."),
         ]),
         .fork("1.8.1", "Steadier readings and scores", "October 2026", [
