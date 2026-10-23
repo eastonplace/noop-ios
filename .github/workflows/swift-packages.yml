@@ -1,48 +1,137 @@
-# Compile-and-test verification for the reusable Swift packages.
-#
-# This job tests reusable packages independently of the iPhone app. The packages
-# build with plain SwiftPM — no Xcode project, signing, or secrets required.
+# One authoritative host SwiftPM test pass. iOS-only/testless packages compile
+# through app/extensions; the protected-base plan lists every validation lane.
 name: Swift Packages CI
 
 on:
   pull_request:
-    paths:
-      - 'Packages/**'
-      - '.github/workflows/swift-packages.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'Packages/**'
-      - '.github/workflows/swift-packages.yml'
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      full:
+        description: Run every package validation lane
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 concurrency:
-  group: swift-packages-${{ github.ref }}
+  group: swift-packages-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: macos-26
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - NoopPhase34Core
-          - WhoopProtocol
-          - OuraProtocol
-          - WhoopStore
-          - StrandAnalytics
-          - StrandImport
-          - StrandDesign
-          - NoopLocalAccess
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      host_matrix: ${{ steps.classify.outputs.host_matrix }}
+      plan_hash: ${{ steps.classify.outputs.plan_hash }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Build ${{ matrix.package }}
-        run: swift build
-        working-directory: Packages/${{ matrix.package }}
+      - name: Load protected-base change plan
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          TESTED_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_VALIDATION: ${{ inputs.full || github.event_name != 'pull_request' }}
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          full_args=()
+          if [[ "$FULL_VALIDATION" == "true" ]]; then
+            full_args+=(--full)
+          fi
+          loader="$RUNNER_TEMP/noop-protected-package-plan.py"
+          if git cat-file -e "$BASE_SHA:Tools/ci/load_plan.py" 2>/dev/null; then
+            git show "$BASE_SHA:Tools/ci/load_plan.py" > "$loader"
+          else
+            # Bootstrap remains conservative high risk and requires CI-policy review.
+            cp Tools/ci/load_plan.py "$loader"
+          fi
+          python3 -I "$loader" \
+            --repo . --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --tested-sha "$TESTED_SHA" --event "$EVENT_NAME" \
+            --output qa-artifacts/change-plan.json --github-output "$GITHUB_OUTPUT" \
+            "${full_args[@]}"
 
-      - name: Test ${{ matrix.package }}
-        run: swift test
+      - name: Tested source ${{ github.sha }}
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          python3 -c 'import json,os; p=json.load(open("qa-artifacts/change-plan.json")); assert p["tested_sha"] == os.environ["TESTED_SHA"]'
+
+      - name: Upload package change plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-package-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts/change-plan.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # Keep these exact legacy test (Package) check names during shadow rollout.
+  # An inapplicable context is an explicit successful Ubuntu job, not a skipped
+  # required check and not a macOS runner waiting in the queue.
+  test:
+    name: test (${{ matrix.package }})
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.host_matrix) }}
+    steps:
+      - name: Checkout
+        if: matrix.run == true
+        uses: actions/checkout@v4
+
+      - name: Tested source ${{ github.sha }}
+        if: matrix.run == true
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+
+      - name: Test selected package
+        if: matrix.run == true
+        shell: bash
         working-directory: Packages/${{ matrix.package }}
+        run: |
+          set -o pipefail
+          swift --version
+          swift test 2>&1 | tee "$RUNNER_TEMP/noop-package-tests.txt"
+
+      - name: Record planned package skip
+        if: matrix.run == false
+        shell: bash
+        env:
+          PACKAGE_NAME: ${{ matrix.package }}
+          RUN_PACKAGE: ${{ matrix.run }}
+          PLAN_HASH: ${{ needs.plan.outputs.plan_hash }}
+        run: |
+          set -euo pipefail
+          test "$RUN_PACKAGE" = "false"
+          test -n "$PLAN_HASH"
+          echo "$PACKAGE_NAME: no applicable host changes; planned Linux skip (plan $PLAN_HASH)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload package test log
+        if: ${{ always() && matrix.run == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.package }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/noop-package-tests.txt
+          if-no-files-found: warn
+          retention-days: 30

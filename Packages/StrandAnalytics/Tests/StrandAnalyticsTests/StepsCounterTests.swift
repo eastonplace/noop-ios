@@ -45,6 +45,49 @@ final class StepsCounterTests: XCTestCase {
     func testMaxStepDeltaBoundaryIsExclusive() {
         // Exactly maxStepDelta (512) is dropped; 511 counts.
         XCTAssertEqual(StepsCounter.stepsInWindow([step(0, 0), step(60, 512)]), nil)   // 512 dropped => no movement
-        XCTAssertEqual(StepsCounter.stepsInWindow([step(0, 0), step(60, 511)]), 511)   // 511 kept
+        XCTAssertEqual(StepsCounter.stepsInWindow([step(0, 0), step(128, 511)]), 511) // plausible rate, below reset bound
+    }
+
+    func testClassifiedWindowsOnlyCountWalkingAndRunning() {
+        let rows = [
+            StepSample(ts: 0, counter: 100, activityClass: 0),
+            StepSample(ts: 1, counter: 102, activityClass: 0),
+            StepSample(ts: 2, counter: 104, activityClass: 1),
+            StepSample(ts: 3, counter: 107, activityClass: 2),
+            StepSample(ts: 4, counter: 110, activityClass: 9),
+            StepSample(ts: 5, counter: 112, activityClass: nil),
+        ]
+        XCTAssertEqual(StepsCounter.stepsInWindow(rows), 5)
+    }
+
+    func testEntirelyUnclassifiedHistoryRetainsCounterEstimate() {
+        XCTAssertEqual(StepsCounter.stepsInWindow([step(0, 100), step(1, 102), step(2, 104)]), 4)
+    }
+
+    func testRejectsImplausibleRateButKeepsFollowingPlausibleMovement() {
+        XCTAssertEqual(StepsCounter.stepsInWindow([step(0, 100), step(1, 130), step(2, 132)]), 2)
+    }
+
+    func testExactDuplicateRecordsDoNotChangeTheCount() {
+        XCTAssertEqual(StepsCounter.stepsInWindow([
+            step(0, 100), step(1, 102), step(1, 102), step(2, 104)
+        ]), 4)
+    }
+
+    func testConflictingSameSecondCountersBreakContinuity() {
+        let rows = [step(0, 100), step(1, 101), step(1, 103), step(2, 105), step(3, 107)]
+        XCTAssertEqual(StepsCounter.stepsInWindow(rows), 2)
+        XCTAssertEqual(StepsCounter.stepsInWindow(Array(rows.reversed())), 2)
+    }
+
+    func testInvalidCounterDoesNotBridgeTwoIndependentRuns() {
+        XCTAssertEqual(StepsCounter.stepsInWindow([
+            step(0, 100), step(1, -1), step(2, 104), step(3, 106)
+        ]), 2)
+    }
+
+    func testRateBoundaryAndCounterWrap() {
+        XCTAssertEqual(StepsCounter.stepsInWindow([step(0, 65_534), step(1, 2)]), 4)
+        XCTAssertNil(StepsCounter.stepsInWindow([step(0, 65_534), step(1, 3)]))
     }
 }

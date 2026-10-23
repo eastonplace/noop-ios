@@ -43,6 +43,8 @@ enum WidgetTimelineReloads {
         reload(liveKinds(previous: previous, next: next))
     }
 
+    static func afterCoachBriefChange() { reload([WidgetKinds.coachBrief]) }
+
     #if DEBUG
     static func resetForTesting() { lastRequestedCommit = nil }
     #endif

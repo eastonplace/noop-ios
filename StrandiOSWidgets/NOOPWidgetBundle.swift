@@ -7,6 +7,7 @@ struct NOOPWidgetBundle: WidgetBundle {
     var body: some Widget {
         NOOPWidget()
         NOOPStressWidget()
+        NOOPCoachBriefWidget()
         LiftLiveActivityWidget()
         NOOPStrainAccessoryWidget()
         NOOPLiveActivity()

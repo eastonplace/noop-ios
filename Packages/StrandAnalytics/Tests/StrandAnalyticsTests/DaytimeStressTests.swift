@@ -14,6 +14,38 @@ final class DaytimeStressTests: XCTestCase {
         XCTAssertEqual(DaytimeStress.analyze(hr: [], rr: []), .empty)
     }
 
+    func testOffWristHoursDoNotBecomeScoredStress() {
+        let invalid = hourHR(9, bpm: 0) + hourHR(10, bpm: 255)
+        XCTAssertEqual(DaytimeStress.analyze(hr: invalid, rr: []), .empty,
+                       "invalid HR is not hourly coverage or a calm reference")
+    }
+
+    func testInvalidReadingsDoNotCompleteHourlyCoverage() {
+        let valid = hourHR(9, bpm: 60, n: DaytimeStress.minHourHRSamples - 1)
+        let invalid = HRSample(ts: 9 * 3_600 + DaytimeStress.minHourHRSamples, bpm: 0)
+        XCTAssertTrue(DaytimeStress.analyze(hr: valid + [invalid], rr: []).scored.isEmpty)
+    }
+
+    func testInvalidReadingsDoNotChangeCoveredHourMean() {
+        let valid = hourHR(9, bpm: 60)
+        let invalid = (300..<600).map { HRSample(ts: 9 * 3_600 + $0, bpm: 0) }
+        let recovered = DaytimeStress.analyze(hr: Array((valid + invalid).reversed()), rr: [])
+        XCTAssertEqual(recovered.hours.first?.meanHR, 60)
+        XCTAssertEqual(recovered, DaytimeStress.analyze(hr: valid, rr: []))
+    }
+
+    func testTimestampedRRUsesChronologicalSuccessiveDifferences() {
+        let rr = (0..<300).map {
+            RRInterval(ts: 9 * 3_600 + $0, rrMs: $0.isMultiple(of: 2) ? 800 : 850)
+        }
+        let unordered = rr.enumerated().filter { $0.offset.isMultiple(of: 2) }.map(\.element)
+            + rr.enumerated().filter { !$0.offset.isMultiple(of: 2) }.map(\.element)
+        let expected = DaytimeStress.analyze(hr: hourHR(9, bpm: 60), rr: rr)
+        XCTAssertEqual(expected.hours.first?.rmssd ?? -1, 50, accuracy: 1e-9)
+        XCTAssertEqual(DaytimeStress.analyze(hr: hourHR(9, bpm: 60), rr: unordered), expected,
+                       "arrival order must not replace time order in successive-beat HRV")
+    }
+
     func testHourBelowGateIsUnscored() {
         // One waking hour with too few HR samples → present but unscored (honest gap).
         let hr = hourHR(9, bpm: 70, n: DaytimeStress.minHourHRSamples - 1)

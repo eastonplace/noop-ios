@@ -116,6 +116,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     private let live: LiveState
     private let deviceId: String
+    private let receiptSession: LiveHeartRateProviderSession
     private let persist: @MainActor (Streams) async throws -> Void
     /// BLE-6: ordered writes with bounded retry; the history cursor is saved only after its events are.
     private let sink: BatchedRetryingSink<Streams>
@@ -352,6 +353,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 adoptIntent: Bool = false) {
         self.live = live
         self.deviceId = deviceId
+        self.receiptSession = LiveHeartRateProviderSession(live: live, deviceId: deviceId)
         self.ringGen = ringGen
         self.authKey = authKey
         self.persist = persist
@@ -393,6 +395,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     /// Connect to the chosen ring and start the auth -> enable -> stream flow. Mirrors the
     /// StandardHRSource cached-by-identifier-first, else scan-then-connect pattern.
     public func connect(_ id: UUID) {
+        if feedsLive, peripheral?.identifier != id || peripheral?.state != .connected { receiptSession.end() }
         stopScan()
         needsPairing = nil
         // Remember the paired ring so an involuntary drop auto-reconnects to it (#912). An explicit connect
@@ -421,6 +424,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     /// Tear down: cancel the connection, stop scanning, flush, clear all transient state. Idempotent.
     public func stop() {
+        if feedsLive { receiptSession.end() }
         // A deliberate teardown (device switch / removal) must NOT auto-reconnect: mark it intentional and
         // drop the reconnect target so any pending backoff bails and no fresh one is scheduled (#912).
         intentionalDisconnect = true
@@ -450,7 +454,6 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         batteryPct = nil
         needsPairing = nil
         flush()                       // persist anything still buffered
-        if feedsLive { live.connected = false; live.streamingLiveHR = false }
     }
 
     // MARK: - Driver wiring
@@ -492,7 +495,9 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 reachedStreaming = true
                 adoptPhase = .streaming   // re-auth after an install (or a normal auth) reached the stream: adoption complete
                 pendingInstallKey = nil   // an OK ack already persisted the key; nothing left in flight
-                if feedsLive { live.streamingLiveHR = true }   // drive the green menu-bar STREAMING pill (no WHOOP bond)
+                if feedsLive, let source = receiptSession.source, live.currentHeartRateSource == source {
+                    live.streamingLiveHR = true
+                }
                 log("Oura: live-HR enabled - streaming HR / IBI")
                 startReengageTimer()
                 startHistoryFetchTimer()
@@ -621,9 +626,9 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     /// mis-recorded as happening right now; when no anchor has arrived yet this session, we park the event
     /// until one does (`pendingAnchorEvents`), rather than immediately guessing wall-clock. Out-of-range
     /// HR/temp is dropped, never shown.
-    private func ingest(_ events: [OuraEvent]) {
+    private func ingest(_ events: [OuraEvent], observedAt: Date, source: LiveHeartRateSource?) {
         guard !events.isEmpty, let driver else { return }
-        let now = Int(Date().timeIntervalSince1970)
+        let now = Int(observedAt.timeIntervalSince1970)
         for e in events {
             switch e {
             case .hr(let hr):
@@ -633,13 +638,15 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                     log("Oura: receiving live data - first HR \(hr.bpm) bpm")
                 }
                 if feedsLive {
-                    live.heartRate = hr.bpm
-                    live.connected = true
+                    guard let source else { continue }
+                    receiptSession.receive(bpm: hr.bpm, observedAt: observedAt, source: source)
                 }
                 enqueue([e], ts: now)
 
             case .ibi(let ibi):
-                if feedsLive { live.setRRIntervals([ibi.ibiMs]) }
+                if feedsLive, let source {
+                    live.setRRIntervals([ibi.ibiMs], observedAt: observedAt, source: source)
+                }
                 enqueue([e], ts: now)
 
             case .battery(let bat):
@@ -786,7 +793,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         log("Oura: \(msg)")
         stopReengageTimer()
         stopHistoryFetchTimer()
-        if feedsLive { live.connected = false; live.streamingLiveHR = false }
+        if feedsLive { receiptSession.end() }
     }
 
     // CB delegate callbacks live in the @preconcurrency extensions below. The queue-less central delivers
@@ -810,7 +817,7 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
             }
         default:
             // Radio off / unauthorized / resetting -> the link is not live.
-            if feedsLive { live.connected = false; live.streamingLiveHR = false }
+            if feedsLive { receiptSession.end() }
         }
     }
 
@@ -844,6 +851,8 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        if feedsLive { receiptSession.begin(peripheralID: peripheral.identifier) }
         log("Oura: connected - discovering services")
         reconnectBackoff.reset()   // a real connection clears the reconnect backoff (#912)
         peripheral.delegate = self
@@ -880,8 +889,9 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state != .connected else { return }
         log("Oura: WARNING failed to connect - \(error?.localizedDescription ?? "unknown error")")
-        if feedsLive { live.connected = false; live.streamingLiveHR = false }
+        if feedsLive { receiptSession.end() }
         // The ring wiped its bond (re-paired in the Oura app, or a firmware reset). CoreBluetooth surfaces
         // this as a stable CBError, and re-issuing connect just loops the same stale-pairing failure and
         // drains the ring, so DON'T auto-reconnect: route to the honest needs-pairing path instead, exactly
@@ -897,6 +907,8 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state != .connected else { return }
+        if feedsLive { receiptSession.end() }
         if let error = error {
             log("Oura: disconnected - \(error.localizedDescription)")
         } else {
@@ -922,7 +934,6 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
         if adoptPhase == .installingKey { adoptPhase = .failed }
         batteryPct = nil
         flush()
-        if feedsLive { live.connected = false; live.streamingLiveHR = false }
         if self.peripheral?.identifier == peripheral.identifier { self.peripheral = nil }
         // Auto-reconnect on an INVOLUNTARY drop (#912): the paired ring went out of range or the link timed
         // out. Re-issue a connect on the backoff so it comes back on its own, exactly like the WHOOP strap.
@@ -956,6 +967,8 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral,
                            didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard self.peripheral === peripheral, peripheral.state == .connected,
+              peripheral.services?.contains(where: { $0 === service }) == true else { return }
         if let error = error {
             log("Oura: WARNING characteristic discovery failed - \(error.localizedDescription)")
             return
@@ -971,6 +984,7 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
             log("Oura: write characteristic NOT FOUND - cannot drive the ring")
         }
         if let nc = chars.first(where: { $0.uuid == Self.notifyChar }) {
+            if feedsLive { receiptSession.bind(nc) }
             log("Oura: notify characteristic found - enabling notifications")
             peripheral.setNotifyValue(true, for: nc)
         } else {
@@ -982,6 +996,8 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
                            didUpdateNotificationStateFor characteristic: CBCharacteristic,
                            error: Error?) {
         guard characteristic.uuid == Self.notifyChar else { return }
+        guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        if feedsLive, receiptSession.source(for: characteristic, peripheralID: peripheral.identifier) == nil { return }
         if let error = error {
             log("Oura: WARNING enabling notifications FAILED - \(error.localizedDescription) - ring will send no data")
             return
@@ -995,6 +1011,10 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value, characteristic.uuid == Self.notifyChar else { return }
+        guard self.peripheral === peripheral, peripheral.state == .connected else { return }
+        let observedAt = Date()
+        let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier)
+        if feedsLive, source == nil { return }
         let bytes = [UInt8](value)
         // The notify char carries TWO framings on the same channel (OURA_PROTOCOL.md s2):
         //   - 0x2F secure-session sub-frames (auth nonce/status, enable ACKs, live-HR pushes)
@@ -1030,28 +1050,28 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
         // through the existing `.battery` ingest path (batteryPct/onBattery/log side effects).
         if let batteryFrame = frames.first(where: { $0.op == OuraFraming.batteryResponseOp }),
            let battery = OuraDecoders.decodeBattery(batteryFrame.body) {
-            ingest([.battery(battery)])
+            ingest([.battery(battery)], observedAt: observedAt, source: source)
         }
         if frames.contains(where: { $0.op == OuraFraming.secureSessionOp }) {
             for frame in frames where frame.op == OuraFraming.secureSessionOp {
                 guard let secure = OuraFraming.parseSecureFrame(frame) else { continue }
-                handleSecure(driver.handleSecureFrame(secure))
+                handleSecure(driver.handleSecureFrame(secure), observedAt: observedAt, source: source)
             }
             // Any non-secure outer frames in the same notification are TLV records; fall through to decode.
             // The 0x25 ack (if any) is consumed above, so it never reaches here.
             let tlvBytes = frames.filter { $0.op != OuraFraming.secureSessionOp && $0.op != Self.setAuthKeyRespOp }
                                  .flatMap { [$0.op, UInt8($0.body.count)] + $0.body }
             if !tlvBytes.isEmpty {
-                ingest(driver.ingest(notification: tlvBytes, reassembler: reassembler))
+                ingest(driver.ingest(notification: tlvBytes, reassembler: reassembler), observedAt: observedAt, source: source)
             }
             return
         }
         // No secure frame in this notification: treat the whole value as TLV record bytes.
-        ingest(driver.ingest(notification: bytes, reassembler: reassembler))
+        ingest(driver.ingest(notification: bytes, reassembler: reassembler), observedAt: observedAt, source: source)
     }
 
     /// Act on what the driver resolved a 0x2F secure sub-frame to.
-    private func handleSecure(_ routing: OuraDriver.SecureRouting) {
+    private func handleSecure(_ routing: OuraDriver.SecureRouting, observedAt: Date, source: LiveHeartRateSource?) {
         switch routing {
         case .nonce(let nonce):
             log("Oura: auth nonce received - submitting proof")
@@ -1067,7 +1087,7 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
             advance(.enableAckReceived)
         case .liveHRPush(let body):
             guard let driver else { return }
-            ingest(driver.ingestLiveHRPush(body: body))
+            ingest(driver.ingestLiveHRPush(body: body), observedAt: observedAt, source: source)
         case .unhandled:
             break
         }

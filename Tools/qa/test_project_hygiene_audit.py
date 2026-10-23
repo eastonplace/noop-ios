@@ -96,8 +96,12 @@ class ProjectHygieneAuditTests(unittest.TestCase):
         errors, _ = module.audit(self.make_repo({"App/Stray/StrayTests.swift": ""}))
         self.assertTrue(any("App/Stray/StrayTests.swift" in line for line in errors), errors)
 
-    def test_allowlisted_strandtests_and_package_tests_are_allowed(self):
+    def test_strandtests_is_not_silently_exempt_from_test_membership(self):
         errors, _ = module.audit(self.make_repo({"StrandTests/AnyTests.swift": ""}))
+        self.assertTrue(any("StrandTests/" in line for line in errors), errors)
+
+    def test_package_tests_remain_owned_by_their_package_target(self):
+        errors, _ = module.audit(self.make_repo({}))
         self.assertEqual(errors, [])
 
     def test_version_drift_is_a_warning_not_an_error(self):

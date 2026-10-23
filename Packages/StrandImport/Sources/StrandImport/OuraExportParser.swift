@@ -97,7 +97,7 @@ enum OuraExportParser {
             for a in categoryArray(root, "daily_activity") ?? categoryArray(root, "activity") ?? [] {
                 guard let key = WearableJSON.str(a, "day") else { continue }
                 var row = day(key)
-                row.steps = WearableJSON.posInt(a, "steps") ?? row.steps
+                row.steps = nonnegativeInteger(WearableJSON.dbl(a, "steps")) ?? row.steps
                 row.activeKcal = WearableJSON.posDbl(a, "active_calories") ?? row.activeKcal
                 row.totalKcal = WearableJSON.posDbl(a, "total_calories") ?? row.totalKcal
                 // Oura reports walking-equivalent distance in METRES (no GPS path-distance in the export).
@@ -245,7 +245,7 @@ enum OuraExportParser {
 
                 let restingHr = cells.double("average_resting_heart_rate", "resting_heart_rate")
                     ?? cells.double("lowest_resting_heart_rate", "lowest_heart_rate")
-                if let rhr = restingHr, rhr > 0 { row.restingHr = row.restingHr ?? Int(rhr) }
+                if let rhr = positiveInteger(restingHr) { row.restingHr = row.restingHr ?? rhr }
                 if let hrv = cells.double("average_hrv", "hrv"), hrv > 0 { row.avgHrvMs = row.avgHrvMs ?? hrv }
                 // Oura's CSV resp column (`respiratory_rate` / `average_breath`) → the day rollup (#17).
                 if let resp = cells.double("respiratory_rate", "average_breath"), resp > 0 {
@@ -262,7 +262,7 @@ enum OuraExportParser {
                 }
                 // VO2max: the real `vo2max` CSV column is `vo2_max` (mL/kg/min) → feeds Fitness Age.
                 if let v = cells.double("vo2_max", "vo2max"), v > 0 { row.vo2max = row.vo2max ?? v }
-                if let steps = cells.double("steps"), steps >= 0 { row.steps = row.steps ?? Int(steps) }
+                if let steps = nonnegativeInteger(cells.double("steps")) { row.steps = row.steps ?? steps }
                 if let kcal = cells.double("active_calories", "activity_burn", "active_burn"), kcal > 0 {
                     row.activeKcal = row.activeKcal ?? kcal
                 }
@@ -280,18 +280,18 @@ enum OuraExportParser {
                 // `temperature_deviation`. So: temperature_deviation present -> readiness; else
                 // contributors present with no sleep durations / steps -> sleep score; an activity-score row
                 // (bare `score` with `steps`) is left out rather than mislabelled (#862).
-                if let r = cells.double("readiness_score", "readiness"), r > 0 {
-                    row.readinessScore = row.readinessScore ?? Int(r)
+                if let r = positiveInteger(cells.double("readiness_score", "readiness")) {
+                    row.readinessScore = row.readinessScore ?? r
                 }
-                if let s = cells.double("sleep_score"), s > 0 { row.sleepScore = row.sleepScore ?? Int(s) }
-                if let bare = cells.double("score"), bare > 0 {
+                if let s = positiveInteger(cells.double("sleep_score")) { row.sleepScore = row.sleepScore ?? s }
+                if let bare = positiveInteger(cells.double("score")) {
                     let isReadiness = cells.cell("temperature_deviation") != nil
                     let isSleepScore = !isReadiness && total == nil
                         && cells.cell("steps") == nil && cells.cell("contributors") != nil
                     if isReadiness {
-                        row.readinessScore = row.readinessScore ?? Int(bare)
+                        row.readinessScore = row.readinessScore ?? bare
                     } else if isSleepScore {
-                        row.sleepScore = row.sleepScore ?? Int(bare)
+                        row.sleepScore = row.sleepScore ?? bare
                     }
                 }
 
@@ -307,7 +307,7 @@ enum OuraExportParser {
                         deepMin: deep, lightMin: light, remMin: rem, awakeMin: awake,
                         totalSleepMin: total, efficiencyPct: row.efficiencyPct,
                         avgHr: nil,
-                        lowestHr: restingHr.flatMap { $0 > 0 ? Int($0) : nil },
+                        lowestHr: positiveInteger(restingHr),
                         avgHrvMs: row.avgHrvMs,
                         respRateBpm: cells.double("respiratory_rate", "average_breath").flatMap { $0 > 0 ? $0 : nil },
                         sleepScore: nil, stages: []))
@@ -316,6 +316,20 @@ enum OuraExportParser {
         }
 
         return (Array(byDay.values), sleeps)
+    }
+
+    /// CSV numbers are untrusted. Check finite/range constraints before converting to Int.
+    /// Steps can be observed zero; HR and scores keep their positive-only missing-value rule.
+    private static func nonnegativeInteger(_ value: Double?) -> Int? {
+        guard let value, value.isFinite, value >= 0, value <= 9e18 else { return nil }
+        let integer = Int(value)
+        guard integer > 0 || value == 0 else { return nil }
+        return integer
+    }
+
+    private static func positiveInteger(_ value: Double?) -> Int? {
+        guard let result = nonnegativeInteger(value), result > 0 else { return nil }
+        return result
     }
 
     /// Reduce an Oura CSV date/datetime cell to the `YYYY-MM-DD` day key (drops any time component).

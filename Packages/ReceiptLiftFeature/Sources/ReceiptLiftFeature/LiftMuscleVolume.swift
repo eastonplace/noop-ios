@@ -62,7 +62,8 @@ struct LiftMuscleVolume: Equatable, Sendable {
   ) -> LiftMuscleVolume {
     var totals: [LiftMuscleGroup: Double] = [:]
     var cache: [UUID: (primary: String?, secondary: [String])] = [:]
-    for session in sessions where session.endedAt != nil && interval.contains(session.startedAt) {
+    for session in sessions where session.endedAt != nil
+      && session.startedAt >= interval.start && session.startedAt < interval.end {
       for set in session.sets where !set.isWarmup {
         let found = cache[set.exerciseID] ?? muscles(set.exerciseID)
         cache[set.exerciseID] = found

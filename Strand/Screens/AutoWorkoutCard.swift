@@ -2,166 +2,272 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 
-// MARK: - Auto-detected workout prompt (Today screen)
-//
-// A single, dismissible Today card that appears ONLY when the opt-in "Auto-detect workouts"
-// toggle is on and `Repository.autoDetectCandidate()` finds a recent sustained-elevated HR
-// window that isn't already saved and wasn't previously dismissed.
-//
-// It only ever SUGGESTS: tapping Save creates a manual-style "Workout" for the window (via the
-// same manual-save path the edit sheet uses); the X dismisses it durably so it never re-prompts.
-// Nothing is created automatically. Design-Reset compliant — a flat PaperCard using NoopMetrics /
-// StrandPalette / StrandFont, no gold, matching the other Today cards.
-
+/// An opt-in suggestion. The user confirms the activity type before a manual workout is saved.
 struct AutoWorkoutCard: View {
-
     @EnvironmentObject var repo: Repository
-
-    /// Whether the toggle is on. Read here too so the card disappears the instant it's switched off.
     @AppStorage(PuffinExperiment.autoDetectWorkoutsKey) private var autoDetectEnabled = false
-
-    /// The current suggestion, loaded in `.task`. nil → nothing to show.
-    @State private var candidate: DetectedWorkout?
-    /// Hide immediately on Save/X without waiting for the next reload (avoids a flash of the old card).
-    @State private var handledThisSession = false
-    /// Guards the Save button while the write is in flight.
-    @State private var saving = false
+    @State private var state = AutoWorkoutCardState()
 
     #if DEBUG
-    /// Screenshot/audit fixture only. Production still obtains every suggestion from the detector.
+    /// Screenshot/audit fixture only. Production suggestions always come from the repository.
     private let demoCandidate: DetectedWorkout?
 
     init(demoCandidate: DetectedWorkout? = nil) {
         self.demoCandidate = demoCandidate
-        _candidate = State(initialValue: demoCandidate)
+        var initial = AutoWorkoutCardState()
+        if let demoCandidate {
+            let load = initial.beginLoad()
+            initial.receive(AutoWorkoutSuggestion(
+                window: demoCandidate,
+                prediction: .init(sport: "Walking", confidence: .likely,
+                                  evidence: [.walkingMovement, .similarConfirmedWorkouts(count: 4)]),
+                sourceId: "demo",
+                context: .init(sourceContext: "demo", sourceLineage: "demo", invalidationEpoch: 0),
+                databaseInstanceId: "demo", sourceOwner: .init(deviceId: "demo", lineage: "demo")), for: load)
+        }
+        _state = State(initialValue: initial)
     }
     #endif
 
     var body: some View {
         Group {
-            if autoDetectEnabled, !handledThisSession, let w = candidate {
-                card(for: w)
+            if let suggestion = state.candidate,
+               isDemo || (autoDetectEnabled && !repo.verifiedExternalSurfaceFenced
+                          && suggestion.context == repo.workoutSuggestionContext) {
+                card(for: suggestion)
             }
         }
-        // Re-scan whenever the data refreshes (a sync bumps refreshSeq) or the toggle flips on.
-        .task(id: AutoWorkoutLoadKey(seq: repo.refreshSeq, enabled: autoDetectEnabled)) {
-            #if DEBUG
-            if demoCandidate != nil { return }
-            #endif
+        .task(id: AutoWorkoutLoadKey(seq: repo.refreshSeq, enabled: autoDetectEnabled,
+                                    context: repo.workoutSuggestionContext,
+                                    fenced: repo.verifiedExternalSurfaceFenced)) {
+            guard !isDemo else { return }
             await reload()
         }
     }
 
-    @ViewBuilder
-    private func card(for w: DetectedWorkout) -> some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                HStack(spacing: NoopMetrics.space2) {
-                    Image(systemName: "figure.run")
-                        .font(.system(size: 18))
-                        .foregroundStyle(StrandPalette.accent)
-                        .accessibilityHidden(true)
-                    Text("Looks like a workout")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    Button {
-                        dismiss(w)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .padding(NoopMetrics.space1)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss this workout suggestion")
-                }
+    private var isDemo: Bool {
+        #if DEBUG
+        demoCandidate != nil
+        #else
+        false
+        #endif
+    }
 
-                Text(promptText(w))
-                    .font(StrandFont.footnote)
+    /// A flat Today section like its neighbours: a hairline, an eyebrow, a title, one detail line, and plain-text actions.
+    private func card(for suggestion: AutoWorkoutSuggestion) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TodaySectionSeparator(above: 12, below: 13.3)
+            VStack(alignment: .leading, spacing: 6) {
+                SectionEyebrow("Workout suggestion", systemImage: symbol(for: state.selectedType), tint: .strain)
+                    .padding(.bottom, 4)
+                Text(verbatim: titleText(suggestion.window))
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: detailText(suggestion))
+                    .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let reason = suggestion.prediction.evidence.first {
+                    Text(verbatim: evidenceText(reason))
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-                HStack(spacing: NoopMetrics.space3) {
-                    Button {
-                        save(w)
-                    } label: {
-                        Label("Save it", systemImage: "checkmark")
+                if state.saveResult == .failed {
+                    Text("Couldn’t save this workout. Your choice is still here. Try saving again.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("autoWorkout.saveError")
+                }
+
+                // Side by side when they fit, stacked when large text would squeeze them.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: NoopMetrics.space5) {
+                        saveButton(suggestion)
+                        changeTypeMenu(suggestion)
+                        Spacer(minLength: NoopMetrics.space3)
+                        dismissButton(suggestion)
                     }
-                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-                    .disabled(saving)
-
-                    Button("Not a workout") { dismiss(w) }
-                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                        .disabled(saving)
+                    VStack(alignment: .leading, spacing: 0) {
+                        saveButton(suggestion)
+                        changeTypeMenu(suggestion)
+                        dismissButton(suggestion)
+                    }
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("autoWorkout.card")
     }
 
-    /// "Looks like a workout [yesterday ]around 14:05–14:32 (avg HR 148, 27 min). Save it?"
-    /// Three whole-phrase variants (today / yesterday / dated, #719) so translators see complete
-    /// sentences rather than a stitched day-label fragment.
-    private func promptText(_ w: DetectedWorkout) -> String {
-        let startDate = Date(timeIntervalSince1970: TimeInterval(w.startSec))
-        let start = Self.timeFmt.string(from: startDate)
-        let end = Self.timeFmt.string(from: Date(timeIntervalSince1970: TimeInterval(w.endSec)))
-        let cal = Calendar.current
-        if cal.isDateInToday(startDate) {
-            return String(localized: "Looks like a workout around \(start)-\(end) (avg HR \(w.avgBpm), \(w.durationMin) min). Save it?")
+    private func saveButton(_ suggestion: AutoWorkoutSuggestion) -> some View {
+        Button { save(suggestion) } label: {
+            if state.saving {
+                HStack(spacing: NoopMetrics.space2) { ProgressView(); Text("Saving…") }
+            } else {
+                Text("Save")
+            }
         }
-        if cal.isDateInYesterday(startDate) {
-            return String(localized: "Looks like a workout yesterday around \(start)-\(end) (avg HR \(w.avgBpm), \(w.durationMin) min). Save it?")
+        .font(StrandFont.subhead.weight(.semibold))
+        .foregroundStyle(StrandPalette.accent)
+        .frame(minHeight: 44, alignment: .leading)
+        .buttonStyle(.plain)
+        .disabled(state.saving)
+        .accessibilityIdentifier("autoWorkout.save")
+    }
+
+    private func changeTypeMenu(_ suggestion: AutoWorkoutSuggestion) -> some View {
+        Menu {
+            typeChoice("Workout")
+            ForEach(WorkoutCatalog.all) { sport in typeChoice(sport.name) }
+            if suggestion.prediction.sport != "Workout",
+               WorkoutCatalog.sport(named: suggestion.prediction.sport) == nil {
+                typeChoice(suggestion.prediction.sport)
+            }
+        } label: {
+            Text("Change type")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(minHeight: 44, alignment: .leading)
         }
-        return String(localized: "Looks like a workout on \(Self.dateFmt.string(from: startDate)) around \(start)-\(end) (avg HR \(w.avgBpm), \(w.durationMin) min). Save it?")
+        .buttonStyle(.plain)
+        .disabled(state.saving)
+        .accessibilityIdentifier("autoWorkout.changeType")
+    }
+
+    private func dismissButton(_ suggestion: AutoWorkoutSuggestion) -> some View {
+        Button { dismiss(suggestion) } label: {
+            Text("Dismiss")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .frame(minHeight: 44, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .disabled(state.saving)
+        .accessibilityLabel("Dismiss this workout suggestion")
+        .accessibilityIdentifier("autoWorkout.dismiss")
+    }
+
+    private func typeChoice(_ name: String) -> some View {
+        Button {
+            state.selectedType = name
+        } label: {
+            if state.selectedType == name {
+                Label(WorkoutSource.displaySport(name), systemImage: "checkmark")
+            } else {
+                Text(WorkoutSource.displaySport(name))
+            }
+        }
+    }
+
+    private func confidenceText(_ suggestion: AutoWorkoutSuggestion) -> String {
+        guard state.selectedType == suggestion.prediction.sport else { return String(localized: "Your choice") }
+        switch suggestion.prediction.confidence {
+        case .likely: return String(localized: "Likely")
+        case .possible: return String(localized: "Possible")
+        case .unclassified: return String(localized: "Type uncertain")
+        }
+    }
+
+    private func evidenceText(_ evidence: WorkoutTypeSuggestion.Evidence) -> String {
+        switch evidence {
+        case .walkingMovement:
+            return String(localized: "Your steady movement looks like walking.")
+        case .runningMovement:
+            return String(localized: "Your steady movement looks like running.")
+        case let .similarConfirmedWorkouts(count):
+            return String(localized: "You’ve saved \(count) similar workouts around this time of day.")
+        case .insufficientTypeEvidence:
+            return String(localized: "Your heart rate shows activity, but not enough to tell what kind.")
+        }
+    }
+
+    private func symbol(for type: String) -> String {
+        switch type.lowercased() {
+        case "walking", "hiking", "treadmill walk": return "figure.walk"
+        case "running", "treadmill run": return "figure.run"
+        case "cycling", "indoor cycle": return "bicycle"
+        case "strength", "bodybuilding", "weightlifting": return "dumbbell"
+        default: return "figure.mixed.cardio"
+        }
+    }
+
+    /// "Walking · 10:50–11:25 AM". Yesterday and older windows say which day first.
+    private func titleText(_ window: DetectedWorkout) -> String {
+        let start = Date(timeIntervalSince1970: TimeInterval(window.startSec))
+        let end = Date(timeIntervalSince1970: TimeInterval(window.endSec))
+        let range = Self.rangeFmt.string(from: start, to: end)
+        let sport = WorkoutSource.displaySport(state.selectedType)
+        if Calendar.current.isDateInToday(start) { return "\(sport) · \(range)" }
+        if Calendar.current.isDateInYesterday(start) {
+            return String(localized: "\(sport) · Yesterday, \(range)")
+        }
+        return "\(sport) · \(Self.dateFmt.string(from: start)), \(range)"
+    }
+
+    /// "35 min · avg HR 112 · Likely".
+    private func detailText(_ suggestion: AutoWorkoutSuggestion) -> String {
+        let window = suggestion.window
+        return String(localized: "\(window.durationMin) min · avg HR \(window.avgBpm) · \(confidenceText(suggestion))")
     }
 
     private func reload() async {
-        guard autoDetectEnabled else { candidate = nil; return }
-        let next = await repo.autoDetectCandidate()
-        // A fresh scan resets the session guard so a NEW window can surface after one is handled.
-        if next != candidate { handledThisSession = false }
-        candidate = next
+        guard autoDetectEnabled, !repo.verifiedExternalSurfaceFenced else { state.clear(); return }
+        let context = repo.workoutSuggestionContext
+        if let current = state.candidate, current.context != context { state.clear() }
+        let load = state.beginLoad()
+        let next = await repo.autoDetectedWorkoutSuggestion()
+        guard !Task.isCancelled, autoDetectEnabled, !repo.verifiedExternalSurfaceFenced,
+              repo.workoutSuggestionContext == context else { return }
+        state.receive(next, for: load)
     }
 
-    private func save(_ w: DetectedWorkout) {
-        saving = true
-        handledThisSession = true
+    private func save(_ suggestion: AutoWorkoutSuggestion) {
+        // The demo fixture has no strap behind it: saving just closes the card, so every control stays live.
+        if isDemo { state.clear(); return }
+        guard let save = state.beginSave() else { return }
+        let type = state.selectedType
         Task {
-            _ = await repo.saveDetectedWorkout(w)
-            _ = await repo.refresh(.currentDay)   // surfaces the new workout + drops it from re-suggestion
-            saving = false
+            let result = await repo.saveWorkoutSuggestion(suggestion, type: type)
+            guard state.completeSave(result, for: save) else { return }
+            switch result {
+            case .saved, .alreadySaved: _ = await repo.refresh(.currentDay)
+            case .stale: await reload()
+            case .failed: break
+            }
         }
     }
 
-    private func dismiss(_ w: DetectedWorkout) {
-        repo.dismissDetectedSuggestion(w)
-        handledThisSession = true
-        candidate = nil
+    private func dismiss(_ suggestion: AutoWorkoutSuggestion) {
+        if isDemo { state.clear(); return }
+        if repo.dismissWorkoutSuggestion(suggestion) { state.clear() }
+        else { Task { await reload() } }
     }
 
-    /// HH:mm in the user's locale/timezone.
-    private static let timeFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .current
-        f.timeStyle = .short
-        f.dateStyle = .none
-        return f
+    private static let rangeFmt: DateIntervalFormatter = {
+        let formatter = DateIntervalFormatter()
+        formatter.locale = .current
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
     }()
 
-    /// Localized medium date ("Jun 23, 2026") for a bout older than yesterday.
     private static let dateFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .current
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
     }()
 }
 
-/// Reload key: a new sync (seq) or a toggle flip re-runs detection.
 private struct AutoWorkoutLoadKey: Equatable {
     let seq: Int
     let enabled: Bool
+    let context: WorkoutSuggestionContext
+    let fenced: Bool
 }

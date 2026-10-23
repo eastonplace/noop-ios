@@ -1,0 +1,218 @@
+Building for debugging...
+[0/17] Write sources
+[3/17] Write swift-version-4BDBE066E3DC7C8B.txt
+[5/26] Compiling OuraProtocol Decoders.swift
+[6/27] Compiling OuraProtocol EventTags.swift
+[7/27] Compiling OuraProtocol Auth.swift
+[8/27] Emitting module OuraProtocol
+[9/27] Compiling OuraProtocol Commands.swift
+[10/27] Compiling OuraProtocol OuraDriver.swift
+[11/27] Compiling OuraProtocol OuraEvents.swift
+[12/27] Compiling OuraProtocol Framing.swift
+[13/27] Compiling OuraProtocol OuraGatt.swift
+[14/27] Compiling OuraProtocol RingGen.swift
+[15/28] Wrapping AST for OuraProtocol for debugging
+[17/35] Compiling OuraProtocolTests DecoderGoldenTests.swift
+[18/35] Emitting module OuraProtocolTests
+[19/35] Emitting module oura_decode
+[20/35] Compiling oura_decode main.swift
+[21/36] Wrapping AST for oura-decode for debugging
+[22/36] Write Objects.LinkFileList
+[24/36] Compiling OuraProtocolTests AuthTests.swift
+[25/36] Compiling OuraProtocolTests FramingTests.swift
+[26/36] Compiling OuraProtocolTests OuraDriverTests.swift
+[27/37] /tmp/noop-oura-review-build/x86_64-unknown-linux-gnu/debug/OuraProtocolPackageDiscoveredTests.derived/all-discovered-tests.swift
+[28/37] Write sources
+[29/37] Wrapping AST for OuraProtocolTests for debugging
+[30/37] Linking oura-decode
+[32/40] Emitting module OuraProtocolPackageDiscoveredTests
+[33/40] Compiling OuraProtocolPackageDiscoveredTests all-discovered-tests.swift
+[34/40] Compiling OuraProtocolPackageDiscoveredTests OuraProtocolTests.swift
+[35/41] /tmp/noop-oura-review-build/x86_64-unknown-linux-gnu/debug/OuraProtocolPackageTests.derived/runner.swift
+[36/41] Write sources
+[37/41] Wrapping AST for OuraProtocolPackageDiscoveredTests for debugging
+[39/43] Compiling OuraProtocolPackageTests runner.swift
+[40/43] Emitting module OuraProtocolPackageTests
+[41/44] Wrapping AST for OuraProtocolPackageTests for debugging
+[42/44] Write Objects.LinkFileList
+[43/44] Linking OuraProtocolPackageTests.xctest
+Build complete! (8.53s)
+Test Suite 'All tests' started at 2026-10-21 23:15:41.760
+Test Suite 'debug.xctest' started at 2026-10-21 23:15:41.761
+Test Suite 'AuthTests' started at 2026-10-21 23:15:41.761
+Test Case 'AuthTests.testAES128ECBKnownAnswerFIPS197' started at 2026-10-21 23:15:41.761
+Test Case 'AuthTests.testAES128ECBKnownAnswerFIPS197' passed (0.001 seconds)
+Test Case 'AuthTests.testAuthProofKnownVector' started at 2026-10-21 23:15:41.762
+Test Case 'AuthTests.testAuthProofKnownVector' passed (0.001 seconds)
+Test Case 'AuthTests.testAuthStatusParsed' started at 2026-10-21 23:15:41.763
+Test Case 'AuthTests.testAuthStatusParsed' passed (0.0 seconds)
+Test Case 'AuthTests.testBadKeyLengthThrows' started at 2026-10-21 23:15:41.763
+Test Case 'AuthTests.testBadKeyLengthThrows' passed (0.0 seconds)
+Test Case 'AuthTests.testBadNonceLengthThrows' started at 2026-10-21 23:15:41.764
+Test Case 'AuthTests.testBadNonceLengthThrows' passed (0.0 seconds)
+Test Case 'AuthTests.testGetAuthNonceCommandBytes' started at 2026-10-21 23:15:41.764
+Test Case 'AuthTests.testGetAuthNonceCommandBytes' passed (0.0 seconds)
+Test Case 'AuthTests.testInstallKeyCommandBytes' started at 2026-10-21 23:15:41.764
+Test Case 'AuthTests.testInstallKeyCommandBytes' passed (0.0 seconds)
+Test Case 'AuthTests.testNonceExtractedFromSecureFrame' started at 2026-10-21 23:15:41.764
+Test Case 'AuthTests.testNonceExtractedFromSecureFrame' passed (0.0 seconds)
+Test Case 'AuthTests.testProofIsExactlyFirstCipherBlock' started at 2026-10-21 23:15:41.764
+Test Case 'AuthTests.testProofIsExactlyFirstCipherBlock' passed (0.0 seconds)
+Test Case 'AuthTests.testSubmitProofCommandBytes' started at 2026-10-21 23:15:41.764
+Test Case 'AuthTests.testSubmitProofCommandBytes' passed (0.0 seconds)
+Test Case 'AuthTests.testTrailingMarkerAndFullBlockPadChangeTheProof' started at 2026-10-21 23:15:41.764
+Test Case 'AuthTests.testTrailingMarkerAndFullBlockPadChangeTheProof' passed (0.0 seconds)
+Test Suite 'AuthTests' passed at 2026-10-21 23:15:41.765
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'DecoderGoldenTests' started at 2026-10-21 23:15:41.765
+Test Case 'DecoderGoldenTests.testBattery0x0D' started at 2026-10-21 23:15:41.765
+Test Case 'DecoderGoldenTests.testBattery0x0D' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testBatteryRejectsImplausiblePercent' started at 2026-10-21 23:15:41.765
+Test Case 'DecoderGoldenTests.testBatteryRejectsImplausiblePercent' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testDebugText0x43' started at 2026-10-21 23:15:41.766
+Test Case 'DecoderGoldenTests.testDebugText0x43' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testGreenIBIQuality0x80FiltersOnQuality' started at 2026-10-21 23:15:41.766
+Test Case 'DecoderGoldenTests.testGreenIBIQuality0x80FiltersOnQuality' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testHRV0x5D' started at 2026-10-21 23:15:41.766
+Test Case 'DecoderGoldenTests.testHRV0x5D' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testIBIAmplitude0x60BitPacked' started at 2026-10-21 23:15:41.766
+Test Case 'DecoderGoldenTests.testIBIAmplitude0x60BitPacked' passed (0.1 seconds)
+Test Case 'DecoderGoldenTests.testLiveHRPushNibbleIBI' started at 2026-10-21 23:15:41.867
+Test Case 'DecoderGoldenTests.testLiveHRPushNibbleIBI' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testMotionPeriod0x6B' started at 2026-10-21 23:15:41.867
+Test Case 'DecoderGoldenTests.testMotionPeriod0x6B' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testRtcBeacon0x85' started at 2026-10-21 23:15:41.867
+Test Case 'DecoderGoldenTests.testRtcBeacon0x85' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testShortRecordsDecodeToNil' started at 2026-10-21 23:15:41.867
+Test Case 'DecoderGoldenTests.testShortRecordsDecodeToNil' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testSleepPhase0x4E' started at 2026-10-21 23:15:41.868
+Test Case 'DecoderGoldenTests.testSleepPhase0x4E' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testSpO2IBI0x6EReverseOrder' started at 2026-10-21 23:15:41.868
+Test Case 'DecoderGoldenTests.testSpO2IBI0x6EReverseOrder' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testSpO2PerSample0x6F' started at 2026-10-21 23:15:41.868
+Test Case 'DecoderGoldenTests.testSpO2PerSample0x6F' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testSpO2Stable0x7BIsBigEndian' started at 2026-10-21 23:15:41.868
+Test Case 'DecoderGoldenTests.testSpO2Stable0x7BIsBigEndian' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testState0x45' started at 2026-10-21 23:15:41.868
+Test Case 'DecoderGoldenTests.testState0x45' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testTemp0x46' started at 2026-10-21 23:15:41.868
+Test Case 'DecoderGoldenTests.testTemp0x46' passed (0.0 seconds)
+Test Case 'DecoderGoldenTests.testTimeSync0x42' started at 2026-10-21 23:15:41.868
+Test Case 'DecoderGoldenTests.testTimeSync0x42' passed (0.0 seconds)
+Test Suite 'DecoderGoldenTests' passed at 2026-10-21 23:15:41.868
+	 Executed 17 tests, with 0 failures (0 unexpected) in 0.103 (0.103) seconds
+Test Suite 'FramingTests' started at 2026-10-21 23:15:41.868
+Test Case 'FramingTests.testBatteryResponseOpIsRecognisedAsAnOuterFrame' started at 2026-10-21 23:15:41.868
+Test Case 'FramingTests.testBatteryResponseOpIsRecognisedAsAnOuterFrame' passed (0.0 seconds)
+Test Case 'FramingTests.testMultipleOuterFramesInOneValue' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testMultipleOuterFramesInOneValue' passed (0.0 seconds)
+Test Case 'FramingTests.testNonSecureFrameReturnsNilSecure' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testNonSecureFrameReturnsNilSecure' passed (0.0 seconds)
+Test Case 'FramingTests.testParseGetEventsResponseMoreDataFollows' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testParseGetEventsResponseMoreDataFollows' passed (0.0 seconds)
+Test Case 'FramingTests.testParseGetEventsResponseNoMoreData' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testParseGetEventsResponseNoMoreData' passed (0.0 seconds)
+Test Case 'FramingTests.testParseGetEventsResponseShortBodyReturnsNil' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testParseGetEventsResponseShortBodyReturnsNil' passed (0.0 seconds)
+Test Case 'FramingTests.testParseOuterFrame' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testParseOuterFrame' passed (0.0 seconds)
+Test Case 'FramingTests.testParseOuterFrameShortReturnsNil' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testParseOuterFrameShortReturnsNil' passed (0.0 seconds)
+Test Case 'FramingTests.testParseTLVRecord' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testParseTLVRecord' passed (0.0 seconds)
+Test Case 'FramingTests.testReassemblerDrainsPureNoiseWithoutEmittingOrWedging' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testReassemblerDrainsPureNoiseWithoutEmittingOrWedging' passed (0.0 seconds)
+Test Case 'FramingTests.testReassemblerLenBelowFourDoesNotEmitGarbageBeforeValidRecord' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testReassemblerLenBelowFourDoesNotEmitGarbageBeforeValidRecord' passed (0.0 seconds)
+Test Case 'FramingTests.testReassemblerMultipleRecordsInOneNotification' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testReassemblerMultipleRecordsInOneNotification' passed (0.0 seconds)
+Test Case 'FramingTests.testReassemblerPartialTrailingBytesBuffered' started at 2026-10-21 23:15:41.869
+Test Case 'FramingTests.testReassemblerPartialTrailingBytesBuffered' passed (0.0 seconds)
+Test Case 'FramingTests.testReassemblerResetClearsBuffer' started at 2026-10-21 23:15:41.870
+Test Case 'FramingTests.testReassemblerResetClearsBuffer' passed (0.0 seconds)
+Test Case 'FramingTests.testReassemblerSplitAcrossThreeFragments' started at 2026-10-21 23:15:41.870
+Test Case 'FramingTests.testReassemblerSplitAcrossThreeFragments' passed (0.0 seconds)
+Test Case 'FramingTests.testSecureFrameAuthStatus' started at 2026-10-21 23:15:41.870
+Test Case 'FramingTests.testSecureFrameAuthStatus' passed (0.0 seconds)
+Test Case 'FramingTests.testSecureFrameNonceResponse' started at 2026-10-21 23:15:41.870
+Test Case 'FramingTests.testSecureFrameNonceResponse' passed (0.0 seconds)
+Test Case 'FramingTests.testTLVLenBelowFourIsRejected' started at 2026-10-21 23:15:41.870
+Test Case 'FramingTests.testTLVLenBelowFourIsRejected' passed (0.0 seconds)
+Test Suite 'FramingTests' passed at 2026-10-21 23:15:41.870
+	 Executed 18 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'OuraDriverTests' started at 2026-10-21 23:15:41.870
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture1' started at 2026-10-21 23:15:41.870
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture1' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture2' started at 2026-10-21 23:15:41.870
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture2' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture3' started at 2026-10-21 23:15:41.870
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture3' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture4Resting' started at 2026-10-21 23:15:41.870
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture4Resting' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture5ModerateActivity' started at 2026-10-21 23:15:41.870
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture5ModerateActivity' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture6ExerciseBurst' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testActivityInfoDecodesRealCapture6ExerciseBurst' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testActivityInfoDroppedByDefaultLikeOtherTierB' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testActivityInfoDroppedByDefaultLikeOtherTierB' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testActivityInfoEmptyPayloadDecodesToNil' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testActivityInfoEmptyPayloadDecodesToNil' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testActivityInfoHighByteBranchUsesCoarseSlope' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testActivityInfoHighByteBranchUsesCoarseSlope' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testAuthErrorIsSurfacedNotRetriedBlindly' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testAuthErrorIsSurfacedNotRetriedBlindly' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testDangerousCommandsAreClearlyNamed' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testDangerousCommandsAreClearlyNamed' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testFactoryResetStatusDrivesNeedsKeyInstall' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testFactoryResetStatusDrivesNeedsKeyInstall' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testFullEnableSequence' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testFullEnableSequence' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testHandleSecureFrameRoutesNonceStatusAndPush' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testHandleSecureFrameRoutesNonceStatusAndPush' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testHistoryFetchFlushesThenFetchesThenAcks' started at 2026-10-21 23:15:41.871
+Test Case 'OuraDriverTests.testHistoryFetchFlushesThenFetchesThenAcks' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testImplausibleTimeSyncNeverCrashesOrAnchors' started at 2026-10-21 23:15:41.872
+Test Case 'OuraDriverTests.testImplausibleTimeSyncNeverCrashesOrAnchors' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testIngestDecodesTierARecord' started at 2026-10-21 23:15:41.872
+Test Case 'OuraDriverTests.testIngestDecodesTierARecord' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testIngestNotificationReassemblesAndDecodes' started at 2026-10-21 23:15:41.872
+Test Case 'OuraDriverTests.testIngestNotificationReassemblesAndDecodes' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testIngestUnknownTagYieldsNothing' started at 2026-10-21 23:15:41.872
+Test Case 'OuraDriverTests.testIngestUnknownTagYieldsNothing' passed (0.0 seconds)
+Test Case 'OuraDrwarning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+iverTests.testKeyInstallIgnoredOutsideNeedsKeyInstallPhase' started at 2026-10-21 23:15:41.872
+Test Case 'OuraDriverTests.testKeyInstallIgnoredOutsideNeedsKeyInstallPhase' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testKeyInstallSequencesReauthWhenAllowed' started at 2026-10-21 23:15:41.872
+Test Case 'OuraDriverTests.testKeyInstallSequencesReauthWhenAllowed' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testLiveHRPushIngestStampsLastRingTime' started at 2026-10-21 23:15:41.872
+Test Case 'OuraDriverTests.testLiveHRPushIngestStampsLastRingTime' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testNoAnchorBeforeAnyTimeSyncOrBeacon' started at 2026-10-21 23:15:41.872
+Test Case 'OuraDriverTests.testNoAnchorBeforeAnyTimeSyncOrBeacon' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testNoKeyDrivesNeedsKeyInstall' started at 2026-10-21 23:15:41.873
+Test Case 'OuraDriverTests.testNoKeyDrivesNeedsKeyInstall' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testNoKeyInstallSequencedWhenNotAllowed' started at 2026-10-21 23:15:41.873
+Test Case 'OuraDriverTests.testNoKeyInstallSequencedWhenNotAllowed' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testRingGenMtuAndCaps' started at 2026-10-21 23:15:41.873
+Test Case 'OuraDriverTests.testRingGenMtuAndCaps' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testRtcBeaconOnlyAnchorsWhenNoTimeSyncSeenYet' started at 2026-10-21 23:15:41.873
+Test Case 'OuraDriverTests.testRtcBeaconOnlyAnchorsWhenNoTimeSyncSeenYet' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testStopClearsTheAnchor' started at 2026-10-21 23:15:41.873
+Test Case 'OuraDriverTests.testStopClearsTheAnchor' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testSyncTimeCommandCounter' started at 2026-10-21 23:15:41.873
+Test Case 'OuraDriverTests.testSyncTimeCommandCounter' passed (0.1 seconds)
+Test Case 'OuraDriverTests.testTierBDroppedByDefault' started at 2026-10-21 23:15:41.973
+Test Case 'OuraDriverTests.testTierBDroppedByDefault' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testTierBEmittedOnlyWhenAllowed' started at 2026-10-21 23:15:41.974
+Test Case 'OuraDriverTests.testTierBEmittedOnlyWhenAllowed' passed (0.0 seconds)
+Test Case 'OuraDriverTests.testTimeSyncSetsAnchorAndConvertsPastAndFutureRingTimes' started at 2026-10-21 23:15:41.974
+Test Case 'OuraDriverTests.testTimeSyncSetsAnchorAndConvertsPastAndFutureRingTimes' passed (0.0 seconds)
+Test Suite 'OuraDriverTests' passed at 2026-10-21 23:15:41.974
+	 Executed 32 tests, with 0 failures (0 unexpected) in 0.103 (0.103) seconds
+Test Suite 'debug.xctest' passed at 2026-10-21 23:15:41.974
+	 Executed 78 tests, with 0 failures (0 unexpected) in 0.212 (0.212) seconds
+Test Suite 'All tests' passed at 2026-10-21 23:15:41.974
+	 Executed 78 tests, with 0 failures (0 unexpected) in 0.212 (0.212) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.4.1 (804dc4530ef3666)
+↳ Target Platform: x86_64-unknown-linux-gnu
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

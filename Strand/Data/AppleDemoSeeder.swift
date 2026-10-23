@@ -21,7 +21,7 @@ enum AppleDemoSeeder {
     /// Bump when the fixture shape changes. The simulator demo uses this in its
     /// database filename, so a newer fixture never gets trapped behind an older,
     /// partially-seeded database.
-    static let fixtureVersion = 4
+    static let fixtureVersion = 5
     /// The demo database is dated (and carries its Strain scenario, when one is asked for), so a seed is always
     /// relative to the day it runs: a database seeded on an earlier day would leave "today" empty and the history
     /// ending days ago.
@@ -118,6 +118,14 @@ enum AppleDemoSeeder {
         if existing.isEmpty {
             do { try await seed(into: store) }
             catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
+        }
+        // Today's training target also needs a sleep need, which the demo has no sleep scorer to compute. A Strain
+        // scenario lays one down for the last week. Idempotent, so a database seeded earlier today gets it too.
+        if StrainDemoScenario.requested != nil {
+            let days = (try? await store.dailyMetrics(deviceId: whoop, from: "0000-00-00", to: "9999-99-99")) ?? []
+            let points = days.sorted { $0.day < $1.day }.suffix(7)
+                .map { MetricPoint(day: $0.day, key: Repository.sleepNeedV2Key, value: 500) }
+            _ = try? await store.upsertMetricSeries(points, deviceId: "\(whoop)-noop")
         }
         // The Workouts screens' known week. It replaces what it owns on every launch, so a demo database that was
         // seeded before it existed gets it too. A Strain scenario owns today's workouts and heart rate (each one is a
@@ -443,6 +451,22 @@ enum AppleDemoSeeder {
                 _ = try await store.insert(Streams(hr: hrs, rr: rrs), deviceId: whoop)
             }
         }
+        // The "Compare to my normal" stress option learns from daytime heart rate, which needs 10-second samples
+        // (the minute-level history above is too sparse to cover an hour). Bank 09:00-17:00 on the five days
+        // before today so the baseline reads as provisional in screenshots.
+        var priorDaytimeHR: [HRSample] = []
+        for daysBack in 1...5 {
+            guard let day = cal.date(byAdding: .day, value: -daysBack, to: cal.startOfDay(for: Date())) else { continue }
+            let dayStart = Int(cal.startOfDay(for: day).timeIntervalSince1970)
+            var t = dayStart + 9 * 3600
+            while t < dayStart + 17 * 3600 {
+                let hourOfDay = Double(t - dayStart) / 3600.0
+                let arc = 64.0 + 6.0 * sin((hourOfDay - 9.0) / 8.0 * .pi)
+                priorDaytimeHR.append(HRSample(ts: t, bpm: Int((arc + gauss(&rng, 0, 2.5)).clamped(48, 120).rounded())))
+                t += 10
+            }
+        }
+        if !priorDaytimeHR.isEmpty { _ = try await store.insert(Streams(hr: priorDaytimeHR), deviceId: whoop) }
         _ = try await store.upsertDailyMetrics(daily, deviceId: whoop)
         if let scenario = StrainDemoScenario.requested,
            let today = daily.last?.day {
@@ -454,6 +478,9 @@ enum AppleDemoSeeder {
         _ = try await store.upsertMetricSeries(series, deviceId: whoop)
         _ = try await store.upsertAppleDaily(appleRows, deviceId: apple)
         if !workouts.isEmpty { _ = try await store.upsertWorkouts(workouts, deviceId: whoop) }
+        // Explicit Yes and No answers laid out against the seeded recovery, enough for Coach's journal comparisons.
+        // The in-loop answers above stay (they keep the random stream, and so the rest of the seed, unchanged).
+        journal = AppleDemoJournalFixture.entries(days: daily.compactMap { row in row.recovery.map { (row.day, $0) } })
         if !journal.isEmpty { _ = try await store.upsertJournal(journal, deviceId: whoop) }
         NSLog("AppleDemoSeeder: seeded \(daily.count) days, \(workouts.count) workouts.")
     }

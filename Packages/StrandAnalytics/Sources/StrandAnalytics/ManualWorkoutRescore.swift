@@ -94,8 +94,11 @@ public enum ManualWorkoutRescore {
     /// pauses the result is exactly what it was.
     public static func scored(windowSamples: [HRSample], profile: UserProfile, hrMax: Double,
                               restingHR: Double? = nil, pauses: WorkoutPauseLedger? = nil) -> Scored? {
-        let segments = pauses.map { $0.segments(of: windowSamples) } ?? [windowSamples]
-        let samples = pauses?.hasPauses == true ? segments.flatMap { $0 } : windowSamples
+        // The store retains raw off-wrist/invalid readings. All rescored metrics must consume the
+        // same usable stream; previously only Strain filtered it, while average/peak HR and energy did not.
+        let validWindow = windowSamples.filter { HRValidity.isPlausible($0.bpm) }
+        let segments = pauses.map { $0.segments(of: validWindow) } ?? [validWindow]
+        let samples = pauses?.hasPauses == true ? segments.flatMap { $0 } : validWindow
         guard samples.count >= 2 else { return nil }
         let bpms = samples.map(\.bpm)
         let avg = Int((Double(bpms.reduce(0, +)) / Double(bpms.count)).rounded())
@@ -109,8 +112,8 @@ public enum ManualWorkoutRescore {
             kcalRaw = Calories.estimateBoutCalories(segments: segments, profile: profile,
                                                     hrmax: hrMax, restingHR: measuredRestingHR).0
         } else {
-            strain = StrainScorerV2.strain(windowSamples, maxHR: hrMax, restingHR: resting, mode: .activity)
-            kcalRaw = Calories.estimateBoutCalories(windowSamples, profile: profile,
+            strain = StrainScorerV2.strain(validWindow, maxHR: hrMax, restingHR: resting, mode: .activity)
+            kcalRaw = Calories.estimateBoutCalories(validWindow, profile: profile,
                                                     hrmax: hrMax, restingHR: measuredRestingHR).0
         }
         return Scored(avgHr: avg, maxHr: peak, strain: strain, kcal: kcalRaw > 0 ? kcalRaw : nil)

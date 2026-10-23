@@ -1,4 +1,6 @@
 import XCTest
+import GRDB
+import SQLite3
 import WhoopProtocol
 @testable import WhoopStore
 
@@ -76,6 +78,34 @@ final class PruneTests: XCTestCase {
         let pruned = try await store.pruneRaw(now: 100, keepWindowSeconds: 1000,
                                               maxUnsyncedBytes: 1_000_000)
         XCTAssertEqual(pruned, 0)
+    }
+
+    func testLargeEvictionStaysWithinSQLiteVariableLimit() async throws {
+        let store = try await WhoopStore.inMemory()
+        let frameBytes = frames[0].count
+        let packed = try WhoopStore.zlibCompressWithLength(WhoopStore.packFrames(frames))
+        let batchCount = 1_007
+        try await store.registryWriter.write { db in
+            for index in 0..<batchCount {
+                let batch = RawBatchMeta(
+                    batchId: "raw-\(index)", deviceId: "dev1",
+                    clockRef: ClockRef(device: 0, wall: 0),
+                    capturedAt: index, startTs: index, endTs: index,
+                    frameCount: 1, byteSize: frameBytes)
+                try WhoopStore.enqueueRawBatch(batch, blob: packed, in: db)
+            }
+            // Exercise the production DELETE under the historical SQLite ceiling even when
+            // the test host's SQLite was compiled with a more generous limit.
+            let statement = try db.makeStatement(sql: "SELECT 1")
+            sqlite3_limit(sqlite3_db_handle(statement.sqliteStatement), SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+        }
+
+        let pruned = try await store.pruneRaw(
+            now: 10_000, keepWindowSeconds: 1_000, maxUnsyncedBytes: 2 * frameBytes)
+        let remaining = try await store.allBatchIdsForTest()
+
+        XCTAssertEqual(pruned, batchCount - 2)
+        XCTAssertEqual(remaining, ["raw-1005", "raw-1006"])
     }
 
     func testMaterializationRequiredHistorySurvivesAgeAndSizePruning() async throws {

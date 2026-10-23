@@ -223,6 +223,12 @@ struct LiftFormat: Sendable {
   /// "8 reps", with the plural the person's language needs.
   static func repCount(_ count: Int) -> String { String(localized: "\(count) reps") }
 
+  /// "3 routines".
+  static func routineCount(_ count: Int) -> String { String(localized: "\(count) routines") }
+
+  /// "Add 4 custom exercises".
+  static func addCustomExercises(_ count: Int) -> String { String(localized: "Add \(count) custom exercises") }
+
   /// "3 workouts".
   static func workoutCount(_ count: Int) -> String { String(localized: "\(count) workouts") }
 

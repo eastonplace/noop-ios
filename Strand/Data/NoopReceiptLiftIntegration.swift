@@ -161,6 +161,13 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         guard model.repo.deviceId == source, model.repo.notificationSourceContext == currentContext else {
             feature.discard(); return
         }
+        feature.configureRoutineImport(parse: NoopReceiptLiftRoutineImportAdapter.parse) { [weak self, weak model, weak feature] in
+            guard let self, let model, let feature,
+                  self.coordinator === feature, self.selectedSourceOwner == sourceOwner,
+                  model.repo.deviceId == source, model.repo.notificationSourceContext == currentContext,
+                  !model.repo.verifiedExternalSurfaceFenced else { throw NoopRoutineImportSourceError.changed }
+            guard model.activeWorkout == nil, !feature.hasActiveSession else { throw NoopRoutineImportSourceError.activeWorkout }
+        }
         feature.strainProvider = Self.strainProvider(model: model, store: store)
         feature.setNotificationCompletionHandler { [weak model] start, end in
             guard let model, model.repo.notificationSourceContext == currentContext else { return }
@@ -200,23 +207,42 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     func consumeRestoredSession() { restoredSessionPending = false }
 
     /// What Lift shows for Strain: the app's stored values, or (DEBUG) the simulator QA scenarios.
-    private static func strainProvider(model: AppModel, store: WhoopStore) -> any LiftStrainProviding {
+    static func strainProvider(model: AppModel, store: WhoopStore) -> any LiftStrainProviding {
         #if DEBUG
         if let demo = DemoLiftStrainProvider.requested() { return demo }
         #endif
+        let repository = model.repo
+        let source = repository.deviceId
+        let sourceContext = repository.notificationSourceContext
+        let readIds = repository.importedReadIds
+        // An active workout can outlive a source selection. Its saved summaries keep their original
+        // owner, while live values must stop until that exact repository/source context is current.
+        let isCurrentSource: @MainActor @Sendable () -> Bool = { [weak model, weak repository] in
+            guard let model, let repository else { return false }
+            return model.repo === repository && repository.deviceId == source
+                && repository.notificationSourceContext == sourceContext
+        }
+        let heartRateOwner = RealtimeHRLeaseOwner(model: model, consumer: .lift)
         return AppLiftStrainProvider(
             store: store,
-            deviceId: { [weak model] in model?.repo.deviceId ?? "" },
-            bpm: { [weak model] in model?.bpm },
-            startHR: { [weak model] in model?.startRealtimeHR() },
-            stopHR: { [weak model] in model?.stopRealtimeHR() },
+            deviceId: { source },
+            bpm: { [weak model] in isCurrentSource() ? model?.bpm : nil },
+            startHR: { if isCurrentSource() { heartRateOwner.begin() } },
+            stopHR: { heartRateOwner.end() },
             maxHR: { [weak model] in Double(model?.profile.hrMax ?? 190) },
             restingHR: { [weak model] in
+                guard isCurrentSource() else { return StrainScorerV2.defaultRestingHR }
                 let today = Repository.logicalDayKey(Date())
                 return model?.repo.days.last(where: { $0.day == today })?.restingHr.map(Double.init)
                     ?? StrainScorerV2.defaultRestingHR
             },
-            hrSamples: { [weak model] from, to in await model?.repo.hrSamples(from: from, to: to) ?? [] })
+            hrSamples: { from, to in
+                guard await isCurrentSource() else { return [] }
+                let samples = await Repository.hrSamples(store: store, sourceIds: readIds, from: from, to: to)
+                guard await isCurrentSource() else { return [] }
+                return samples
+            },
+            liveSourceIsCurrent: isCurrentSource)
     }
 
     /// Simulator QA only: `--demo-seed --noop-lift-demo <variant>` loads generated Lift data instead of the database's.

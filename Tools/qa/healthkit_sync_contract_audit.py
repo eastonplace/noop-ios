@@ -106,9 +106,14 @@ try:
         coordinator,
         "await scoringCoordinator.withImportLease",
         "try await scoringCoordinator.offer(snapshot)",
-        "guard await operation(snapshot)",
+        "guard !Task.isCancelled,",
+        "await operation(snapshot),",
+        "!Task.isCancelled else {",
         "try persistence.save(followUp)",
     )
+    # An expiring coalesced caller must unwind without cancelling the importer that owns the lease.
+    require(coordinator, "private let waiters = CancellableWaiterQueue<Void>()", "try? await waiters.wait(())")
+    forbid(coordinator, "private var waiters: [CheckedContinuation<Void, Never>]")
 
     admission = "Strand/Data/IntelligenceAnalysisCoordinator.swift"
     # A publication-sensitive analysis call must return actual completion and retain its durable verifier as a

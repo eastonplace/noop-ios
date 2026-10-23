@@ -508,32 +508,60 @@ struct SleepExpandableRow<Detail: View>: View {
 
 // MARK: - Chip flow
 
-/// Chips left to right, wrapping to the next line when one no longer fits.
+/// Chips left to right, wrapping between chips and within a chip that exceeds the available width.
 struct SleepChipFlow: Layout {
     var spacing: CGFloat
 
-    private func placements(_ subviews: Subviews, width: CGFloat) -> (points: [CGPoint], size: CGSize) {
-        var points: [CGPoint] = []
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, maxX: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width { x = 0; y += rowHeight + spacing; rowHeight = 0 }
-            points.append(CGPoint(x: x, y: y))
-            x += size.width + spacing
-            maxX = max(maxX, x - spacing)
-            rowHeight = max(rowHeight, size.height)
+    struct Geometry {
+        struct Item {
+            let origin: CGPoint
+            let proposedWidth: CGFloat
         }
-        return (points, CGSize(width: maxX, height: y + rowHeight))
+        let items: [Item]
+        let size: CGSize
+
+        init(width: CGFloat?, spacing: CGFloat, count: Int, measure: (Int, CGFloat?) -> CGSize) {
+            let availableWidth = width.flatMap { $0.isFinite ? max(0, $0) : nil } ?? .infinity
+            var items: [Item] = []
+            var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, maxX: CGFloat = 0
+            for index in 0..<count {
+                let ideal = measure(index, nil)
+                var proposedWidth = min(ideal.width, availableWidth)
+                var measured = measure(index, proposedWidth)
+                // Native text layout can round a constrained chip one pixel wider. Re-measure its
+                // actual content once with that overflow removed, retaining the new wrapped height.
+                if measured.width > availableWidth {
+                    proposedWidth = max(0, proposedWidth - (measured.width - availableWidth))
+                    measured = measure(index, proposedWidth)
+                }
+                if x > 0, x + measured.width > availableWidth {
+                    x = 0; y += rowHeight + spacing; rowHeight = 0
+                }
+                items.append(Item(origin: CGPoint(x: x, y: y), proposedWidth: proposedWidth))
+                x += measured.width + spacing
+                maxX = max(maxX, x - spacing)
+                rowHeight = max(rowHeight, measured.height)
+            }
+            self.items = items
+            size = CGSize(width: maxX, height: y + rowHeight)
+        }
+    }
+
+    private func geometry(_ subviews: Subviews, width: CGFloat?) -> Geometry {
+        Geometry(width: width, spacing: spacing, count: subviews.count) { index, proposedWidth in
+            subviews[index].sizeThatFits(ProposedViewSize(width: proposedWidth, height: nil))
+        }
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        placements(subviews, width: proposal.width ?? .infinity).size
+        geometry(subviews, width: proposal.width).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let layout = placements(subviews, width: bounds.width)
-        for (subview, point) in zip(subviews, layout.points) {
-            subview.place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), proposal: .unspecified)
+        let layout = geometry(subviews, width: bounds.width)
+        for (subview, item) in zip(subviews, layout.items) {
+            subview.place(at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
+                          proposal: ProposedViewSize(width: item.proposedWidth, height: nil))
         }
     }
 }
@@ -644,10 +672,30 @@ enum SleepStageShares {
     }
 }
 
-/// Where the Sleep tab shows the V2 "Tonight's need" breakdown. `SleepPerformanceV2Prefs`: `.off` keeps the legacy
-/// score authoritative with no V2 UI at all (and no store reads); `.shadow` computes and persists V2 alongside the
-/// legacy score and shows the need breakdown as explanatory context (the Sleep "Night detail" need tile already
-/// reads the same V2 series); `.on` makes V2 the production score. So it shows in shadow and on.
+/// A recorded total for this exact displayed night. It remains useful when V2's component series are absent.
+struct SleepNeedFallbackPresentation: Equatable {
+    enum Source: Equatable { case onDevice, whoop }
+    let wakeDay: String
+    let minutes: Double
+    let source: Source
+
+    static func resolve(wakeDay: String, onDevice: (String) -> Double?,
+                        imported: (String) -> Double?) -> Self? {
+        if let minutes = onDevice(wakeDay), minutes.isFinite, minutes > 0 {
+            return Self(wakeDay: wakeDay, minutes: minutes, source: .onDevice)
+        }
+        if let minutes = imported(wakeDay), minutes.isFinite, minutes > 0 {
+            return Self(wakeDay: wakeDay, minutes: minutes, source: .whoop)
+        }
+        return nil
+    }
+
+    static func shouldShow(mode: SleepPerformanceV2Prefs.Mode, breakdownDay: String?, wakeDay: String) -> Bool {
+        !SleepNeedBreakdownVisibility.isVisible(mode: mode) || breakdownDay != wakeDay
+    }
+}
+
+/// Off retains the recorded total without V2 component UI or component reads. Shadow/on may show the breakdown.
 enum SleepNeedBreakdownVisibility {
     static func isVisible(mode: SleepPerformanceV2Prefs.Mode) -> Bool {
         switch mode {

@@ -170,7 +170,20 @@ enum LiftDemoFixture {
         sessions.append(makeSession(routine: routine, bodyweightIDs: bodyweightIDs, start: start, step: 13 - week))
       }
     }
-    return sessions.sorted { $0.startedAt < $1.startedAt }
+    sessions.sort { $0.startedAt < $1.startedAt }
+    // So the routine preview has one row that changes: in the newest Upper A the dumbbell press tops its rep range at
+    // a manageable effort, which earns a heavier load. The other exercises stay as they were.
+    if let routine = byName["Upper A"], let press = routine.exercisePlans?.dropFirst(2).first?.exerciseID,
+       let index = sessions.lastIndex(where: { $0.routineID == routine.id }) {
+      sessions[index].sets = sessions[index].sets.map { set in
+        guard set.exerciseID == press else { return set }
+        var updated = set
+        updated.reps = 10
+        updated.rpe = 8
+        return updated
+      }
+    }
+    return sessions
   }
 
   private static func makeSession(

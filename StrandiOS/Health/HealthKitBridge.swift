@@ -455,7 +455,7 @@ final class HealthKitBridge: ObservableObject {
     }
     private var observerScanActive = false
     private var observerScanWaiters: [CheckedContinuation<Void, Never>] = []
-    private var requestedExpandedWriteAuthorization = false
+    private let readResumePolicy = HealthKitReadResumePolicy()
 
     init(repo: Repository, appleDeviceId: String, noopDeviceId: String) {
         self.repo = repo
@@ -498,10 +498,8 @@ final class HealthKitBridge: ObservableObject {
         return s
     }
 
-    /// The write set as it existed before the high-res write-back (4 nightly vitals + sleep). A
-    /// returning user granted THIS set; `refreshAuthIfPreviouslyGranted` must resume off it — checking
-    /// the full `writeTypes` would leave every pre-existing grant stuck at `.unknown` after the update
-    /// because the new types are still `.notDetermined`.
+    /// Legacy request set used only by the OS's nonprompting request-completion probe. Sharing
+    /// authorization for this set does not establish read permission or gate read attempts.
     private var legacyCoreWriteTypes: Set<HKSampleType> {
         var s = Set<HKSampleType>()
         for id in HealthKitBridge.quantityWriteIds { if let t = HKObjectType.quantityType(forIdentifier: id) { s.insert(t) } }
@@ -524,8 +522,7 @@ final class HealthKitBridge: ObservableObject {
         .restingHeartRate, .heartRateVariabilitySDNN, .oxygenSaturation, .respiratoryRate
     ]
     // High-res write-back shares: the continuous 1-minute HR stream, and the energy/distance samples
-    // attached to written workouts. Kept out of `quantityWriteIds` so `legacyCoreWriteTypes` (the
-    // auth-resume set) stays exactly what pre-update users granted.
+    // attached to written workouts. The legacy request-status probe keeps its original type set.
     private static let highResQuantityWriteIds: [HKQuantityTypeIdentifier] = [
         .heartRate, .activeEnergyBurned, .distanceWalkingRunning, .distanceCycling
     ]
@@ -545,6 +542,7 @@ final class HealthKitBridge: ObservableObject {
         guard HealthKitBridge.hasHealthKitEntitlement else { auth = .entitlementMissing; return }
         do {
             try await store.requestAuthorization(toShare: writeTypes, read: readTypes)
+            readResumePolicy.recordCompletedRequestFlow()
             HealthKitWritebackFingerprint.reset()
             // The entitlement is present (the guard above proved it via the embedded profile, or there's
             // no profile = App Store build), so a successful request means the bridge is usable. We do
@@ -559,7 +557,7 @@ final class HealthKitBridge: ObservableObject {
             // A thrown error here is on a build that carries the entitlement (guarded above), so it's a
             // genuine denial / request failure — keep the normal `.denied` "enable in Settings" path,
             // never the entitlement-missing reroute.
-            auth = .denied
+            auth = readResumePolicy.canAttemptReads ? .authorized : .denied
         }
         // First successful grant in this process: arm the live HealthKit stream so a watch-only user
         // gets continuous ingestion (new SDNN/RHR/sleep/etc. land within the hour) instead of only on
@@ -568,59 +566,39 @@ final class HealthKitBridge: ObservableObject {
         enableLiveDelivery()
     }
 
-    /// Resume a prior grant on launch without re-prompting. `auth` is a fresh `.unknown` every
-    /// process (the bridge isn't persisted), so a user who already enabled Apple Health would
-    /// otherwise have to re-tap "Enable" each session before the scenePhase sync runs. HealthKit
-    /// never reveals *read* status, but *write*/share status is observable — if the user already
-    /// authorized all of our write types, treat the bridge as `.authorized`. This only reads
-    /// status, so no system permission sheet is shown.
-    func refreshAuthIfPreviouslyGranted(requestNewTypes: Bool = true) async {
-        guard HKHealthStore.isHealthDataAvailable() else { return }
-        // HealthKit synchronously contacts healthd for these status reads. Keep that
-        // IPC off the main actor so a slow or restarting service cannot freeze launch.
-        let healthStore = store
-        let legacyTypes = legacyCoreWriteTypes
-        let expandedTypes = writeTypes
-        let status = await Task.detached(priority: .userInitiated) {
-            let legacyGranted = legacyTypes.allSatisfy {
-                healthStore.authorizationStatus(for: $0) == .sharingAuthorized
+    /// Resume read attempts after a completed permission flow. HealthKit hides read grants;
+    /// neither a persisted completion nor this OS probe means that reads were granted. Lifecycle
+    /// refresh never requests permission, including for newly added types. Only the explicit
+    /// `requestAuthorization()` action can display a permission sheet.
+    func refreshAuthIfPreviouslyGranted(requestNewTypes _: Bool = true) async {
+        guard HKHealthStore.isHealthDataAvailable(), Self.hasHealthKitEntitlement else { return }
+        guard auth == .unknown else { return }
+        var eligible = readResumePolicy.canAttemptReads
+        if !eligible {
+            do {
+                // Recover pre-flag installs using the original core request set. A read-only or
+                // partial response still completes a request; a new install remains `.shouldRequest`.
+                let legacy = legacyCoreWriteTypes
+                let status = try await store.statusForAuthorizationRequest(
+                    toShare: legacy,
+                    read: Set(legacy.map { $0 as HKObjectType })
+                )
+                guard !Task.isCancelled else { return }
+                let prior: HealthKitReadResumePolicy.PriorRequestStatus
+                switch status {
+                case .unnecessary: prior = .unnecessary
+                case .shouldRequest: prior = .shouldRequest
+                default: prior = .unknown
+                }
+                eligible = readResumePolicy.resumeIfPreviouslyRequested(prior)
+            } catch {
+                // Protected/temporarily unavailable Health data can retry on a later lifecycle edge.
+                return
             }
-            let hasUndeterminedTypes = expandedTypes.contains {
-                healthStore.authorizationStatus(for: $0) == .notDetermined
-            }
-            return (legacyGranted, hasUndeterminedTypes)
-        }.value
-        guard !Task.isCancelled else { return }
-        if auth == .unknown {
-            guard status.0 else { return }
-            auth = .authorized
-            // A returning user who already granted access should get the live stream re-armed for this
-            // process. enableLiveDelivery is idempotent (HealthKit dedups observers + background
-            // delivery per type), so calling it here as well as after a fresh requestAuthorization is safe.
-            enableLiveDelivery()
-            // The high-res write-back added share types (HR stream, workouts, energy/distance) that a
-            // pre-update grant has as `.notDetermined`. Re-request once: HealthKit shows a single sheet
-            // listing ONLY the new types, and each write feature independently guards on its own type's
-            // share status, so declining any checkbox just skips that feature.
-            // Raw request, NOT requestAuthorization(): that method reclassifies a thrown error as
-            // `.denied`, which must never demote a bridge that just resumed a valid legacy grant.
         }
-
-        // A privacy recovery must run after this request settles. Otherwise it can observe one missing
-        // high-resolution grant, defer, and receive no second foreground edge after the user answers.
-        guard auth == .authorized,
-              requestNewTypes,
-              !requestedExpandedWriteAuthorization,
-              status.1 else { return }
-        requestedExpandedWriteAuthorization = true
-        do {
-            try await store.requestAuthorization(toShare: writeTypes, read: readTypes)
-            HealthKitWritebackFingerprint.reset()
-        } catch {
-            // A transient request failure can retry on the next lifecycle grant. A completed system
-            // sheet remains one-shot for this process, even if the user leaves some types disabled.
-            requestedExpandedWriteAuthorization = false
-        }
+        guard eligible, !Task.isCancelled else { return }
+        auth = .authorized
+        enableLiveDelivery()
     }
 
     // MARK: - Live delivery (continuous ingestion)
@@ -1154,6 +1132,7 @@ final class HealthKitBridge: ObservableObject {
                         importedIdentities: importedIdentities,
                         initialScan: priorAnchor == nil,
                         now: Date(),
+                        sampleTypeIdentifier: type.identifier,
                         earliestLocalDate: {
                             try await cache.earliestAppleHealthTimestamp(deviceId: appleDeviceId)
                                 .map { Date(timeIntervalSince1970: TimeInterval($0)) }
@@ -1301,7 +1280,8 @@ final class HealthKitBridge: ObservableObject {
                 interval: interval,
                 bounds: bounds,
                 calendar: calendar,
-                cursor: request.cursor
+                cursor: request.cursor,
+                durableStore: whoopStore
             )
             deletedCount = deletion.deletedCount
             if let cursor = deletion.continuationCursor {
@@ -1400,7 +1380,8 @@ final class HealthKitBridge: ObservableObject {
         interval: HealthKitSourceDeletionProcessedInterval,
         bounds: SourceDeletionBounds,
         calendar: Calendar,
-        cursor: HealthKitSourceDeletionCursor?
+        cursor: HealthKitSourceDeletionCursor?,
+        durableStore: WhoopStore
     ) async throws -> SourceDeletionPage {
         let types = Self.sourceDeletionTypes(for: category)
         let componentIndex = cursor?.componentIndex ?? 0
@@ -1451,7 +1432,24 @@ final class HealthKitBridge: ObservableObject {
             return wakeDay >= interval.firstDay && wakeDay <= interval.lastDay
         }
         if !targets.isEmpty {
-            try await store.delete(targets)
+            // The observer receives only deleted UUIDs. Journal this exact NOOP-owned page before
+            // deleting it, just like ordinary export rewrites, so privacy cleanup cannot look like
+            // an unknown external deletion and reopen the entire Apple Health history.
+            _ = try await HealthKitExportDeletionCommit.commit(
+                sampleType: type,
+                loadSamples: { targets },
+                recordIdentities: { identities in
+                    _ = try await durableStore.upsertHealthKitObjectIdentities(
+                        identities,
+                        deviceId: HealthKitObserverPageCommit.exportIdentityNamespace
+                    )
+                },
+                delete: {
+                    try Task.checkCancellation()
+                    try await self.store.delete(targets)
+                    return targets.count
+                }
+            )
             try Task.checkCancellation()
         }
         if queried.count == HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery,
@@ -1769,7 +1767,7 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func performSync(window: HealthKitSyncWindow) async -> Bool {
-        guard auth == .authorized else { return false }
+        guard auth == .authorized, !Task.isCancelled else { return false }
         syncing = true
         defer { syncing = false }
         guard let store = await repo.storeHandle() else {
@@ -1876,6 +1874,7 @@ final class HealthKitBridge: ObservableObject {
         // Apple-workout range (an empty query is meaningful), then stream bounded workout batches back in.
         // The pending-window journal remains uncleared until every batch succeeds, so a kill between
         // batches reruns the same idempotent replacement instead of leaving a committed partial import.
+            try Task.checkCancellation()
             try await store.replaceAppleHealthRange(
                 appleDaily: appleRows,
                 dailyMetrics: dmRows,
@@ -1886,12 +1885,15 @@ final class HealthKitBridge: ObservableObject {
                 toDay: Self.dayString(end),
                 fromTimestamp: Int(start.timeIntervalSince1970),
                 toTimestamp: Int(end.timeIntervalSince1970),
-                workoutSource: Self.appleWorkoutSource
+                workoutSource: Self.appleWorkoutSource,
+                preserveUnprovenEmptyReads: true,
+                projectionDeletions: window.projectionDeletions
             )
             try await streamWorkouts(start: start, end: end) { rows in
                 guard !rows.isEmpty else { return }
                 _ = try await store.upsertWorkouts(rows, deviceId: appleDeviceId)
             }
+            try Task.checkCancellation()
             // Inbound Health data is already durably committed. Outbound mirroring is a separate,
             // best-effort side effect and must never keep the import journal alive or prevent the scoring
             // coordinator from publishing Recovery. Per-component writeback fingerprints retain only
@@ -1899,11 +1901,16 @@ final class HealthKitBridge: ObservableObject {
             do {
                 try await writeBack(whoopStore: store)
                 lastError = nil
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 lastError = String(localized: "Apple Health data imported; write-back will retry: \(error.localizedDescription)")
             }
             lastSync = Date()
             return true
+        } catch is CancellationError {
+            // The import coordinator retains the exact window. Expiry can resume it on the next wake.
+            return false
         } catch {
             lastError = String(localized: "Apple Health sync failed: \(error.localizedDescription)")
             return false
@@ -1949,6 +1956,7 @@ final class HealthKitBridge: ObservableObject {
         importedIds: [String],
         computedIds: [String]
     ) async throws {
+        try Task.checkCancellation()
         let now = Date()
         guard let fromDate = Calendar.current.date(byAdding: .day, value: -days, to: now) else { return }
         let fromTs = Int(fromDate.timeIntervalSince1970)
@@ -1966,17 +1974,21 @@ final class HealthKitBridge: ObservableObject {
             try await writeVitals(whoopStore: whoopStore, days: days, sessions: sessions,
                                   importedIds: importedIds, computedIds: computedIds)
         }
+        try Task.checkCancellation()
         await attempt {
             try await writeSleep(sessions: sessions, durableStore: whoopStore)
         }
+        try Task.checkCancellation()
         await attempt {
             try await writeHeartRate(whoopStore: whoopStore, importedIds: importedIds,
                                      fromTs: fromTs, nowTs: nowTs)
         }
+        try Task.checkCancellation()
         await attempt {
             try await writeWorkouts(whoopStore: whoopStore, importedIds: importedIds,
                                     computedIds: computedIds, fromTs: fromTs, toTs: nowTs)
         }
+        try Task.checkCancellation()
         if let firstError { throw firstError }
     }
 
@@ -2579,6 +2591,7 @@ final class HealthKitBridge: ObservableObject {
 
     private func collect(_ id: HKQuantityTypeIdentifier, unit: HKUnit, start: Date, end: Date,
                          op: HKStatisticsOptions) async throws -> [String: Double] {
+        try Task.checkCancellation()
         guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return [:] }
         let cal = Calendar.current
         let anchor = cal.startOfDay(for: start)
@@ -2634,77 +2647,77 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func collectSleep(start: Date, end: Date) async throws -> [String: SleepDayAgg] {
+        try Task.checkCancellation()
+        let calendar = Calendar.current
+        // Query one civil day on each side. Keep raw overlap until the shared reducer finalizes
+        // an episode, so the first/last requested day sees complete overnight stage evidence.
+        let queryStart = calendar.date(byAdding: .day, value: -1, to: start) ?? start
+        let queryEnd = min(Date(), calendar.date(byAdding: .day, value: 1, to: end) ?? end)
+        let firstDay = Self.dayString(start), lastDay = Self.dayString(end)
+        var reducer = AppleSleepEpisodeReducer.Accumulator()
         var merged: [String: SleepDayAgg] = [:]
-        for (index, window) in queryWindows(start: start, end: end).enumerated() {
-            let chunk = try await collectSleepChunk(
-                start: window.start,
-                end: window.end,
-                includesLeadingOverlap: index == 0
-            )
-            for (day, value) in chunk {
-                var total = merged[day] ?? SleepDayAgg(asleepMin: nil, deepMin: nil, remMin: nil, coreMin: nil)
-                total.asleepMin = Self.boundedSleepSum(total.asleepMin, value.asleepMin)
-                total.deepMin = Self.boundedSleepSum(total.deepMin, value.deepMin)
-                total.remMin = Self.boundedSleepSum(total.remMin, value.remMin)
-                total.coreMin = Self.boundedSleepSum(total.coreMin, value.coreMin)
-                merged[day] = total
+        func append(_ episodes: [AppleSleepEpisodeReducer.Episode]) {
+            for episode in episodes where episode.wakeDay >= firstDay && episode.wakeDay <= lastDay {
+                // In-bed/awake alone never establishes a slept total. A summary fully overridden
+                // by detailed awake evidence does establish a real zero and must still replace it.
+                guard episode.hasAsleepEvidence else { continue }
+                var total = merged[episode.wakeDay]
+                    ?? SleepDayAgg(asleepMin: nil, deepMin: nil, remMin: nil, coreMin: nil)
+                total.asleepMin = (total.asleepMin ?? 0) + episode.asleep
+                total.deepMin = (total.deepMin ?? 0) + episode.deep
+                total.remMin = (total.remMin ?? 0) + episode.rem
+                total.coreMin = (total.coreMin ?? 0) + episode.core
+                merged[episode.wakeDay] = total
             }
         }
-        return merged
-    }
-
-    private static func boundedSleepSum(_ lhs: Double?, _ rhs: Double?) -> Double? {
-        switch (lhs, rhs) {
-        case (nil, nil): return nil
-        case (let value?, nil), (nil, let value?): return value
-        case (let lhs?, let rhs?):
-            let sum = lhs + rhs
-            return sum.isFinite ? min(sum, 24 * 60) : nil
+        for window in queryWindows(start: queryStart, end: queryEnd) {
+            try Task.checkCancellation()
+            let intervals = try await collectSleepChunk(start: window.start, end: window.end,
+                                                       fallbackTimeZone: calendar.timeZone)
+            try Task.checkCancellation()
+            append(reducer.ingest(intervals, through: window.end))
         }
+        try Task.checkCancellation()
+        append(reducer.finish())
+        return merged
     }
 
     private func collectSleepChunk(
         start: Date,
         end: Date,
-        includesLeadingOverlap: Bool
-    ) async throws -> [String: SleepDayAgg] {
-        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return [:] }
+        fallbackTimeZone: TimeZone
+    ) async throws -> [SleepStageInterval] {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return [] }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            HKQuery.predicateForSamples(
-                withStart: start,
-                end: end,
-                options: includesLeadingOverlap ? [] : .strictStartDate
-            ),
+            // Overlap queries deliberately repeat boundary objects; the reducer retains identity and
+            // deduplicates before selecting stages. Strict-start chunks would lose leading stages.
+            HKQuery.predicateForSamples(withStart: start, end: end, options: []),
             Self.notNoopAuthored,
         ])
         return try await withCheckedThrowingContinuation {
-            (cont: CheckedContinuation<[String: SleepDayAgg], Error>) in
-            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+            (cont: CheckedContinuation<[SleepStageInterval], Error>) in
+            let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit,
+                                      sortDescriptors: nil) { _, samples, error in
                 if let error { cont.resume(throwing: error); return }
-                var asleep: [String: Double] = [:], deep: [String: Double] = [:]
-                var rem: [String: Double] = [:], core: [String: Double] = [:]
-                for case let s as HKCategorySample in samples ?? [] {
-                    let mins = s.endDate.timeIntervalSince(s.startDate) / 60
-                    guard mins.isFinite, mins > 0, mins <= 24 * 60 else { continue }
-                    let day = HealthKitBridge.dayString(s.endDate)
-                    switch s.value {
-                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
-                        deep[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
-                        rem[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    case HKCategoryValueSleepAnalysis.asleepCore.rawValue, HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
-                        core[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    default:
-                        break
-                    }
+                let intervals = (samples ?? []).compactMap { sample -> SleepStageInterval? in
+                    guard let sample = sample as? HKCategorySample else { return nil }
+                    let stage = SleepStage.from(rawValue: String(sample.value))
+                    guard stage != .unknown else { return nil }
+                    // Prefer the sample's recorded timezone. With no metadata, freeze the query's
+                    // timezone for every chunk; secondsFromGMT(for:) still handles historical DST.
+                    let zone = (sample.metadata?[HKMetadataKeyTimeZone] as? String)
+                        .flatMap(TimeZone.init(identifier:)) ?? fallbackTimeZone
+                    return SleepStageInterval(
+                        stage: stage, start: sample.startDate, end: sample.endDate,
+                        tzOffsetMin: zone.secondsFromGMT(for: sample.endDate) / 60,
+                        sourceName: sample.sourceRevision.source.name,
+                        sourceIdentifier: sample.sourceRevision.source.bundleIdentifier,
+                        sampleID: sample.uuid.uuidString
+                    )
                 }
-                let values = Dictionary(uniqueKeysWithValues: Set(asleep.keys).map { day in
-                    (day, SleepDayAgg(asleepMin: asleep[day], deepMin: deep[day],
-                                      remMin: rem[day], coreMin: core[day]))
-                })
-                cont.resume(returning: values)
+                cont.resume(returning: intervals)
             }
-            store.execute(q)
+            store.execute(query)
         }
     }
 
@@ -2724,13 +2737,17 @@ final class HealthKitBridge: ObservableObject {
         end: Date,
         consume: ([WorkoutRow]) async throws -> Void
     ) async throws {
+        try Task.checkCancellation()
         for (index, window) in queryWindows(start: start, end: end).enumerated() {
+            try Task.checkCancellation()
             let rows = try await collectWorkoutChunk(
                 start: window.start,
                 end: window.end,
                 includesLeadingOverlap: index == 0
             )
+            try Task.checkCancellation()
             try await consume(rows)
+            try Task.checkCancellation()
         }
     }
 

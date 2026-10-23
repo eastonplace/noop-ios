@@ -194,6 +194,20 @@ public struct LiveSessionEngine {
     public mutating func update(now: Int, bpm: Int?) -> Output {
         let dt = max(now - lastUpdateTs, 0)
 
+        // Dwell and slow drift require a continuous observed stretch. Check the previous receipt
+        // before accepting this one: background suspension can hide every stale timer tick, and a
+        // fresh sample must not turn that missing time into an immediate cue or ceiling change.
+        if let lastValidTs, now - lastValidTs > Self.staleAfterSec {
+            buffer.removeAll(keepingCapacity: true)
+            smoothedHistory.removeAll(keepingCapacity: true)
+            lastAcceptedBpm = nil
+            currentPosition = .inBand
+            belowSinceTs = nil
+            aboveSinceTs = nil
+            aboveSlowSinceTs = nil
+            lastClimbTs = nil
+        }
+
         // 1. Validate + accept the sample (never-fabricate guard).
         var sampleArrived = false
         if let raw = bpm, isPlausible(bpm: Double(raw), now: now) {
@@ -208,7 +222,7 @@ public struct LiveSessionEngine {
         buffer.removeAll { $0.ts < windowStart }
         let smoothed = buffer.isEmpty ? nil : median(buffer.map { Double($0.bpm) })
 
-        // 3. Staleness — coaching pauses, nothing accrues, dwell freezes.
+        // 3. Staleness — coaching pauses, nothing accrues, continuous dwell starts over.
         let sinceValid = lastValidTs.map { now - $0 } ?? (now - startTs)
         let isStale = sinceValid > Self.staleAfterSec
         let band = currentBand()

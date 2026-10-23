@@ -79,9 +79,9 @@ struct RootTabView: View {
     }
     private var coachTabRoot: some View {
         #if DEBUG
-        LocalCoachView(screen: QACoachPage.requested ?? .chat)
+        LocalCoachView(screen: QACoachPage.requested ?? .chat, journalRepository: repo)
         #else
-        LocalCoachView()
+        LocalCoachView(journalRepository: repo)
         #endif
     }
     private var sleepTabRoot: some View {
@@ -329,6 +329,9 @@ struct RootTabView: View {
             case .trends:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
                 router.requestedDestination = nil
+            case .coach:
+                router.requestedDestination = nil
+                presentAfterClosingSettings { selectedTab = 4 }
             case .activeWorkout:
                 // The deep-link key for the running workout: the journey opens at the live screen.
                 router.openActiveWorkout()
@@ -727,6 +730,7 @@ struct RootTabView: View {
                 case .activeWorkout: EmptyView()
                 case .liveSession: TodayView()
                 case .settings: EmptyView() // Settings is `SettingsSheetHost`, never a routed pillar.
+                case .coach: EmptyView() // Coach is a tab, never a routed pillar.
                 case .updates: UpdatesInboxView(onClose: { routedPillar = nil })
                 }
             }

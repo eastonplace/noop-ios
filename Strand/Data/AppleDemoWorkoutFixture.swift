@@ -3,6 +3,7 @@ import Foundation
 import GRDB
 import WhoopProtocol
 import WhoopStore
+import WorkoutRouteExport
 
 // MARK: - DEBUG-only demo week for the Workouts screens
 //
@@ -160,7 +161,7 @@ enum AppleDemoWorkoutFixture {
 
         // Yesterday: a GPS run with its route, scored by NOOP from the trace.
         let runStart = ts(1, 17, 40), runEnd = runStart + 34 * 60
-        let route = demoRoute()
+        let route = demoRoute(startTs: runStart, durationS: runEnd - runStart)
         let runTrace = hrTrace(start: runStart, end: runEnd, seed: 0x2E55) { (t: Double, total: Double) -> Double in
             let warm = 240.0, cool = 360.0
             if t < warm { return 110 + 44 * (t / warm) }
@@ -345,15 +346,22 @@ enum AppleDemoWorkoutFixture {
 
     // MARK: - Route
 
-    /// A loop through Central Park, wobbled so it reads as a path rather than an ellipse.
-    static func demoRoute() -> WorkoutRoute {
+    /// A loop through Central Park, wobbled so it reads as a path rather than an ellipse. It carries one timestamp per
+    /// point across the session, as a recorded run does, so the workout's Share route control appears.
+    static func demoRoute(startTs: Int, durationS: Int) -> WorkoutRoute {
         let points = (0...150).map { index -> RouteMath.LatLng in
             let angle = Double(index) / 150 * 2 * Double.pi
             let lat = 40.7790 + 0.0086 * Foundation.sin(angle) + 0.0009 * Foundation.sin(3 * angle + 1.1)
             let lon = -73.9650 + 0.0104 * Foundation.cos(angle) + 0.0007 * Foundation.cos(2 * angle + 0.4)
             return RouteMath.LatLng(lat, lon)
         }
-        return WorkoutRoute(polyline: RouteMath.encode(points), distanceM: RouteMath.totalMeters(points).rounded())
+        let stepMs = Int64(durationS) * 1_000 / Int64(points.count - 1)
+        let timed = points.enumerated().map { index, point in
+            RecordedRoutePoint(latitude: point.lat, longitude: point.lon,
+                               timestampMs: Int64(startTs) * 1_000 + Int64(index) * stepMs, horizontalAccuracyM: 5)
+        }
+        return WorkoutRoute(segmentPolylines: [RouteMath.encode(points)],
+                            distanceM: RouteMath.totalMeters(points).rounded(), pointSegments: [timed])
     }
 }
 #endif

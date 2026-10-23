@@ -383,6 +383,41 @@ def require_presented_screens_own_header_context(errors: list[str]) -> None:
     errors.extend(presentation_findings(sources))
 
 
+def ci_workflow_findings(app_text: str, package_text: str) -> list[str]:
+    """Require one authoritative package pass and observed outcomes at the shadow gate."""
+    import yaml
+
+    errors: list[str] = []
+    try:
+        app = yaml.load(app_text, Loader=yaml.BaseLoader)
+        packages = yaml.load(package_text, Loader=yaml.BaseLoader)
+        app_jobs = app['jobs']
+        package_jobs = packages['jobs']
+        test = package_jobs['test']
+        gate = app_jobs['ci-gate']
+        commands = '\n'.join(step.get('run', '') for step in test['steps'])
+        gate_commands = '\n'.join(step.get('run', '') for step in gate['steps'])
+        matrix = test['strategy']['matrix']
+        if 'swift test' in app_text:
+            errors.append('app-build must not repeat the authoritative Swift package test pass.')
+        if 'swift test' not in commands:
+            errors.append('swift-packages must execute the authoritative swift test pass.')
+        if test.get('name') != 'test (${{ matrix.package }})':
+            errors.append('swift-packages must preserve the legacy test (Package) contexts.')
+        if 'host_matrix' not in str(matrix) or 'matrix.runner' not in test.get('runs-on', ''):
+            errors.append('swift-packages must consume the validated host matrix and planned runner.')
+        if gate.get('name') != 'NOOP CI Gate' or 'always()' not in gate.get('if', ''):
+            errors.append('app-build must expose the stable, always-evaluated NOOP CI Gate.')
+        if 'wait_for_packages.py' not in gate_commands or 'validate_gate.py' not in gate_commands:
+            errors.append('NOOP CI Gate must observe actual package and app execution evidence.')
+        for data in (app, packages):
+            if 'paths' in data['on']['pull_request'] or 'paths-ignore' in data['on']['pull_request']:
+                errors.append('required PR workflows must run on every changed path.')
+    except (KeyError, TypeError, yaml.YAMLError) as error:
+        errors.append(f'invalid change-aware CI workflow contract: {error}')
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -530,20 +565,16 @@ def main() -> int:
         for earlier, later in zip(audit_markers, audit_markers[1:]):
             require_before(errors, workflow_text, earlier, later, "app-build workflow")
         require_before(errors, workflow_text, audit_markers[-1], "xcodegen generate", "app-build workflow")
-        for package in retained_packages:
-            if package not in workflow_text:
-                errors.append(f"app-build workflow does not run retained package {package}.")
 
     package_workflow = ROOT / ".github/workflows/swift-packages.yml"
     if not package_workflow.exists():
         errors.append(".github/workflows/swift-packages.yml is missing.")
     else:
         package_workflow_text = package_workflow.read_text(encoding="utf-8")
-        for package in retained_packages:
-            if package not in package_workflow_text:
-                errors.append(f"swift-packages workflow does not run retained package {package}.")
         if "PolarProtocol" in package_workflow_text:
             errors.append("swift-packages workflow restored PolarProtocol without an intentional package.")
+        if app_workflow.exists():
+            errors.extend(ci_workflow_findings(workflow_text, package_workflow_text))
 
     refresh_contract = ROOT / "Strand/Data/RepositoryRefreshIntent.swift"
     if "inferredLegacyIntent" in refresh_contract.read_text(encoding="utf-8"):

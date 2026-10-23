@@ -277,8 +277,12 @@ public enum LiftingImporter {
                 // skipped (don't import work that wasn't done). No fallback to `reps` — that was
                 // counting template sets into the volume load.
                 guard let r = liftosaurInt(set["completedReps"]), r > 0 else { continue }
+                let (totalReps, overflow) = reps.addingReportingOverflow(r)
+                // The existing caller skips/counts a malformed history record. Dropping the whole
+                // session avoids claiming partial reps, sets or volume after an invalid aggregate.
+                guard !overflow else { return nil }
                 sets += 1
-                reps += r
+                reps = totalReps
                 if let w = liftosaurWeightKg(set, entryUnit: entryUnit), w > 0 {
                     top = max(top ?? 0, w)
                     volume += w * Double(r)

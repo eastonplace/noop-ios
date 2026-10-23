@@ -12,6 +12,7 @@ struct CoachWelcomeView: View {
     let onAsk: (String) -> Void
     let onSettings: () -> Void
     let onPlan: () -> Void
+    var journalWidget: CoachJournalWidget? = nil
 
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -26,6 +27,9 @@ struct CoachWelcomeView: View {
             Spacer(minLength: 24)
             greetingBlock
                 .padding(.horizontal, 24)
+            if let journalWidget {
+                journalWidget.padding(.horizontal, 24).padding(.top, NoopMetrics.space4)
+            }
             Spacer(minLength: 28)
             VStack(spacing: 10) {
                 if availability == .available && !hasConsent { accessRow }

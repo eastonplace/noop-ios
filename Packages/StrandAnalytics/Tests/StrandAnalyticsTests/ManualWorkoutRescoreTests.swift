@@ -6,6 +6,28 @@ import WhoopProtocol
 /// HR now available for its window, conservatively and idempotently.
 final class ManualWorkoutRescoreTests: XCTestCase {
 
+    func testInvalidReadingsDoNotCreateARescorableWorkout() {
+        let invalid = [HRSample(ts: 1_000, bpm: 0), HRSample(ts: 1_001, bpm: 255)]
+        XCTAssertNil(ManualWorkoutRescore.scored(windowSamples: invalid,
+                                               profile: UserProfile(), hrMax: 190))
+        XCTAssertNil(ManualWorkoutRescore.scored(
+            windowSamples: invalid + [HRSample(ts: 1_002, bpm: 140)],
+            profile: UserProfile(), hrMax: 190),
+            "the minimum two-reading gate must count usable physiology")
+    }
+
+    func testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate() throws {
+        let valid = (0..<1_200).map { HRSample(ts: 1_000 + $0 * 2, bpm: 140) }
+        let invalid = (0..<1_200).map { HRSample(ts: 1_001 + $0 * 2, bpm: 0) }
+            + [HRSample(ts: 3_400, bpm: 255)]
+        let expected = try XCTUnwrap(ManualWorkoutRescore.scored(
+            windowSamples: valid, profile: UserProfile(), hrMax: 190))
+        let actual = ManualWorkoutRescore.scored(
+            windowSamples: Array((valid + invalid).reversed()), profile: UserProfile(), hrMax: 190)
+        XCTAssertEqual(actual, expected,
+                       "average, peak, calories and strain must all exclude the same invalid HR rows")
+    }
+
     private let profile = UserProfile(weightKg: 80, heightCm: 180, age: 30, sex: "male")
 
     /// A dense, moderately-hard window scores real calories + strain (the 5/MG case after offload).

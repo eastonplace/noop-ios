@@ -2,8 +2,7 @@
 """Project hygiene checks that need no simulator (ORG-1, ORG-4, ORG-11).
 
 1. ERROR: a top-level `*Tests` folder, or a tracked `*Tests.swift` file outside `Packages/`, that no
-   test target in project.yml compiles. Such tests silently never run (StrandTests is allowlisted until
-   its remaining files are ported).
+   test target in project.yml compiles. Such tests silently never run.
 2. WARN: `MARKETING_VERSION` in project.yml differs from the newest release in AppChangelog.swift.
 3. ERROR: a project.yml source or package path whose case does not match the paths Git tracks. A
    case-insensitive disk hides this; a case-sensitive CI checkout fails on it.
@@ -25,8 +24,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Folders whose tests are known not to be in any target yet; remove an entry once the folder is gone.
-ALLOWLISTED_ORPHAN_TEST_FOLDERS = {"StrandTests"}
+# No blanket orphan-folder exemptions. Legacy coverage is ported or individually retired in
+# legacy_test_dispositions.json; new tests must belong to a configured target.
+ALLOWLISTED_ORPHAN_TEST_FOLDERS: set[str] = set()
 
 CHANGELOG_PATH = "Strand/System/AppChangelog.swift"
 

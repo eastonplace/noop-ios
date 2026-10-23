@@ -61,17 +61,37 @@ values, is in [`Whoop5Config.swift`](../Packages/WhoopProtocol/Sources/WhoopProt
 and is covered by Swift golden tests. `enable_r22_packets` is the one that opens the type-`0x2F` biometric stream; the rest
 tune channel selection, wear detection and sleep behaviour.
 
-## How NOOP uses it (opt-in, reversible)
+## How NOOP uses it (explicit write permission)
 
 - A **default-off** Settings → Experimental toggle, separate from the read-only probes because this one
   *writes* to the strap.
 - A manual **"Send enable sequence to strap"** button (not auto-run on connect), enabled only when a
   5/MG is **bonded and worn** (the R22 stream is on-wrist gated).
-- The 15 flags are written with-response, ~80 ms apart.
-- It's **reversible** — it only changes which data the strap chooses to emit — and is the same thing the
-  official app does on every connect.
+- The 16 flags are requested with-response, ~80 ms apart. The first 15 match the published capture;
+  `enable_sig12` is documented separately in the source.
+- Turning the permission **off cancels unsent writes**, including those waiting in the confirmed-write
+  queue. Each remaining write rechecks current permission, attempt generation, and secure ownership
+  before issue. An ATT write already handed to CoreBluetooth cannot be recalled, so its callback owner
+  stays intact. History, broadcast, and alarm commands keep their existing queue entries.
+- OFF does not restore settings already written.
+  NOOP has no validated restore sequence or saved per-device values. Do not use zero or the opposite
+  digit as an inverse; these values have different meanings across the flags.
 - **Physical iPhone only:** the command requires an authenticated SMP bond and cannot be validated in
   the simulator.
+
+## Restore limitation (reviewed 2026-10-21)
+
+The [published frame specification](https://judes.club/experiments/whoop5/) documents the enable
+sequence, not a restore sequence. The current [dofek protocol notes](https://github.com/Asherlc/dofek/blob/main/docs/whoop-ble-protocol.md)
+name `START_FF_KEY_EXCHANGE` (0x75) and `GET_FF_VALUE` (0x76), but do not establish complete readback
+and restore payloads, responses, or safe inverse values for every flag. Several flag values remain
+unknown there. NOOP has no validated implementation of these reads and did not save the values that
+preceded earlier enable writes.
+
+A safe restore needs a device- and firmware-scoped prior-value snapshot, confirmed write ownership,
+and qualified readback/write semantics. It must preserve changes from the official app or another
+client. Until that evidence exists, OFF sends no inverse commands. An absent or malformed preference
+also authorizes no write. WHOOP 4 remains outside this experiment.
 
 ## Honest limits
 
@@ -89,7 +109,7 @@ tune channel selection, wear detection and sleep behaviour.
 
 ## How to help (5.0 / MG owners)
 
-1. Update to the latest NOOP, **Settings → Experimental → "Unlock WHOOP 5/MG deep data (R22)"**.
+1. Update to the latest NOOP, **Settings → Experimental → "Allow WHOOP 5/MG deep-data changes"**.
 2. With the strap **on and bonded**, tap **Send enable sequence to strap**.
 3. Keep wearing it, let it sync, then **share your strap log** on #174 — we're looking for new deep
    records (type `0x2F`) to start arriving.

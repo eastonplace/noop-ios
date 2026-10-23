@@ -171,19 +171,28 @@ public enum SleepWindowRecovery {
                     rrCoverage: 0,
                     respCoverage: 0))
         }
-        let hrWindow = hr.filter { $0.ts >= start && $0.ts <= end }.sorted { $0.ts < $1.ts }
+        // Evidence and vitals must share the same plausibility gate as automatic sleep analysis.
+        // Raw off-wrist HR rows are retained by the store; their presence cannot establish wear here.
+        let hrWindow = hr.filter {
+            $0.ts >= start && $0.ts <= end && HRValidity.isPlausible($0.bpm)
+        }.sorted { $0.ts < $1.ts }
         let rrWindow = rr.filter { $0.ts >= start && $0.ts <= end }.sorted { $0.ts < $1.ts }
+        // Count plausible beats for wear evidence, but keep the original sequence for HRV cleaning:
+        // removing bad beats here would splice their neighbors before the gap-aware RMSSD calculation.
+        let plausibleRR = rrWindow.filter {
+            Double($0.rrMs) >= HRVAnalyzer.rrMinMs && Double($0.rrMs) <= HRVAnalyzer.rrMaxMs
+        }
         let respWindow = resp.filter { $0.ts >= start && $0.ts <= end }.sorted { $0.ts < $1.ts }
         let gravityWindow = gravity.filter { $0.ts >= start && $0.ts <= end }.sorted { $0.ts < $1.ts }
 
         let evidence = SleepWindowEvidence(
             gravitySamples: gravityWindow.count,
             hrSamples: hrWindow.count,
-            rrSamples: rrWindow.count,
+            rrSamples: plausibleRR.count,
             respSamples: respWindow.count,
             gravityCoverage: coverageFraction(gravityWindow.map(\.ts), start: start, end: end),
             hrCoverage: coverageFraction(hrWindow.map(\.ts), start: start, end: end),
-            rrCoverage: coverageFraction(rrWindow.map(\.ts), start: start, end: end),
+            rrCoverage: coverageFraction(plausibleRR.map(\.ts), start: start, end: end),
             respCoverage: coverageFraction(respWindow.map(\.ts), start: start, end: end)
         )
 
@@ -191,7 +200,7 @@ public enum SleepWindowRecovery {
         // be perfectly still for hours. Require at least one physiological stream before
         // the user's bounds may create a session. Motion remains the staging signal, not
         // the wear proof.
-        guard !hrWindow.isEmpty || !rrWindow.isEmpty || !respWindow.isEmpty else {
+        guard !hrWindow.isEmpty || !plausibleRR.isEmpty || !respWindow.isEmpty else {
             return result(
                 source: source, outcome: .insufficientData, reason: .noPhysiology,
                 confidence: 0, start: start, end: end, evidence: evidence)

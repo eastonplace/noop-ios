@@ -119,35 +119,35 @@ extension MetricInfo {
             .init(heading: String(localized: "What it means"), body:
                 String(localized: "Strain is how much work your heart and body have done today, from light activity to an all-out day.")),
             .init(heading: String(localized: "What good looks like"), paragraphs: [
-                String(localized: "It depends on your recovery, not a fixed target. On the 0–21 scale, under 10 is light, 10–13 is moderate, 14–17 is high and 18+ is all-out. (If you chose the 0–100 scale in Settings, the same bands are scaled up.)"),
+                String(localized: "It depends on your recovery, not a fixed target. On the 0–21 scale, under 10 is Light, 10 to under 14 is Moderate, 14 to under 18 is High, and 18 or more is All Out."),
                 String(localized: "A good match is high strain on high Recovery days and lighter strain on low ones."),
             ]),
             .init(heading: String(localized: "Reading yours"), paragraphs: [
                 String(localized: "Low on a green day: you have room to do more."),
                 String(localized: "High on a red day: you are stacking load on a tired body. Ease off tomorrow."),
                 String(localized: "Several all-out days in a row builds fatigue fast. Mix in easy days."),
-                String(localized: "It rises through the day, and the number only counts effort on heart rate, so it is a guide rather than an exact measure.")
+                String(localized: "It builds through the day from heart-rate and movement load. Logged working sets can add muscular load, so lifting can count even when heart rate alone misses some of the work.")
             ]),
             .init(heading: String(localized: "How it's worked out"), body:
-                String(localized: "Time spent at higher heart rates counts more than time at lower rates, relative to your max heart rate, and builds up over the day.")),
+                String(localized: "Heart-rate intervals count more as heart-rate reserve rises, using your resting and maximum heart rates. Worn sleep adds background credit. Steps and active energy provide floors, and logged working sets add muscular load to the heart-rate component before it is compared with those floors. The result is shown on the 0–21 scale.")),
         ]
     }
 
     static var strainScoreSections: [MetricInfoSection] {
         [
             .init(heading: String(localized: "What it means"), body:
-                String(localized: "These rows show which parts of your day added to your Strain score, so you can see what moved it.")),
+                String(localized: "These rows show the overlapping values used to choose your Strain score, plus any increase from logged lifting.")),
             .init(heading: String(localized: "What good looks like"), paragraphs: [
-                String(localized: "There is no ideal split. A big share from cardio is normal on a workout day. Steps and energy matter more on a quiet one."),
+                String(localized: "There is no ideal split to aim for. Cardio often sets the score on a workout day. Steps or active energy can set a floor on a quieter one."),
                 String(localized: "What matters is that the total suits your Recovery: more on green days, less on red ones.")
             ]),
             .init(heading: String(localized: "Reading yours"), paragraphs: [
-                String(localized: "Mostly cardio: heart rate work, like runs, rides and hard sessions, did most of it."),
-                String(localized: "Mostly steps or energy: it was a movement day, not a training day."),
-                String(localized: "If the parts do not add up to the score above, the parts are worked out from the day's readings and can differ a little."),
+                String(localized: "Cardio decides the score when its heart-rate and worn-sleep load, plus any logged lifting, is at least as high as the movement floors."),
+                String(localized: "Steps or energy decides the score when that movement floor is higher than the cardiovascular and lifting result."),
+                String(localized: "Do not add the rows together. The Lifting row shows only what your logged sets add. After lifting is applied to cardio, the highest of cardio, steps and active energy sets the score. If the rows do not match the score above, they can come from a different source or scoring moment."),
             ]),
             .init(heading: String(localized: "How it's worked out"), body:
-                String(localized: "Each row is a share of the day's score from heart rate, steps, active energy and any lifting you logged.")),
+                String(localized: "NOOP compares the heart-rate and worn-sleep component with the step and active-energy floors. Logged lifting adds to the cardiovascular load before that comparison. These are overlapping candidates, not shares of a total.")),
         ]
     }
 
@@ -193,7 +193,7 @@ extension MetricInfo {
     static var sleepScoreSections: [MetricInfoSection] {
         [
             .init(heading: String(localized: "What it means"), body:
-                String(localized: "Your Sleep score is how well last night met what your body needed, from 0 to 100%. It is mostly about whether you slept long enough, with smaller credit for sleeping efficiently, keeping regular times and a calm night.")),
+                String(localized: "Your Sleep score is a 0–100% summary of the night. NOOP's own scores consider how much you slept against your need, how efficiently you slept and how regular your sleep was. Imported scores keep the source's calculation.")),
             .init(heading: String(localized: "What good looks like"), paragraphs: [
                 String(localized: "85% and up is excellent, 70–84% is good, and below about 50% means the night fell well short."),
                 String(localized: "Most adults need about 7–9 hours. Your own need can be a bit more after hard days."),
@@ -205,7 +205,7 @@ extension MetricInfo {
                 guideNote
             ]),
             .init(heading: String(localized: "How it's worked out"), body:
-                String(localized: "About 70% hours slept against your Sleep need, then 10% each for efficiency, regular bed and wake times, and low overnight stress. Deep and REM shares are shown for interest and are not part of the score.")),
+                String(localized: "The method depends on the score's source. NOOP's legacy model weights hours against need at 50%, efficiency at 20%, deep and REM sleep at 20%, and consistency at 10%. The newer model weights hours against need at 70%, then efficiency, regular bed and wake times, and low overnight stress at 10% each, with a lower ceiling when optional signals are missing. Imported WHOOP scores use WHOOP's calculation.")),
         ]
     }
 
@@ -336,7 +336,7 @@ extension MetricInfo {
                 guideNote
             ]),
             .init(heading: String(localized: "How it's worked out"), body:
-                String(localized: "From your beat-to-beat heart signals compared with your own calm baseline. It needs a few nights to learn that baseline.")),
+                String(localized: "The daily score uses a stored stress value when available, or resting heart rate and HRV against recent daily history. The hourly timeline normally compares today's waking heart-rate and beat-to-beat signals with calmer hours from the same day; it can work without earlier nights or usable beat-to-beat data. If Personal baseline is enabled and enough history is available, the hourly timeline instead uses a heart-rate baseline from the previous 30 complete days. Otherwise it keeps the same-day comparison. The selected baseline mode does not change the daily score.")),
         ]
     }
 
@@ -383,7 +383,7 @@ extension MetricInfo {
                 String(localized: "How closely two of your numbers move together across your own days. For example, whether higher HRV tends to come with higher Recovery.")),
             .init(heading: String(localized: "What good looks like"), paragraphs: [
                 String(localized: "There is no good or bad value. The number runs from −1 to +1. Near 0 means no link, near +1 means they rise together and near −1 means one rises as the other falls."),
-                String(localized: "Roughly, under 0.3 is weak, 0.3–0.6 moderate and above 0.6 strong."),
+                String(localized: "Strength uses the size of r, ignoring its sign. Below 0.1 is no relationship, 0.1 to under 0.3 is weak, 0.3 to under 0.5 moderate, 0.5 to under 0.7 strong, and 0.7 or more very strong. The sign only tells you whether the numbers move together or in opposite directions."),
             ]),
             .init(heading: String(localized: "Reading yours"), paragraphs: [
                 String(localized: "A link is not a cause. Two numbers can move together because a third thing drives both, or by chance, especially with a short history."),

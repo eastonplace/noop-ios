@@ -94,6 +94,7 @@ final class NavRouter: ObservableObject {
         case fusedRecord
         case rhythm
         case trends
+        case coach
         case activeWorkout
         case liveSession
         /// A deep-link key for Updates items (and callers that predate `openSettings`). The shell answers it by
@@ -174,6 +175,7 @@ final class NavRouter: ObservableObject {
     func openRhythm() { requestedDestination = .rhythm }
     /// Open the Trends screen (where a "new data" reading deep-links).
     func openTrends() { requestedDestination = .trends }
+    func openCoach() { requestedDestination = .coach }
     /// Start a workout: the journey opens on setup. When a workout is already recording the shell opens that one instead (never
     /// a second setup).
     func beginWorkout(sport: String? = nil) { workoutJourneyRequest = .setup(initialSport: sport) }

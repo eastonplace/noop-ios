@@ -68,6 +68,15 @@ final class LoadFocusTests: XCTestCase {
                        .insufficient(workoutsWithHR: 2))
     }
 
+    func testDriverSnapshotDropsFormerSplitWhenHeartRateDisappears() {
+        let start = end.addingTimeInterval(-3_600)
+        var snapshot = LoadFocus.splitsByStart(workouts: [.init(start: start, zoneMinutes: [30, 0, 0, 0, 0])])
+        XCTAssertNotNil(snapshot[start])
+        snapshot = LoadFocus.splitsByStart(workouts: [.init(start: start, zoneMinutes: nil)])
+        XCTAssertNil(snapshot[start])
+        XCTAssertTrue(LoadFocus.splitsByStart(workouts: []).isEmpty)
+    }
+
     func testEmptyInput() {
         XCTAssertEqual(LoadFocus.evaluate(workouts: [], through: end, calendar: calendar), .insufficient(workoutsWithHR: 0))
     }

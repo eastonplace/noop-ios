@@ -1,0 +1,90 @@
+# Complete candidate coverage, separate from the focused PR critical path.
+name: NOOP full validation
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: noop-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: app
+    uses: ./.github/workflows/app-build.yml
+    with:
+      full: true
+  packages:
+    name: packages
+    uses: ./.github/workflows/swift-packages.yml
+    with:
+      full: true
+  full-gate:
+    name: NOOP Full Validation Gate
+    needs: [app, packages]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gate tools
+        uses: actions/checkout@v4
+      - name: Download full app plan
+        uses: actions/download-artifact@v4
+        with:
+          name: noop-app-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts
+      - name: Download actual full app outcomes
+        uses: actions/download-artifact@v4
+        with:
+          name: noop-app-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts
+      - name: Verify complete app and authoritative package coverage
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.sha }}
+          APP_WORKFLOW_RESULT: ${{ needs.app.result }}
+          PACKAGE_WORKFLOW_RESULT: ${{ needs.packages.result }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import json
+          plan = json.load(open('qa-artifacts/change-plan.json'))
+          if plan.get('mode') != 'full':
+              raise SystemExit('Full validation did not produce a full-coverage plan')
+          PYTHON
+          # Reusable matrix jobs belong to this run; there is no second package pass.
+          gate_policy_dir="$RUNNER_TEMP/noop-protected-gate"
+          mkdir -p "$gate_policy_dir"
+          # Full validation uses gate code from the exact candidate commit.
+          for script in validate_gate.py wait_for_packages.py; do
+            git show "$BASE_SHA:Tools/ci/$script" > "$gate_policy_dir/$script"
+          done
+          python3 -I "$gate_policy_dir/wait_for_packages.py" --plan qa-artifacts/change-plan.json \
+            --repository "$GITHUB_REPOSITORY" --base-sha "$GITHUB_SHA" --head-sha "$GITHUB_SHA" --tested-sha "$GITHUB_SHA" \
+            --event "$GITHUB_EVENT_NAME" --run-id "$GITHUB_RUN_ID" \
+            --workflow-path .github/workflows/noop-full-validation.yml --job-prefix 'packages / ' \
+            --output qa-artifacts/package-results.json
+          python3 -I "$gate_policy_dir/validate_gate.py" --plan qa-artifacts/change-plan.json \
+            --packages qa-artifacts/package-results.json --app-results qa-artifacts/app-results.json \
+            --head-sha "$GITHUB_SHA" --tested-sha "$GITHUB_SHA" --event "$GITHUB_EVENT_NAME" \
+            --repository "$GITHUB_REPOSITORY" --base-sha "$GITHUB_SHA" --workflow-path .github/workflows/noop-full-validation.yml \
+            --app-run-id "$GITHUB_RUN_ID" --app-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --app-workflow-path .github/workflows/noop-full-validation.yml \
+            --job-prefix 'packages / ' --allow-in-progress
+          [[ "$APP_WORKFLOW_RESULT" == success && "$PACKAGE_WORKFLOW_RESULT" == success ]]
+      - name: Upload full validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-full-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts
+          if-no-files-found: warn
+          retention-days: 30

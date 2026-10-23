@@ -136,6 +136,14 @@ public enum LoadFocus {
         return .ready(Summary(shares: shares, weeks: weeks, workoutCount: measured.count))
     }
 
+    /// A complete snapshot for workout-driver bars. Missing HR removes the former entry when callers
+    /// replace their prior snapshot; it is never an instruction to retain an older measured split.
+    public static func splitsByStart(workouts: [Workout]) -> [Date: Split] {
+        var result: [Date: Split] = [:]
+        for workout in workouts { result[workout.start] = workout.zoneMinutes.flatMap(split(zoneMinutes:)) }
+        return result
+    }
+
     static func status(percent: Int, target: ClosedRange<Int>) -> Status {
         if percent < target.lowerBound { return .below(target.lowerBound - percent) }
         if percent > target.upperBound { return .above(percent - target.upperBound) }
