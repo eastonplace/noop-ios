@@ -260,6 +260,11 @@ final class JournalQuickLogModelTests: XCTestCase {
         var didWrite = 0
     }
 
+    @MainActor
+    private final class SourceContextState {
+        var value = "store-A"
+    }
+
     private func model(recorder: Recorder, canWrite: Bool = true) -> JournalQuickLogModel {
         let model = JournalQuickLogModel()
         model.writer = .init(save: { day, write in recorder.saved.append((day, write)) },
@@ -400,8 +405,8 @@ final class JournalQuickLogModelTests: XCTestCase {
         let model = JournalQuickLogModel()
         let tiles = tiles()
         let tile = plain(tiles)
-        var sourceContext = "store-A"
-        let oldContext = sourceContext
+        let sourceContext = SourceContextState()
+        let oldContext = sourceContext.value
         var release: CheckedContinuation<Void, Never>?
         var oldFinished = false
         var revision = 0
@@ -409,9 +414,9 @@ final class JournalQuickLogModelTests: XCTestCase {
         var newAnswers: [JournalQuickLog.Write] = []
         model.writer = .init(save: { _, _ in
             await withCheckedContinuation { release = $0 }
-            if sourceContext == oldContext { revision += 1 }
+            if sourceContext.value == oldContext { revision += 1 }
             oldFinished = true
-        }, clear: { _, _ in }, canWrite: { sourceContext == oldContext },
+        }, clear: { _, _ in }, canWrite: { sourceContext.value == oldContext },
                              didWrite: { oldCompletions += 1 })
         model.seed(day: "2026-10-22", sourceContext: oldContext, tiles: tiles,
                    native: .init(), imported: .init(), earlier: .init(), epoch: 0)
@@ -419,10 +424,10 @@ final class JournalQuickLogModelTests: XCTestCase {
         for _ in 0..<1000 where release == nil { try? await Task.sleep(for: .milliseconds(1)) }
         XCTAssertNotNil(release)
         XCTAssertEqual(model.state(of: tile), .yes)
-        sourceContext = "store-B"
+        sourceContext.value = "store-B"
         model.writer = .init(save: { _, write in newAnswers.append(write); revision += 1 },
                              clear: { _, _ in }, canWrite: { true }, didWrite: {})
-        model.seed(day: "2026-10-22", sourceContext: sourceContext, tiles: tiles,
+        model.seed(day: "2026-10-22", sourceContext: sourceContext.value, tiles: tiles,
                    native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
         XCTAssertEqual(model.state(of: tile), .unanswered, "An old source's in-flight count must not block replacement values")
         XCTAssertEqual(model.sourceContext, "store-B")

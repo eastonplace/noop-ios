@@ -25,7 +25,9 @@ final class HeadsUpJournalUITests: XCTestCase {
 
         let card = element("today.headsUp.card", in: app)
         try reveal(card, in: app)
-        XCTAssertTrue(card.label.contains("3 of 4 up"), "The card counts the signals that moved")
+        let cardLabel = card.label
+        XCTAssertTrue(cardLabel.contains("3 of 4 signals up"),
+                      "The card must count the signals that moved. Actual label: \(cardLabel)")
         XCTAssertTrue(app.frame.contains(card.frame), "The card sits fully on screen once revealed")
         capture(app, "heads-up-raised-today-card")
 
