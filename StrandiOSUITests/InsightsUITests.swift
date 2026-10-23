@@ -135,9 +135,31 @@ final class InsightsUITests: XCTestCase {
             let appFrame = app.frame
             let visible = CGRect(x: appFrame.minX, y: appFrame.minY + 100,
                                  width: appFrame.width, height: appFrame.height - 200)
-            if element.exists, element.isHittable, !element.frame.isEmpty, visible.contains(element.frame) { return }
+            let exists = element.exists
+            let target = exists ? element.frame : .zero
+            if exists, element.isHittable, !target.isEmpty, visible.contains(target) { return }
             if let capturePrefix { capture(app, "\(capturePrefix)-scroll-\(attempt)") }
-            gutterDrag(in: app, down: element.exists && element.frame.minY < visible.minY)
+            if exists, !target.isEmpty,
+               target.maxY < visible.minY || target.minY > visible.maxY {
+                // A materialized row can still be many screens away at AX XXXL.
+                gutterDrag(in: app, down: target.maxY < visible.minY)
+            } else if exists, !target.isEmpty {
+                // A fixed half-screen drag can jump past the containment band of a tall AX row
+                // in both directions forever. Correct the measured overflow in short, held drags.
+                let overflow = target.minY < visible.minY
+                    ? visible.minY + 8 - target.minY
+                    : visible.maxY - 8 - target.maxY
+                let limit = min(160, visible.height * 0.25)
+                let distance = min(limit, max(12, abs(overflow))) * (overflow > 0 ? 1 : -1)
+                print("[insights-reveal] target=\(target) viewport=\(visible) correction=\(distance)")
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                let startY = visible.minY + visible.height * (distance > 0 ? 0.3 : 0.7)
+                let start = origin.withOffset(CGVector(dx: appFrame.width * 0.02, dy: startY - appFrame.minY))
+                let end = start.withOffset(CGVector(dx: 0, dy: distance))
+                start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+            } else {
+                gutterDrag(in: app, down: false)
+            }
         }
         captureFailure(in: app)
         throw HarnessError.unreachable("Could not fully reveal \(element.identifier)")
