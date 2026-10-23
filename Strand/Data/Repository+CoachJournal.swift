@@ -13,6 +13,9 @@ struct CoachJournalSnapshot: Equatable {
     let numericAnswers: [String: Double]
     let details: JournalEntryDayDetails
     let catalogWasTruncated: Bool
+    /// What an import brought for the day. It counts as answered and shows its value until a tap here replaces it.
+    var importedAnswers: [String: Bool] = [:]
+    var importedNumeric: [String: Double] = [:]
 }
 
 @MainActor
@@ -50,10 +53,17 @@ extension Repository {
         let questions = Array(labels.sorted().prefix(256))
         let answers = review.existing.mapValues(\.answeredYes)
         let numbers = review.existing.compactMapValues(\.numericValue)
+        var imported = JournalQuickLog.DayValues()
+        for owner in owners {
+            let rows = try await store.journalEntries(deviceId: owner, from: day, to: day)
+            try check()
+            imported = JournalQuickLog.merged(native: imported, imported: JournalQuickLog.values(from: rows, day: day))
+        }
         try check()
         return .init(day: day, sourceContext: context, importedQuestions: questions,
                      answers: answers, numericAnswers: numbers, details: details,
-                     catalogWasTruncated: truncated)
+                     catalogWasTruncated: truncated,
+                     importedAnswers: imported.answers, importedNumeric: imported.numeric)
     }
 }
 

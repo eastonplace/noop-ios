@@ -247,39 +247,51 @@ public struct JournalQuantityRow: View {
     }
 }
 
-/// The day's mood: a question over five labelled steps, the chosen one filled. Tapping saves nothing itself.
+/// How the five mood steps are coloured, from rough to great: the app's own red, orange, yellow and green.
+public enum JournalMoodScale {
+    public static func color(for step: Int) -> Color {
+        switch step {
+        case 1: return StrandPalette.destructive
+        case 2: return StrandPalette.stressAccent
+        case 3: return StrandPalette.warning
+        case 4: return Color(red: 0.62, green: 0.89, blue: 0.20)
+        default: return StrandPalette.success
+        }
+    }
+}
+
+/// The day's mood as a flat scale: the question as an overline, then five equal words, each under a 3pt bar. The chosen
+/// step takes its mood colour and a semibold weight; the rest stay quiet. Nothing sits behind a word. Tapping saves
+/// nothing itself.
 public struct JournalMoodRow: View {
     @Binding private var mood: Int?
     private let title: String
     private let words: [String]
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(mood: Binding<Int?>, title: String = "How did today feel?",
-                words: [String] = ["Rough", "Low", "Okay", "Good", "Great"]) {
+    /// `title` and `words` default to the classic card's wording; the Journal page passes its own for the day it is on.
+    public init(mood: Binding<Int?>, title: String? = nil, words: [String]? = nil) {
         self._mood = mood
-        self.title = title
-        self.words = words.count == 5 ? words : ["Rough", "Low", "Okay", "Good", "Great"]
+        self.title = title ?? String(localized: "How did today feel?", bundle: .module)
+        if let words, words.count == 5 {
+            self.words = words
+        } else {
+            self.words = [String(localized: "Rough", bundle: .module), String(localized: "Low", bundle: .module),
+                          String(localized: "Okay", bundle: .module), String(localized: "Good", bundle: .module),
+                          String(localized: "Great", bundle: .module)]
+        }
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                journalIcon("face.smiling", tint: StrandPalette.metricPurple)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                    Text(mood.flatMap(word) ?? String(localized: "Tap a step", bundle: .module))
-                        .font(StrandFont.caption)
-                        .foregroundStyle(mood == nil ? StrandPalette.textTertiary : StrandPalette.metricPurple)
-                }
-                Spacer(minLength: 0)
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6),
+        VStack(alignment: .leading, spacing: 4) {
+            SectionEyebrow(title: title, tint: .journal)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4),
                                      count: typeSize.isAccessibilitySize ? 2 : 5),
-                      spacing: 6) {
+                      spacing: 0) {
                 ForEach(1...5, id: \.self) { step in moodStep(step) }
             }
         }
-        .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title) \(mood.flatMap(word) ?? String(localized: "Not answered", bundle: .module))")
     }
@@ -288,77 +300,27 @@ public struct JournalMoodRow: View {
 
     private func moodStep(_ step: Int) -> some View {
         let selected = mood == step
+        let color = JournalMoodScale.color(for: step)
         return Button {
-            withAnimation(StrandMotion.interactive) { mood = step }
+            withAnimation(reduceMotion ? nil : StrandMotion.interactive) { mood = step }
             StrandHaptic.selection.play()
         } label: {
-            Text(word(step) ?? "")
-                .font(StrandFont.caption.weight(selected ? .bold : .medium))
-                .foregroundStyle(selected ? StrandPalette.onLightFill : StrandPalette.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity, minHeight: 36)
-                .background(Capsule(style: .continuous).fill(selected ? StrandPalette.metricPurple : StrandPalette.pillFill))
-                .overlay(Capsule(style: .continuous).strokeBorder(selected ? Color.clear : StrandPalette.pillStroke, lineWidth: 1))
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+            VStack(spacing: 8) {
+                Rectangle()
+                    .fill(selected ? color : StrandPalette.hairlineStrong)
+                    .frame(height: 3)
+                Text(word(step) ?? "")
+                    .font(StrandFont.subhead.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? color : StrandPalette.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .top)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(JournalPressStyle())
+        .buttonStyle(FlatRowPressStyle())
         .accessibilityLabel(word(step) ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-/// How many of the day's questions are answered: the count, a thin bar and a caption. Flat, for the top of a check-in.
-public struct JournalProgressHeader: View {
-    private let answered: Int
-    private let total: Int
-    private let caption: String
-    private let tint: Color
-    @ScaledMetric(relativeTo: .title2) private var countSize: CGFloat = 22
-
-    public init(answered: Int, total: Int, caption: String, tint: Color = StrandPalette.journalAccent) {
-        self.answered = max(0, min(answered, total))
-        self.total = max(0, total)
-        self.caption = caption
-        self.tint = tint
-    }
-
-    private var fraction: Double { total == 0 ? 0 : Double(answered) / Double(total) }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(verbatim: "\(answered)")
-                    .font(StrandFont.number(countSize, weight: .bold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .contentTransition(.numericText())
-                Text("of \(total) answered", bundle: .module)
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                Spacer(minLength: 8)
-                if total > 0, answered == total {
-                    Label { Text("Done", bundle: .module) } icon: { Image(systemName: "checkmark") }
-                        .font(StrandFont.caption.weight(.semibold))
-                        .foregroundStyle(tint)
-                }
-            }
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous).fill(StrandPalette.hairline)
-                    Capsule(style: .continuous).fill(tint)
-                        .frame(width: proxy.size.width * fraction)
-                }
-            }
-            .frame(height: 4)
-            .animation(StrandMotion.interactive, value: answered)
-            Text(caption)
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(answered) of \(total) answered. \(caption)")
     }
 }
 
@@ -494,6 +456,80 @@ public struct JournalStreakStrip: View {
         .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Logging, \(streak) night streak, \(logged.filter { $0 }.count) of \(logged.count) nights logged")
+    }
+}
+
+/// The last two weeks as a row of dots, one per day: filled once the day has an answer, a ring on the open day. Each dot
+/// is a button that opens its day, so a grey one is a way to fill that day in. The captions say where the row starts and
+/// ends, and the middle one says what a tap does.
+public struct JournalDayDots: View {
+    public struct Dot: Identifiable, Equatable {
+        public let id: String
+        public let isLogged: Bool
+        public let accessibilityLabel: String
+
+        public init(id: String, isLogged: Bool, accessibilityLabel: String) {
+            self.id = id
+            self.isLogged = isLogged
+            self.accessibilityLabel = accessibilityLabel
+        }
+    }
+
+    private let dots: [Dot]
+    private let selected: String?
+    private let startLabel: String
+    private let endLabel: String
+    private let hint: String
+    private let onSelect: (String) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(dots: [Dot], selected: String?, startLabel: String, endLabel: String, hint: String,
+                onSelect: @escaping (String) -> Void) {
+        self.dots = dots
+        self.selected = selected
+        self.startLabel = startLabel
+        self.endLabel = endLabel
+        self.hint = hint
+        self.onSelect = onSelect
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(dots) { dot in
+                    Button {
+                        StrandHaptic.selection.play()
+                        onSelect(dot.id)
+                    } label: {
+                        Circle()
+                            .fill(dot.isLogged ? StrandPalette.journalAccent : StrandPalette.surfaceInset)
+                            .frame(width: 9, height: 9)
+                            .overlay {
+                                if dot.id == selected {
+                                    Circle().strokeBorder(StrandPalette.textPrimary, lineWidth: 1.5).padding(-3.5)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(FlatRowPressStyle())
+                    .accessibilityLabel(dot.accessibilityLabel)
+                    .accessibilityAddTraits(dot.id == selected ? .isSelected : [])
+                    .accessibilityIdentifier("journal.day.\(dot.id)")
+                }
+            }
+            .animation(reduceMotion ? nil : StrandMotion.interactive, value: selected)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(verbatim: startLabel).frame(maxWidth: .infinity, alignment: .leading)
+                Text(verbatim: hint).multilineTextAlignment(.center).layoutPriority(1)
+                Text(verbatim: endLabel).frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .lineLimit(2)
+            .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
