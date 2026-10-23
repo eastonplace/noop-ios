@@ -89,7 +89,6 @@ struct CompletedReceiptView: View {
   @State private var printTask: Task<Void, Never>?
   @State private var shareItem: LiftReceiptShareItem?
   @State private var exportErrorMessage: String?
-  @State private var cachedPersonalRecordsBySetID: [UUID: LiftPersonalRecord]?
   #if DEBUG
   /// QA harness only: the exported image drawn full screen, so each export stock can be captured.
   @State private var qaExportImage: UIImage?
@@ -145,9 +144,6 @@ struct CompletedReceiptView: View {
       )
     }
     .onAppear {
-      if cachedPersonalRecordsBySetID == nil {
-        cachedPersonalRecordsBySetID = recomputedPersonalRecordsBySetID
-      }
       beginPresentation()
     }
     .onDisappear {
@@ -202,14 +198,8 @@ struct CompletedReceiptView: View {
   }
 
   private var personalRecordsBySetID: [UUID: LiftPersonalRecord] {
-    cachedPersonalRecordsBySetID ?? recomputedPersonalRecordsBySetID
-  }
-
-  private var recomputedPersonalRecordsBySetID: [UUID: LiftPersonalRecord] {
     guard LiftStore.prDetectionEnabled else { return [:] }
-    return LiftProgressMath.historicalPersonalRecords(
-      sessions: store.sessions
-    ).recordsBySetID
+    return store.historicalPersonalRecords().recordsBySetID
   }
 
   private var revealMaskScale: CGFloat {

@@ -77,6 +77,43 @@ final class ShortcutHealthImportTests: XCTestCase {
         XCTAssertEqual(d.weightKg, 80.4)
     }
 
+    func testNonFiniteOptionalMetricsAreSkippedWhileValidCellsSurvive() throws {
+        for invalid in ["nan", "inf", "-inf", "1e309"] {
+            let parsed = ShortcutHealthImport.parse(
+                "D,2026-06-01,8000,\(invalid),52,\(invalid),61,\(invalid),\(invalid),\(invalid)\n"
+                + "W,1000,2800,Running,\(invalid),\(invalid),\(invalid)")
+            let day = try XCTUnwrap(parsed.days.first, invalid)
+            XCTAssertEqual(day.steps, 8000)
+            XCTAssertEqual(day.restingHr, 52)
+            XCTAssertEqual(day.avgHr, 61)
+            XCTAssertNil(day.activeKcal, invalid)
+            XCTAssertNil(day.hrvMs, invalid)
+            XCTAssertNil(day.asleepMin, invalid)
+            XCTAssertNil(day.vo2max, invalid)
+            XCTAssertNil(day.weightKg, invalid)
+            let workout = try XCTUnwrap(parsed.workouts.first, invalid)
+            XCTAssertEqual(workout.durationS, 1800)
+            XCTAssertNil(workout.energyKcal, invalid)
+            XCTAssertNil(workout.distanceM, invalid)
+        }
+        XCTAssertTrue(ShortcutHealthImport.parse("D,2026-06-01,,,,inf,,,,").days.isEmpty)
+    }
+
+    func testNonFiniteShortcutHRVNeverReachesStoredDailyMetricsOrSeries() async throws {
+        let store = try await WhoopStore.inMemory()
+        let outcome = await ShortcutHealthImport.ingest(
+            url: url(payloadText: "D,2026-06-01,8000,420.5,52,inf,61,455,48.1,80.4"),
+            into: store)
+        XCTAssertEqual(outcome, .imported(days: 1, workouts: 0))
+        let days = try await store.dailyMetrics(deviceId: "apple-health", from: "2026-06-01", to: "2026-06-01")
+        let day = try XCTUnwrap(days.first)
+        XCTAssertNil(day.avgHrv)
+        XCTAssertEqual(day.restingHr, 52)
+        XCTAssertEqual(day.totalSleepMin, 455)
+        let hrv = try await store.metricSeries(deviceId: "apple-health", key: "hrv", from: "2026-06-01", to: "2026-06-01")
+        XCTAssertTrue(hrv.isEmpty)
+    }
+
     func testEmptyFieldsStayNil() {
         let p = ShortcutHealthImport.parse("D,2026-06-01,,,52,,,,,")
         XCTAssertEqual(p.days.count, 1)

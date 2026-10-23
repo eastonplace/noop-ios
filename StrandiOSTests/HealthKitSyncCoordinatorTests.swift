@@ -60,13 +60,15 @@ private final class GeneratedHeartRatePageLoader: HealthKitAnchoredPageLoading {
 
     let totalSamples: Int
     let failOnPage: Int?
+    let cancelOnPage: Int?
     private(set) var requestedLimits: [Int] = []
     private(set) var maximumReturnedCount = 0
     private var emitted = 0
 
-    init(totalSamples: Int, failOnPage: Int? = nil) {
+    init(totalSamples: Int, failOnPage: Int? = nil, cancelOnPage: Int? = nil) {
         self.totalSamples = totalSamples
         self.failOnPage = failOnPage
+        self.cancelOnPage = cancelOnPage
     }
 
     func loadPage(
@@ -90,6 +92,7 @@ private final class GeneratedHeartRatePageLoader: HealthKitAnchoredPageLoading {
             )
         }
         emitted += count
+        if requestedLimits.count == cancelOnPage { withUnsafeCurrentTask { $0?.cancel() } }
         maximumReturnedCount = max(maximumReturnedCount, samples.count)
         return HealthKitAnchorPage(
             samples: samples,
@@ -193,6 +196,38 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(identities, [HealthKitObjectIdentity(
             sampleType: type.identifier, objectUUID: sample.uuid.uuidString,
             startTs: 100, endTs: 160)])
+    }
+
+    @MainActor
+    func testCancellationDuringExportIdentityCommitDoesNotStartHealthKitDeletion() async throws {
+        let type = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .heartRate))
+        let sample = HKQuantitySample(
+            type: type,
+            quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 60),
+            start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 160))
+        var identities: [HealthKitObjectIdentity] = []
+        var deleted = false
+        let task = Task { @MainActor in
+            try await HealthKitExportDeletionCommit.commit(
+                sampleType: type,
+                loadSamples: { [sample] },
+                recordIdentities: {
+                    identities.append(contentsOf: $0)
+                    // Simulates expiry while the preceding SQLite journal write was suspended.
+                    withUnsafeCurrentTask { $0?.cancel() }
+                },
+                delete: {
+                    deleted = true
+                    return 1
+                })
+        }
+        do {
+            _ = try await task.value
+            XCTFail("Expired export must stop before deleting existing HealthKit samples")
+        } catch is CancellationError {
+            XCTAssertFalse(deleted)
+            XCTAssertEqual(identities.map(\.objectUUID), [sample.uuid.uuidString])
+        }
     }
 
     func testCancelledExportDeletionRemainsOwnedUntilObserverAnchorCommits() async throws {
@@ -797,6 +832,65 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         await waiter.value
         XCTAssertNil(journal.value)
         XCTAssertFalse(barrier.blocksRefreshes)
+        await scoring.runAndWait(operation: { _ in true })
+    }
+
+    @MainActor
+    func testCancelledAnchorPageDoesNotCommitOrRequestNextPage() async throws {
+        let loader = GeneratedHeartRatePageLoader(totalSamples: 1_000, cancelOnPage: 1)
+        let pager = HealthKitAnchorPager(loader: loader, pageLimit: 500)
+        let type = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .heartRate))
+        var committedPages = 0
+        let task = Task { @MainActor in
+            try await pager.scan(type: type, predicate: nil, anchor: nil) { _ in
+                committedPages += 1
+                return nil
+            }
+        }
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled query page must stop before committing its anchor")
+        } catch is CancellationError {
+            XCTAssertEqual(committedPages, 0)
+            XCTAssertEqual(loader.requestedLimits, [500])
+        }
+    }
+
+    @MainActor
+    func testExpiredHealthKitQueryReleasesImportFenceWithoutCallback() async throws {
+        let journal = PendingWindowMemoryStore()
+        let (scoring, barrier) = makeScoring(persistence: PendingWindowMemoryStore())
+        let window = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 200))
+        let started = expectation(description: "HealthKit read started")
+        let released = expectation(description: "expired import released its fence")
+        var callback: (@Sendable (Result<Bool, Error>) -> Void)?
+        var stopped = false
+        let importer = HealthKitSyncCoordinator(persistence: journal, scoringCoordinator: scoring) { _ in
+            (try? await HealthKitCancellableQuery.run(start: { completion in
+                callback = completion
+                started.fulfill()
+            }, stop: { stopped = true })) ?? false
+        }
+        try importer.offer(window)
+        let importing = Task { @MainActor in
+            await importer.runAndWait()
+            released.fulfill()
+        }
+        await fulfillment(of: [started], timeout: 1)
+        XCTAssertTrue(barrier.blocksRefreshes)
+        importing.cancel()
+        await fulfillment(of: [released], timeout: 1)
+
+        XCTAssertTrue(stopped)
+        XCTAssertFalse(importer.isRunning)
+        XCTAssertFalse(barrier.blocksRefreshes)
+        XCTAssertEqual(journal.value, window, "expiry must retain the exact replayable import window")
+        XCTAssertEqual(scoring.pending, window)
+        // A late HealthKit callback cannot clear the journal or republish the cancelled run.
+        callback?(.success(true))
+        await importing.value
+        XCTAssertEqual(journal.value, window)
         await scoring.runAndWait(operation: { _ in true })
     }
 

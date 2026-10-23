@@ -45,6 +45,27 @@ final class JournalQuestionSettingsTests: XCTestCase {
         XCTAssertEqual(catalog.resolvedItems(imported: [], includeHidden: true).filter { $0.canonical == alcohol }.count, 1)
     }
 
+    func testReloadingASeparateCatalogUpdatesQuestionTilesAfterEditing() throws {
+        let name = "JournalQuestionSettingsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        let displayed = JournalCatalogStore(defaults: defaults)
+        let editor = JournalCatalogStore(defaults: defaults)
+        editor.rename("Did you read before bed?", to: "Bedtime reading")
+        editor.setKind("Did you read before bed?", to: .numeric(unitLabel: "pages"))
+        editor.addCustom("Stretching")
+        XCTAssertTrue(displayed.reloadFromDefaults())
+        let items = displayed.resolvedItems(imported: [])
+        let tiles = JournalQuickLogTile.tiles(from: items, active: Set(items.map(\.canonical)))
+        let reading = try XCTUnwrap(tiles.first { $0.id == "Did you read before bed?" })
+        XCTAssertEqual(reading.name, "Bedtime reading")
+        XCTAssertEqual(reading.amount?.unit.plural, "pages")
+        XCTAssertTrue(tiles.contains { $0.id == "Stretching" })
+        editor.remove("Stretching")
+        XCTAssertTrue(displayed.reloadFromDefaults())
+        XCTAssertFalse(displayed.resolvedItems(imported: []).contains { $0.canonical == "Stretching" })
+    }
+
     func testBlankNameGoesBackToTheOriginalWording() throws {
         let catalog = try makeCatalog()
         catalog.rename(alcohol, to: "Drinks")
@@ -77,7 +98,7 @@ final class JournalQuestionSettingsTests: XCTestCase {
             XCTAssertEqual(home?.group, target, "the list should show Alcohol under \(target.rawValue)")
 
             // The Journal's tiles come in the list's order, so Alcohol sits inside that group's run of tiles.
-            let tiles = JournalQuickLogTile.tiles(from: all, active: [])
+            let tiles = JournalQuickLogTile.tiles(from: all, active: Set(all.map(\.canonical)))
             XCTAssertEqual(tiles.map(\.id), listed.flatMap(\.items).map(\.canonical),
                            "the Journal's tiles follow the list's groups")
         }

@@ -588,6 +588,7 @@ final class AppModel: ObservableObject {
     @Published var headsUp: HeadsUpSnapshot?
     /// Bumped by every illness evaluation; a read that finishes after a newer one started is dropped.
     private var illnessEvalGeneration = 0
+    private var illnessEvalTask: Task<Void, Never>?
     /// Cycle-phase awareness (only computed when the user has opted in; else nil). Awareness only.
     @Published var cyclePhase: CyclePhaseEngine.Result?
     /// The nightly fused-index curve (oldest→newest) feeding the cycle card's sparkline.
@@ -3570,6 +3571,8 @@ final class AppModel: ObservableObject {
     private func evaluateIllness(_ days: [DailyMetric], loaded: Bool) {
         // Every evaluation supersedes the ones before it: a read still waiting on the Journal must not overwrite a
         // newer state (Heads-Up turned off, the history replaced) or post an alert after the person turned it off.
+        illnessEvalTask?.cancel()
+        illnessEvalTask = nil
         illnessEvalGeneration &+= 1
         let generation = illnessEvalGeneration
         guard behavior.illnessWatch else {
@@ -3583,18 +3586,31 @@ final class AppModel: ObservableObject {
             publishHeadsUp(nil)
             return
         }
-        guard days.count >= HeadsUpSnapshot.nightsNeeded else {
-            healthAlert = nil; illnessSignal = nil; illnessDistance = nil
-            publishHeadsUp(HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true).snapshot)
-            return
-        }
-        Task { [weak self] in
-            guard let self else { return }
+        illnessEvalTask = Task { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            let sourceContext = self.repo.notificationSourceContext
+            let anchor = days.last?.day ?? Repository.localDayKey(Date())
+            guard let historyBounds = HeadsUpBuilder.historyBounds(through: anchor) else { return }
+            let history = await self.repo.headsUpHistory(
+                fromDay: historyBounds.lowerBound, toDay: historyBounds.upperBound)
+            guard !Task.isCancelled, generation == self.illnessEvalGeneration, self.behavior.illnessWatch,
+                  sourceContext == self.repo.notificationSourceContext else { return }
+            guard let history else {
+                self.healthAlert = nil; self.illnessSignal = nil; self.illnessDistance = nil
+                self.publishHeadsUp(.unavailable(day: days.last?.day))
+                return
+            }
             // Journal causes for the newest window and for each morning of the history chart. Read once, off the
             // engine's hot path: the builder only needs presence flags, matched on whole words.
-            let journal = await self.repo.journalEntries(days: HeadsUpSnapshot.historyLength + 7)
-            guard generation == self.illnessEvalGeneration, self.behavior.illnessWatch else { return }
-            self.applyIllnessSignal(days, journal: journal)
+            let journal: [JournalEntry]
+            if let bounds = HeadsUpBuilder.journalBounds(history) {
+                journal = await self.repo.journalEntries(from: bounds.lowerBound, to: bounds.upperBound)
+            } else {
+                journal = []
+            }
+            guard !Task.isCancelled, generation == self.illnessEvalGeneration, self.behavior.illnessWatch,
+                  sourceContext == self.repo.notificationSourceContext else { return }
+            self.applyIllnessSignal(history, journal: journal)
         }
     }
 

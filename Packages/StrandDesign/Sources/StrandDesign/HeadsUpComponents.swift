@@ -36,6 +36,8 @@ public struct HeadsUpCardModel: Equatable {
     public enum Content: Equatable {
         /// Heads-Up is off: the line and a Turn on button.
         case turnOn
+        /// An established history has no reliable comparison at the moment: the explanatory line only.
+        case unavailable
         /// The baseline is still building: the bar only. The count lives in the line above it, once.
         case progress(fraction: Double)
         /// A read: the four signals.
@@ -170,7 +172,7 @@ public struct HeadsUpTodayCard: View {
             header(chevron: true)
             line
             switch model.content {
-            case .turnOn:
+            case .turnOn, .unavailable:
                 EmptyView()
             case let .progress(fraction):
                 progress(fraction: fraction)
@@ -326,8 +328,8 @@ public struct HeadsUpStrengthMeter: View {
     @ScaledMetric(relativeTo: .title2) private var valueSize: CGFloat = 24
 
     public init(score: Double, rawScore: Double? = nil, tone: Color, note: String? = nil) {
-        self.score = score
-        self.rawScore = rawScore
+        self.score = score.isFinite ? min(100, max(0, score)) : 0
+        self.rawScore = rawScore.flatMap { $0.isFinite ? min(100, max(0, $0)) : nil }
         self.tone = tone
         self.note = note
     }
@@ -409,8 +411,14 @@ public struct HeadsUpSparkline: View {
     private let highlightCount: Int
 
     public init(values: [Double?], band: ClosedRange<Double>?, highlight: Color, highlightCount: Int = 2) {
-        self.values = values
-        self.band = band
+        let finiteValues = values.map { $0.flatMap { $0.isFinite ? $0 : nil } }
+        let finiteBand = band.flatMap { $0.lowerBound.isFinite && $0.upperBound.isFinite ? $0 : nil }
+        let points = finiteValues.compactMap { $0 } + (finiteBand.map { [$0.lowerBound, $0.upperBound] } ?? [])
+        // Rescale only extreme magnitudes so domain padding and coordinate subtraction cannot overflow.
+        let magnitude = points.map(abs).max() ?? 1
+        let scale = magnitude > 1e100 ? magnitude : 1
+        self.values = finiteValues.map { $0.map { $0 / scale } }
+        self.band = finiteBand.map { ($0.lowerBound / scale)...($0.upperBound / scale) }
         self.highlight = highlight
         self.highlightCount = max(1, highlightCount)
     }
@@ -493,7 +501,10 @@ public struct HeadsUpHistoryBar: Equatable, Identifiable {
     public let outline: Double?
 
     public init(id: String, score: Double, color: Color, outline: Double? = nil) {
-        self.id = id; self.score = score; self.color = color; self.outline = outline
+        self.id = id
+        self.score = score.isFinite ? min(100, max(0, score)) : 0
+        self.color = color
+        self.outline = outline.flatMap { $0.isFinite ? min(100, max(0, $0)) : nil }
     }
 }
 

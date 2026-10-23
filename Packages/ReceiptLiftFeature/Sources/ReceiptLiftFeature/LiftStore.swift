@@ -138,7 +138,9 @@ final class LiftStore: ObservableObject {
   @Published private(set) var exercises: [LiftExercise] = []
   @Published private(set) var routines: [LiftRoutine] = []
   @Published private(set) var scheduledWorkouts: [ScheduledWorkout] = []
-  @Published private(set) var sessions: [LiftSession] = []
+  @Published private(set) var sessions: [LiftSession] = [] {
+    didSet { historicalPersonalRecordCache = nil }
+  }
   @Published private(set) var activeSession: LiftSession?
   @Published private(set) var restTimerEndDate: Date?
   @Published private(set) var workoutRestOverrideSeconds: TimeInterval?
@@ -176,6 +178,8 @@ final class LiftStore: ObservableObject {
   private var saveGeneration = 0
   private var progressSnapshotCache: (key: LiftProgressCacheKey, value: LiftProgressSnapshot)?
   private(set) var progressSnapshotComputationCount = 0
+  private var historicalPersonalRecordCache: LiftHistoricalPRLedger?
+  private(set) var historicalPersonalRecordComputationCount = 0
 
   init(
     dataURL: URL? = nil,
@@ -385,6 +389,16 @@ final class LiftStore: ObservableObject {
   func loadAndWait() async {
     load()
     await loadTask?.value
+  }
+
+  /// Completed PR history changes only when saved sessions change. Live vitals, timer updates and
+  /// receipt animation must not sort and scan the person's entire history again during rendering.
+  func historicalPersonalRecords() -> LiftHistoricalPRLedger {
+    if let historicalPersonalRecordCache { return historicalPersonalRecordCache }
+    let ledger = LiftProgressMath.historicalPersonalRecords(sessions: sessions)
+    historicalPersonalRecordCache = ledger
+    historicalPersonalRecordComputationCount += 1
+    return ledger
   }
 
   func progressionReview(for routine: LiftRoutine, now: Date = Date()) -> LiftProgressionReview {

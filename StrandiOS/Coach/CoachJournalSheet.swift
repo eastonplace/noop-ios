@@ -13,6 +13,12 @@ struct CoachJournalSheet: View {
     @StateObject private var log = JournalQuickLogModel()
     @State private var entry: JournalEntryPresentation?
     @State private var visible = false
+    @State private var catalogRevision = 0
+
+    private struct LogSeedKey: Equatable {
+        var snapshot: CoachJournalSnapshot?
+        var catalogRevision: Int
+    }
     /// Days with an answer in the last two months, for the streak under a finished day.
     @State private var loggedDays: Set<String> = []
     let onDaySelected: (String) -> Void
@@ -92,7 +98,12 @@ struct CoachJournalSheet: View {
             visible = true
             configureSession()
         }
-        .task(id: session.snapshot) { await seedLog() }
+        .task(id: LogSeedKey(snapshot: session.snapshot, catalogRevision: catalogRevision)) { await seedLog() }
+        .onReceive(NotificationCenter.default.publisher(for: .init("noop.notificationJournalDidChange"))) { _ in
+            catalog.reloadFromDefaults()
+            catalogRevision &+= 1
+        }
+        .onChange(of: catalog.items) { _, _ in catalogRevision &+= 1 }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { configureSession() } else { session.pause() }
         }
@@ -142,13 +153,15 @@ struct CoachJournalSheet: View {
             log.reset()
             return
         }
+        catalog.reloadFromDefaults()
+        let catalogItems = catalog.items
         let epoch = log.changeEpoch
         let items = catalog.resolvedItems(imported: snapshot.importedQuestions)
         let active = await repository.activeCoachingQuestions(for: items)
         let earlierDay = JournalBehaviorDay.shifted(snapshot.day, by: -1) ?? snapshot.day
         let earlier = await repository.journalDayValues(day: earlierDay)
         let recent = await repository.journalEntries(days: 60)
-        guard !Task.isCancelled, session.snapshot == snapshot else { return }
+        guard !Task.isCancelled, session.snapshot == snapshot, catalog.items == catalogItems else { return }
         loggedDays = Set(recent.map(\.day))
         log.writer = writer
         log.seed(day: snapshot.day, tiles: JournalQuickLogTile.tiles(from: items, active: active),
@@ -163,23 +176,26 @@ struct CoachJournalSheet: View {
     private var writer: JournalQuickLogModel.Writer {
         let repository = repository
         let session = session
+        let sourceContext = session.snapshot?.sourceContext
         let allowed: @MainActor () -> Bool = {
-            session.snapshot?.sourceContext == repository.journalEntrySourceContext
-                && session.access.canUseManualJournal
+            guard let sourceContext else { return false }
+            return sourceContext == repository.journalEntrySourceContext && session.access.canUseManualJournal
         }
         return .init(
             save: { day, write in
                 guard allowed() else { return }
                 switch write {
                 case .answer(let question, let yes):
-                    await repository.saveJournalAnswer(day: day, question: question, answeredYes: yes)
+                    await repository.saveJournalAnswer(day: day, question: question, answeredYes: yes,
+                                                       expectedSourceContext: sourceContext)
                 case .amount(let question, let value):
-                    await repository.saveJournalNumeric(day: day, question: question, value: value)
+                    await repository.saveJournalNumeric(day: day, question: question, value: value,
+                                                        expectedSourceContext: sourceContext)
                 }
             },
             clear: { day, question in
                 guard allowed() else { return }
-                await repository.clearJournalAnswer(day: day, question: question)
+                await repository.clearJournalAnswer(day: day, question: question, expectedSourceContext: sourceContext)
             },
             canWrite: allowed,
             didWrite: { changed() })

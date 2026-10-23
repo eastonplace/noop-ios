@@ -16,6 +16,8 @@ struct HeadsUpSnapshot: Equatable, Sendable {
         case off
         /// Not enough nights for a trusted baseline yet: progress only, never a warning.
         case learning(nights: Int)
+        /// No reliable current comparison: an established history lost usable inputs, or its read failed.
+        case unavailable
         /// A trusted read, at the engine's level.
         case scored(IllnessSignalEngine.Level)
     }
@@ -83,6 +85,12 @@ struct HeadsUpSnapshot: Equatable, Sendable {
             Signal(kind: $0, latest: nil, usual: nil, z: nil, fired: false, normalBand: nil, history: [])
         },
         causes: [], confidence: nil, history: [], unwellDay: nil)
+
+    /// A failed history read has no trustworthy comparison, even if the previous surface had one.
+    static func unavailable(day: String?) -> HeadsUpSnapshot {
+        HeadsUpSnapshot(phase: .unavailable, day: day, score: 0, rawScore: nil, signals: off.signals,
+                        causes: [], confidence: nil, history: [], unwellDay: nil)
+    }
 
     var level: IllnessSignalEngine.Level? {
         if case .scored(let level) = phase { return level }
@@ -209,8 +217,23 @@ enum HeadsUpBuilder {
         let signal: HeadsUpSnapshot.Signal
     }
 
+    private static func finite(_ value: Double?) -> Double? {
+        value.flatMap { $0.isFinite ? $0 : nil }
+    }
+
     private static func mean(_ values: [Double]) -> Double? {
-        values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+        let values = values.filter(\.isFinite)
+        guard !values.isEmpty else { return nil }
+        let sum = values.reduce(0, +)
+        // Keep ordinary arithmetic unchanged; scale before summing only when the sum would overflow.
+        let average = sum.isFinite ? sum / Double(values.count)
+            : values.reduce(0) { $0 + $1 / Double(values.count) }
+        return finite(average)
+    }
+
+    /// The parallel distance squares each feature. An overflowing comparison is missing, never a signal.
+    private static func usableZ(_ value: Double) -> Bool {
+        value.isFinite && value * value <= Double.greatestFiniteMagnitude / Double(HeadsUpSnapshot.SignalKind.allCases.count)
     }
 
     private static func presentZ(_ reading: IllnessSignalEngine.SignalReading?) -> Double? {
@@ -223,13 +246,13 @@ enum HeadsUpBuilder {
     private static func baselineSignal(_ kind: HeadsUpSnapshot.SignalKind, cfgKey: String, illnessUp: Bool,
                                        recent: [DailyMetric], base: [DailyMetric], window: [DailyMetric],
                                        value: (DailyMetric) -> Double?) -> SignalRead {
-        let history = window.map(value)
+        let history = window.map { finite(value($0)) }
         guard let cfg = Baselines.metricCfg[cfgKey] else {
             return SignalRead(reading: nil, trusted: false, nights: 0,
                               signal: HeadsUpSnapshot.Signal(kind: kind, latest: nil, usual: nil, z: nil, fired: false,
                                                              normalBand: nil, history: history))
         }
-        let state = Baselines.foldHistory(base.map(value), cfg: cfg)
+        let state = Baselines.foldHistory(base.map { finite(value($0)) }, cfg: cfg)
         let usual = state.usable ? state.baseline : nil
         // The normal range is where the engine stops counting a move: its threshold in the baseline's robust units
         // (`Baselines.deviation` divides by 1.253 × spread).
@@ -252,6 +275,11 @@ enum HeadsUpBuilder {
                                                              fired: false, normalBand: nil, history: history))
         }
         let z = Baselines.deviation(latest, state: state).z
+        guard usableZ(z) else {
+            return SignalRead(reading: nil, trusted: false, nights: state.nValid,
+                              signal: HeadsUpSnapshot.Signal(kind: kind, latest: latest, usual: usual, z: nil,
+                                                             fired: false, normalBand: band, history: history))
+        }
         let illnessward = illnessUp ? z : -z
         return SignalRead(reading: IllnessSignalEngine.SignalReading(zIllnessward: illnessward),
                           trusted: state.trusted, nights: state.nValid,
@@ -265,7 +293,7 @@ enum HeadsUpBuilder {
     static let skinSpread = 0.3
 
     private static func skinSignal(recent: [DailyMetric], window: [DailyMetric]) -> SignalRead {
-        let history = window.map(\.skinTempDevC)
+        let history = window.map { finite($0.skinTempDevC) }
         let reach = IllnessSignalEngine.signalZThreshold * skinSpread
         guard let latest = mean(recent.compactMap(\.skinTempDevC)) else {
             return SignalRead(reading: nil, trusted: false, nights: 0,
@@ -273,6 +301,11 @@ enum HeadsUpBuilder {
                                                              normalBand: -reach...reach, history: history))
         }
         let z = latest / skinSpread
+        guard usableZ(z) else {
+            return SignalRead(reading: nil, trusted: false, nights: 0,
+                              signal: HeadsUpSnapshot.Signal(kind: .skinTemp, latest: latest, usual: 0, z: nil,
+                                                             fired: false, normalBand: -reach...reach, history: history))
+        }
         return SignalRead(reading: IllnessSignalEngine.SignalReading(zIllnessward: z), trusted: true, nights: 0,
                           signal: HeadsUpSnapshot.Signal(kind: .skinTemp, latest: latest, usual: 0, z: z,
                                                          fired: z > IllnessSignalEngine.signalZThreshold,
@@ -284,11 +317,13 @@ enum HeadsUpBuilder {
     private static func labels(rhr: HeadsUpSnapshot.Signal, hrv: HeadsUpSnapshot.Signal,
                                skin: HeadsUpSnapshot.Signal, resp: HeadsUpSnapshot.Signal) -> [String: String] {
         var labels: [String: String] = [:]
-        if let latest = rhr.latest, let usual = rhr.usual, latest > usual {
-            labels["restingHR"] = "RHR +\(Int((latest - usual).rounded()))"
+        if let latest = rhr.latest, let usual = rhr.usual, latest > usual,
+           let rise = Int(exactly: (latest - usual).rounded()) {
+            labels["restingHR"] = "RHR +\(rise)"
         }
-        if let latest = hrv.latest, let usual = hrv.usual, usual > 0, latest < usual {
-            labels["hrv"] = "HRV \u{2212}\(Int(((1 - latest / usual) * 100).rounded()))%"
+        if let latest = hrv.latest, let usual = hrv.usual, usual > 0, latest < usual,
+           let fall = Int(exactly: ((1 - latest / usual) * 100).rounded()) {
+            labels["hrv"] = "HRV \u{2212}\(fall)%"
         }
         if let latest = skin.latest, latest > 0 {
             labels["skinTemp"] = "skin temp +\(String(format: "%.1f", latest)) °C"
@@ -300,6 +335,44 @@ enum HeadsUpBuilder {
     }
 
     // MARK: Snapshot
+
+    /// The history read is independent of the dashboard cache and bounded to 180 calendar days. This preserves
+    /// established history across a gap without scanning the complete library on each refresh.
+    static func historyBounds(through day: String) -> ClosedRange<String>? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        guard let end = formatter.date(from: day), formatter.string(from: end) == day,
+              let start = formatter.calendar.date(byAdding: .day, value: -179, to: end) else { return nil }
+        return formatter.string(from: start)...day
+    }
+
+    /// Inclusive Journal bounds for all replayed mornings and their two-row reading windows. Stored rows can
+    /// end long before today or have gaps, so a calendar-day lookback cannot cover this replay reliably.
+    static func journalBounds(_ days: [DailyMetric]) -> ClosedRange<String>? {
+        guard let newest = days.last?.day else { return nil }
+        let first = max(0, days.count - HeadsUpSnapshot.historyLength - 1)
+        return days[first].day...newest
+    }
+
+    /// A mature read in the retained history must not return to initial learning when gaps remove trust.
+    /// Replay the same rolling baseline windows, rather than counting raw rows that might contain no readings.
+    private static func baselineWasEstablished(_ days: [DailyMetric]) -> Bool {
+        let firstRead = HeadsUpSnapshot.nightsNeeded + 3
+        guard days.count >= firstRead else { return false }
+        for end in firstRead...days.count {
+            let base = days[max(0, end - 31)..<(end - 3)]
+            for key in ["resting_hr", "hrv"] {
+                guard let cfg = Baselines.metricCfg[key] else { continue }
+                let values = base.map { key == "resting_hr" ? $0.restingHr.map(Double.init) : $0.avgHrv }
+                if Baselines.foldHistory(values, cfg: cfg).nValid >= HeadsUpSnapshot.nightsNeeded { return true }
+            }
+        }
+        return false
+    }
 
     /// The full snapshot plus the newest evaluation (nil when Heads-Up is off or the history is too short to read,
     /// where the alert has never published anything). `days` is oldest → newest; `journal` needs the last few weeks.
@@ -313,15 +386,22 @@ enum HeadsUpBuilder {
         guard days.count >= HeadsUpSnapshot.nightsNeeded else {
             return (learning(nights: latest.baselineNights, day: days.last?.day, signals: latest.signals), nil)
         }
-        guard latest.trusted || latest.baselineReady else {
+        guard latest.trusted else {
+            if latest.baselineReady || baselineWasEstablished(days) {
+                return (HeadsUpSnapshot(phase: .unavailable, day: days.last?.day, score: 0, rawScore: nil,
+                                        signals: uncompared(latest.signals), causes: latestContext.causes,
+                                        answeredNo: latestContext.answeredNo, confidence: nil, history: [],
+                                        unwellDay: latestContext.unwellDay), latest)
+            }
             return (learning(nights: latest.baselineNights, day: days.last?.day, signals: latest.signals), latest)
         }
         let result = latest.result
         let snapshot = HeadsUpSnapshot(
             phase: .scored(result.level),
             day: days.last?.day,
-            score: result.score,
-            rawScore: result.level == .suppressed ? result.score / IllnessSignalEngine.confounderDampen : nil,
+            score: boundedScore(result.score),
+            rawScore: result.level == .suppressed
+                ? boundedScore(result.score / IllnessSignalEngine.confounderDampen) : nil,
             signals: latest.signals,
             causes: latestContext.causes,
             answeredNo: latestContext.answeredNo,
@@ -334,12 +414,19 @@ enum HeadsUpBuilder {
     private static func learning(nights: Int, day: String?, signals: [HeadsUpSnapshot.Signal]) -> HeadsUpSnapshot {
         let capped = min(max(0, nights), HeadsUpSnapshot.nightsNeeded - 1)
         // While the baseline builds there is no normal range to judge against, so nothing is marked as up or down.
-        let building = signals.map {
+        return HeadsUpSnapshot(phase: .learning(nights: capped), day: day, score: 0, rawScore: nil,
+                               signals: uncompared(signals), causes: [], confidence: nil, history: [], unwellDay: nil)
+    }
+
+    private static func boundedScore(_ score: Double) -> Double {
+        score.isFinite ? min(100, max(0, score)) : 0
+    }
+
+    private static func uncompared(_ signals: [HeadsUpSnapshot.Signal]) -> [HeadsUpSnapshot.Signal] {
+        signals.map {
             HeadsUpSnapshot.Signal(kind: $0.kind, latest: $0.latest, usual: nil, z: nil, fired: false,
                                    normalBand: nil, history: $0.history)
         }
-        return HeadsUpSnapshot(phase: .learning(nights: capped), day: day, score: 0, rawScore: nil,
-                               signals: building, causes: [], confidence: nil, history: [], unwellDay: nil)
     }
 
     /// The same evaluation replayed for each of the last `historyLength` mornings, oldest first. A morning without a
@@ -354,7 +441,7 @@ enum HeadsUpBuilder {
             let evaluation = evaluate(slice, context: context(days: Set(slice.suffix(2).map(\.day)), journal: journal))
             let day = slice[slice.count - 1].day
             if evaluation.trusted {
-                scores.append(HeadsUpSnapshot.DayScore(day: day, score: evaluation.result.score,
+                scores.append(HeadsUpSnapshot.DayScore(day: day, score: boundedScore(evaluation.result.score),
                                                        level: evaluation.result.level))
             } else {
                 scores.append(HeadsUpSnapshot.DayScore(day: day, score: 0, level: .quiet))

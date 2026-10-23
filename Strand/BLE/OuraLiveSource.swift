@@ -231,6 +231,9 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     /// only when the flush holding those events succeeds, so a failed or interrupted write is re-fetched
     /// next time instead of leaving a permanent gap.
     private var pendingDurableCursor: UInt32?
+    /// Reassembly consumes all complete frames before their events are mapped into the sample buffer.
+    /// A flush during that mapping may write samples, but cannot commit a cursor past later events.
+    private var processingNotification = false
     /// Bumped on a cursor reset so an in-flight commit of an older cursor cannot land after the reset.
     private var cursorEpoch = 0
     /// Periodic re-fetch while connected, so an overnight-connected session (or one left open after a nap)
@@ -442,7 +445,6 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         drainPendingAnchorEvents()
         driver?.stop()
         driver = nil
-        reassembler.reset()
         loggedFirstHR = false
         loggedFirstTemp = false
         loggedFirstSpo2 = false
@@ -454,6 +456,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         batteryPct = nil
         needsPairing = nil
         flush()                       // persist anything still buffered
+        resetNotificationReassemblyAfterTeardown()
     }
 
     // MARK: - Driver wiring
@@ -571,6 +574,16 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     // MARK: - Buffer / persistence
 
+    private func resetNotificationReassemblyAfterTeardown() {
+        if reassembler.bufferedByteCount > 0 {
+            // A lost trailing record must be fetched again. Retire deferred summary tasks as well,
+            // so they cannot make its cursor commit-eligible after the partial bytes are discarded.
+            cursorEpoch &+= 1
+            pendingDurableCursor = nil
+        }
+        reassembler.reset()
+    }
+
     private func enqueue(_ events: [OuraEvent], ts: Int) {
         guard !events.isEmpty else { return }
         buffer.append((events: events, ts: ts))
@@ -582,8 +595,9 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     private func flush() {
         guard feedsLive else { lastFlush = Date(); return }
         // BLE-6: commit the history cursor together with the events fetched before it, and never while
-        // fetched events still wait for the time anchor (they are not in this batch yet).
-        let cursor = pendingAnchorEvents.isEmpty ? pendingDurableCursor : nil
+        // fetched events still wait for their remaining bytes or time anchor.
+        let cursor = !processingNotification && pendingAnchorEvents.isEmpty && reassembler.bufferedByteCount == 0
+            ? pendingDurableCursor : nil
         guard !buffer.isEmpty || cursor != nil else { lastFlush = Date(); return }
         if cursor != nil { pendingDurableCursor = nil }
         // Pure, unit-tested mapping (events -> Streams) keyed by each entry's own ts (wall-clock for
@@ -881,6 +895,7 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
         reassembler.reset()
         // Resume the GetEvents cursor from where the LAST connection to this ring left off (s5.1/5.3), so
         // a routine reconnect doesn't re-fetch the ring's entire banked history every time.
+        cursorEpoch &+= 1 // Retire deferred cursor work from the previous physical connection.
         historyCursor = OuraHistoryCursorStore.read(deviceId: deviceId)
         pendingDurableCursor = nil
         sink.startNewSession()   // this session resumes from the durable cursor just read (BLE-6)
@@ -920,7 +935,6 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
         drainPendingAnchorEvents()
         driver?.stop()
         driver = nil
-        reassembler.reset()
         writeCharacteristic = nil
         loggedFirstHR = false
         loggedFirstTemp = false
@@ -934,6 +948,7 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
         if adoptPhase == .installingKey { adoptPhase = .failed }
         batteryPct = nil
         flush()
+        resetNotificationReassemblyAfterTeardown()
         if self.peripheral?.identifier == peripheral.identifier { self.peripheral = nil }
         // Auto-reconnect on an INVOLUNTARY drop (#912): the paired ring went out of range or the link timed
         // out. Re-issue a connect on the backoff so it comes back on its own, exactly like the WHOOP strap.
@@ -1016,58 +1031,39 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
         let source = receiptSession.source(for: characteristic, peripheralID: peripheral.identifier)
         if feedsLive, source == nil { return }
         let bytes = [UInt8](value)
-        // The notify char carries TWO framings on the same channel (OURA_PROTOCOL.md s2):
-        //   - 0x2F secure-session sub-frames (auth nonce/status, enable ACKs, live-HR pushes)
-        //   - inner TLV event records (IBI / HRV / SpO2 / temp / sleep-phase / battery)
-        // Split the notification into outer frames; route 0x2F ones through the driver's secure handler,
-        // and feed the remainder to the reassembler as TLV records.
+        // Outer responses and event records share op/length framing. Reassemble that stream once
+        // before routing it: parsing this notification alone used to drop a partial event after a
+        // secure response and could not deliver fragmented auth or history summaries.
         guard let driver else { return }
-        let frames = OuraFraming.parseOuterFrames(bytes)
-        // The `0x25` SetAuthKey-response is an OUTER frame (NOT a 0x2F secure sub-frame): `25 01 <status>`,
-        // status `0x00` = OK (OURA_PROTOCOL.md s3.2). It only ever arrives during an adopt install we
-        // initiated, so handle it ONLY while a key install is pending; otherwise it is ignored (never fed to
-        // the TLV decoder, where its op byte would be misread as a record type). Per OURA_PROTOCOL.md s3.2.
-        if pendingInstallKey != nil,
-           let ackFrame = frames.first(where: { $0.op == Self.setAuthKeyRespOp }) {
-            handleKeyInstallAck(status: ackFrame.body.first ?? 0xFF)
-            return
-        }
-        // The `0x11` GetEvents summary drives the history-fetch cursor loop (s5.2/5.3) - detected here as a
-        // side-channel PEEK, intentionally NOT stripped from `frames` below: its op (0x11) is well below the
-        // event-tag range (tags are >= 0x41), so it round-trips safely through the TLV decoder as an
-        // "unknown tag" no-op with correct byte accounting (both framings share the same op/len/body wire
-        // shape, so the byte count consumed is identical either way).
-        if let summaryFrame = frames.first(where: { $0.op == OuraFraming.getEventsResponseOp }) {
-            let hex = summaryFrame.body.map { String(format: "%02x", $0) }.joined(separator: " ")
-            log("Oura: GetEvents summary raw body (\(summaryFrame.body.count)B) - \(hex)")
-            if let summary = OuraFraming.parseGetEventsResponse(summaryFrame.body) {
-                handleHistorySummary(summary)
+        processingNotification = true
+        defer { processingNotification = false }
+        for frame in reassembler.feedFrames(bytes) {
+            switch frame.op {
+            case Self.setAuthKeyRespOp:
+                if pendingInstallKey != nil {
+                    handleKeyInstallAck(status: frame.body.first ?? 0xFF)
+                }
+            case OuraFraming.getEventsResponseOp:
+                let hex = frame.body.map { String(format: "%02x", $0) }.joined(separator: " ")
+                log("Oura: GetEvents summary raw body (\(frame.body.count)B) - \(hex)")
+                if let summary = OuraFraming.parseGetEventsResponse(frame.body) {
+                    handleHistorySummary(summary)
+                }
+            case OuraFraming.batteryResponseOp:
+                if let battery = OuraDecoders.decodeBattery(frame.body) {
+                    ingest([.battery(battery)], observedAt: observedAt, source: source)
+                }
+            case OuraFraming.secureSessionOp:
+                if let secure = OuraFraming.parseSecureFrame(frame) {
+                    handleSecure(driver.handleSecureFrame(secure), observedAt: observedAt, source: source)
+                }
+            default:
+                guard !OuraFraming.isOuterOpcode(frame.op),
+                      let record = OuraFraming.parseRecord(
+                        [frame.op, UInt8(frame.body.count)] + frame.body) else { continue }
+                ingest(driver.ingest(record: record), observedAt: observedAt, source: source)
             }
         }
-        // The `0x0D` GetBattery response is ALSO an outer frame (never a TLV record, s6.10), detected the
-        // same non-destructive way as the 0x11 summary: its op is below the event-tag range (>= 0x41), so
-        // it round-trips safely through the TLV decoder as an "unknown tag" no-op if left unfiltered. Routed
-        // through the existing `.battery` ingest path (batteryPct/onBattery/log side effects).
-        if let batteryFrame = frames.first(where: { $0.op == OuraFraming.batteryResponseOp }),
-           let battery = OuraDecoders.decodeBattery(batteryFrame.body) {
-            ingest([.battery(battery)], observedAt: observedAt, source: source)
-        }
-        if frames.contains(where: { $0.op == OuraFraming.secureSessionOp }) {
-            for frame in frames where frame.op == OuraFraming.secureSessionOp {
-                guard let secure = OuraFraming.parseSecureFrame(frame) else { continue }
-                handleSecure(driver.handleSecureFrame(secure), observedAt: observedAt, source: source)
-            }
-            // Any non-secure outer frames in the same notification are TLV records; fall through to decode.
-            // The 0x25 ack (if any) is consumed above, so it never reaches here.
-            let tlvBytes = frames.filter { $0.op != OuraFraming.secureSessionOp && $0.op != Self.setAuthKeyRespOp }
-                                 .flatMap { [$0.op, UInt8($0.body.count)] + $0.body }
-            if !tlvBytes.isEmpty {
-                ingest(driver.ingest(notification: tlvBytes, reassembler: reassembler), observedAt: observedAt, source: source)
-            }
-            return
-        }
-        // No secure frame in this notification: treat the whole value as TLV record bytes.
-        ingest(driver.ingest(notification: bytes, reassembler: reassembler), observedAt: observedAt, source: source)
     }
 
     /// Act on what the driver resolved a 0x2F secure sub-frame to.

@@ -41,19 +41,27 @@ final class HeadsUpJournalUITests: XCTestCase {
 
     func testHeadsUpQuietAndLearningStates() throws {
         continueAfterFailure = false
-        for state in ["off", "learning", "clear", "mild"] {
+        for state in ["off", "learning", "unavailable", "clear", "mild"] {
             let app = launch(headsUp: state)
             try requireDemoReady(in: app)
             // Off is not a button as a whole; its Turn on action is what can be revealed and tapped.
             let card = element(state == "off" ? "today.headsUp.turnOn" : "today.headsUp.card", in: app)
             try reveal(card, in: app)
             capture(app, "heads-up-\(state)-today-card")
+            if state == "unavailable" {
+                XCTAssertTrue(card.label.contains("No reading"))
+                XCTAssertFalse(card.label.contains("All clear"), "An untrusted comparison must not reassure")
+            }
             if state == "off" {
                 XCTAssertTrue(element("today.headsUp.off", in: app).exists, "Off shows the explainer card")
             } else {
                 card.tap()
                 try require(element("headsUp.detail", in: app), in: app, timeout: 15)
                 capture(app, "heads-up-\(state)-page-1-hero")
+                if state == "unavailable" {
+                    XCTAssertTrue(app.staticTexts["No reliable read yet"].exists)
+                    XCTAssertFalse(app.staticTexts["All clear"].exists)
+                }
                 gutterDrag(in: app)
                 capture(app, "heads-up-\(state)-page-2")
             }
@@ -113,6 +121,57 @@ final class HeadsUpJournalUITests: XCTestCase {
             gutterDrag(in: app)
             capture(app, "journal-home-\(index)")
         }
+    }
+
+    func testJournalRefreshesRenamedAndRetypedQuestionAfterEditing() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = baseArguments + ["--noop-qa-route", "journal"]
+        app.launch()
+        defer { app.terminate() }
+        try require(element("journal.home", in: app), in: app, timeout: 60)
+        let edit = element("journal.editQuestions", in: app)
+        try reveal(edit, in: app)
+        edit.tap()
+        let question = element("journal.question.did-you-read-before-bed", in: app)
+        try reveal(question, in: app)
+        question.tap()
+        let name = app.textFields["journal.question.did-you-read-before-bed.name"]
+        try require(name, in: app, timeout: 10)
+        name.tap()
+        let current = name.value as? String ?? ""
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + "Bedtime reading")
+        app.buttons["Done"].firstMatch.tap()
+        let answer = element("journal.question.did-you-read-before-bed.answer", in: app)
+        answer.tap()
+        app.buttons["Number"].tap()
+        // Both pages use the scaffold's explicit Back action.
+        app.buttons["Back"].firstMatch.tap()
+        app.buttons["Back"].firstMatch.tap()
+        let tile = element("journal.tile.Did you read before bed?", in: app)
+        try require(tile, in: app, timeout: 10)
+        // Scroll toward the top after returning from the bottom link.
+        for _ in 0..<10 where !tile.isHittable { app.swipeDown() }
+        try waitFor(tile, predicate: "label BEGINSWITH 'Bedtime reading'", in: app)
+        let previous = tile.label
+        tile.tap()
+        try waitFor(tile, predicate: "label != '\(previous)'", in: app)
+        XCTAssertFalse(tile.label.hasSuffix(", yes"), "The changed Number type is reflected by the Journal tile")
+        XCTAssertFalse(tile.label.hasSuffix(", no"), "A Number tap stores an amount after returning")
+        capture(app, "journal-edit-return-updated-tile")
+        // Restore this shared demo question so later Journal cases still exercise its plain Yes/No type.
+        try reveal(edit, in: app)
+        edit.tap()
+        try reveal(question, in: app)
+        question.tap()
+        name.tap()
+        let editedName = name.value as? String ?? ""
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: editedName.count) + "Read before bed")
+        app.buttons["Done"].firstMatch.tap()
+        answer.tap()
+        app.buttons["Yes / No"].tap()
+        app.buttons["Back"].firstMatch.tap()
+        app.buttons["Back"].firstMatch.tap()
     }
 
     // MARK: Harness

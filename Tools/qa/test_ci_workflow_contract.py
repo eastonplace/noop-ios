@@ -153,7 +153,7 @@ class CIWorkflowContractTests(unittest.TestCase):
             if match:
                 selectors.extend(f"NOOPCoachUITests/{match.group(1)}/{method}"
                                  for method in re.findall(r"\bfunc\s+(test\w+)\s*\(", text))
-        self.assertEqual(len(selectors), 46, "update this deliberate inventory check when UI coverage changes")
+        self.assertEqual(len(selectors), 49, "update this deliberate inventory check when UI coverage changes")
         process, arguments = self.run_selector("ui", selectors)
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual([arg for arg in arguments if arg.startswith("-only-testing:")],

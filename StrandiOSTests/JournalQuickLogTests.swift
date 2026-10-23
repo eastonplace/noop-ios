@@ -201,7 +201,7 @@ final class JournalQuickLogTests: XCTestCase {
             item("Did you read before bed?", .lifestyle, 9),
             item("Did you have caffeine late in the day?", .nutrition, 2),
         ]
-        let tiles = JournalQuickLogTile.tiles(from: items, active: [])
+        let tiles = JournalQuickLogTile.tiles(from: items, active: Set(items.map(\.canonical)))
         XCTAssertEqual(tiles.map(\.id), [
             "Did you read before bed?",                 // sleep setup
             "Did you have caffeine late in the day?",   // fuel, sort 2
@@ -211,14 +211,14 @@ final class JournalQuickLogTests: XCTestCase {
         ])
     }
 
-    func testOnlyTheActiveQuestionsGetATileUnlessNoSetCouldBeRead() {
+    func testOnlyTheActiveQuestionsGetATileIncludingAnExplicitEmptySet() {
         func item(_ q: String) -> JournalCatalogItem {
             JournalCatalogItem(canonical: q, displayName: nil, kind: .bool, group: .other,
                                sortIndex: 0, hidden: false, custom: false)
         }
         let items = [item("A"), item("B"), item("C")]
         XCTAssertEqual(JournalQuickLogTile.tiles(from: items, active: ["A", "C"]).map(\.id), ["A", "C"])
-        XCTAssertEqual(JournalQuickLogTile.tiles(from: items, active: []).count, 3)
+        XCTAssertTrue(JournalQuickLogTile.tiles(from: items, active: []).isEmpty)
     }
 
     // MARK: Stack line
@@ -245,7 +245,8 @@ final class JournalQuickLogModelTests: XCTestCase {
                                sortIndex: 0, hidden: false, custom: false)
         }
         return JournalQuickLogTile.tiles(from: [item("Did you read before bed?"),
-                                                item("Did you drink any alcohol?")], active: [])
+                                                item("Did you drink any alcohol?")],
+                                       active: ["Did you read before bed?", "Did you drink any alcohol?"])
     }
 
     /// The plain Yes/No question among the tiles (the other one counts drinks).
@@ -358,6 +359,71 @@ final class JournalQuickLogModelTests: XCTestCase {
         model.tap(plain(tiles))
         model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: staleEpoch)
         XCTAssertEqual(model.state(of: plain(tiles)), .yes, "The older, blank read is dropped")
+    }
+
+    func testNewerTapWaitsForOlderBulkSaveAndWinsAfterReturningToTheDay() async {
+        for returnToDay in [false, true] {
+            let model = JournalQuickLogModel()
+            let tiles = tiles()
+            var saved: [JournalQuickLog.Write] = []
+            var release: CheckedContinuation<Void, Never>?
+            var suspended = false
+            model.writer = .init(save: { _, write in
+                if !suspended {
+                    suspended = true
+                    await withCheckedContinuation { release = $0 }
+                }
+                saved.append(write)
+            }, clear: { _, _ in }, canWrite: { true }, didWrite: {})
+            model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+            model.markRest()
+            for _ in 0..<1000 where release == nil { try? await Task.sleep(for: .milliseconds(1)) }
+            XCTAssertNotNil(release)
+            if returnToDay {
+                model.reset()
+                model.seed(day: "2026-10-21", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+                model.reset()
+                model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+            }
+            let alcohol = tiles.first { $0.amount != nil }!
+            model.set(alcohol, yes: true)
+            try? await Task.sleep(for: .milliseconds(20))
+            XCTAssertTrue(saved.isEmpty, "The newer tap must wait while the bulk save is suspended")
+            release?.resume()
+            for _ in 0..<1000 where saved.count < 3 { try? await Task.sleep(for: .milliseconds(1)) }
+            XCTAssertEqual(saved.count, 3)
+            XCTAssertEqual(saved.last, .amount(question: alcohol.id, value: 1), "The latest tap must be the final stored answer")
+        }
+    }
+
+    func testAcceptedBulkAnswersFinishAfterResetWithoutPublishingOldCompletion() async {
+        let model = JournalQuickLogModel()
+        let tiles = tiles()
+        var saved: [(String, JournalQuickLog.Write)] = []
+        var release: CheckedContinuation<Void, Never>?
+        var oldCompletions = 0
+        model.writer = .init(save: { day, write in
+            saved.append((day, write))
+            if saved.count == 1 { await withCheckedContinuation { release = $0 } }
+        }, clear: { _, _ in }, canWrite: { true }, didWrite: { oldCompletions += 1 })
+        model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.markRest()
+        for _ in 0..<1000 where release == nil { try? await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertNotNil(release, "The first write must be suspended before switching days")
+        model.reset()
+        model.seed(day: "2026-10-21", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+        var replacementWrites = 0
+        model.writer = .init(save: { _, _ in replacementWrites += 1 }, clear: { _, _ in },
+                             canWrite: { true }, didWrite: { oldCompletions += 1 })
+        release?.resume()
+        for _ in 0..<1000 where saved.count < 2 { try? await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertEqual(saved.map(\.0), ["2026-10-22", "2026-10-22"])
+        XCTAssertEqual(saved.map(\.1), [.answer(question: "Did you read before bed?", yes: false),
+                                       .amount(question: "Did you drink any alcohol?", value: 0)])
+        XCTAssertEqual(replacementWrites, 0)
+        XCTAssertEqual(oldCompletions, 0, "A stale run must not refresh the new context")
+        XCTAssertEqual(model.dayKey, "2026-10-21")
+        XCTAssertEqual(model.answeredCount, 0)
     }
 
     func testSwitchingDayBlanksThePageUntilTheNewDayArrives() {

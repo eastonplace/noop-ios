@@ -214,8 +214,15 @@ public enum TrainingLoadEngine {
         // Seed from the first `primeDays` observations (gap days inside the priming window are skipped,
         // not averaged in as zero), then step every later calendar day, gap days with zero load.
         let seedDay = observed[configuration.primeDays - 1]
-        let seed = observed.prefix(configuration.primeDays).reduce(0.0) { $0 + $1.load }
-            / Double(configuration.primeDays)
+        let primingLoads = observed.prefix(configuration.primeDays).map(\.load)
+        let primingSum = primingLoads.reduce(0.0, +)
+        // Accepted finite loads can still overflow when summed. Preserve ordinary model arithmetic,
+        // and use a scaled mean only for that overflow path.
+        guard let seed = primingSum.isFinite
+            ? primingSum / Double(configuration.primeDays)
+            : StableStatistics.mean(primingLoads) else {
+            return unavailable(.invalidLoad, contiguousDays: contiguousDays)
+        }
         let alphaChronic = smoothingFactor(timeConstantDays: configuration.chronicTimeConstantDays)
         let alphaAcute = smoothingFactor(timeConstantDays: configuration.acuteTimeConstantDays)
 

@@ -13,8 +13,12 @@ struct LiftReceiptLineSnapshot: Identifiable, Equatable, Sendable {
 
   var detailLabel: String {
     guard !isWarmup else { return "\(statusLabel)  /  \(loadLabel)" }
-    let setNoun = (statusLabel == "1" || statusLabel.hasPrefix("1/") ? String(localized: "set") : String(localized: "sets")).uppercased()
-    return "\(loadLabel)  /  \(statusLabel) \(setNoun)"
+    // Every row is one logged set. The status is its working-set ordinal, not a set count.
+    let progress = statusLabel.split(separator: "/", maxSplits: 1)
+    let setLabel = progress.count == 2
+      ? String(localized: "Set \(String(progress[0])) of \(String(progress[1]))")
+      : String(localized: "Set \(statusLabel)")
+    return "\(loadLabel)  /  \(setLabel.uppercased())"
   }
 
   var accessibilityLabel: String {

@@ -81,20 +81,134 @@ final class HeadsUpModelTests: XCTestCase {
                 previous = nights
             case .scored:
                 if firstRead == nil { firstRead = count }
-            case .off:
-                XCTFail("Heads-Up is on")
+            case .off, .unavailable:
+                XCTFail("A steady initial history should learn and then score")
             }
         }
         XCTAssertEqual(previous, HeadsUpSnapshot.nightsNeeded - 1, "Progress reaches the last step before the read")
         XCTAssertEqual(firstRead, HeadsUpSnapshot.nightsNeeded + 3, "14 baseline nights plus the 3 newest")
     }
 
-    func testMissingRecentNightsKeepAnEstablishedBaselineScored() {
+    func testMissingRecentNightsKeepAnEstablishedBaselineUnavailable() {
         let days = history(count: 40) + [gap(40), gap(41)]
         let snapshot = HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true).snapshot
-        XCTAssertEqual(snapshot.phase, .scored(.quiet), "Two nights off the wrist must not restart learning")
+        XCTAssertEqual(snapshot.phase, .unavailable, "Two nights off the wrist must not restart learning or imply all clear")
         XCTAssertEqual(snapshot.presentCount, 0)
-        XCTAssertEqual(HeadsUpPresentation.card(snapshot).line, "No overnight signals in the last 2 nights.")
+        XCTAssertEqual(HeadsUpPresentation.card(snapshot).pill, "No reading")
+    }
+
+    func testOutlierInMatureBaselineIsUnavailableInsteadOfAllClear() throws {
+        let mature = (0..<40).map { night($0, rhr: 52, hrv: 62, resp: 15.1, skin: 0) }
+        let shifted = (40..<44).map { night($0, rhr: 75, hrv: 20, resp: 15.1, skin: 0.8) }
+        let built = HeadsUpBuilder.snapshot(days: mature + shifted, journal: [], enabled: true)
+        let latest = try XCTUnwrap(built.latest)
+        XCTAssertFalse(latest.trusted, "The outlier entering the baseline makes it provisional")
+        XCTAssertTrue(latest.baselineReady)
+        XCTAssertGreaterThan(latest.result.score, IllnessSignalEngine.raiseThreshold)
+        XCTAssertEqual(latest.result.level, .quiet, "The engine's trust gate remains intact")
+        XCTAssertEqual(built.snapshot.phase, .unavailable)
+        XCTAssertNil(built.snapshot.level)
+        XCTAssertEqual(built.snapshot.score, 0, "An untrusted engine score is not a surface reading")
+        XCTAssertTrue(built.snapshot.signals.allSatisfy { $0.z == nil && !$0.fired && $0.normalBand == nil })
+        let card = HeadsUpPresentation.card(built.snapshot)
+        XCTAssertEqual(card.pill, "No reading")
+        XCTAssertEqual(card.content, .unavailable)
+        XCTAssertEqual(card.tone, HeadsUpPresentation.tone(.off), "Unavailable is neutral")
+        XCTAssertNil(HeadsUpPresentation.bannerLine(built.snapshot))
+        XCTAssertEqual(HeadsUpPresentation.headline(built.snapshot), "No reliable read yet")
+        XCTAssertEqual(HeadsUpPresentation.stateWord(built.snapshot.signals[0], phase: .unavailable), "No comparison")
+    }
+
+    func testLongGapAfterMaturityDoesNotRestartInitialLearning() {
+        let days = history(count: 40) + (40..<59).map(gap)
+        let built = HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true)
+        XCTAssertFalse(built.latest?.baselineReady ?? true, "The current rolling window has fewer than 14 valid nights")
+        XCTAssertEqual(built.snapshot.phase, .unavailable, "Earlier established history survives a 19-night gap")
+        XCTAssertEqual(HeadsUpPresentation.card(built.snapshot).content, .unavailable)
+        XCTAssertFalse(HeadsUpPresentation.body(built.snapshot).contains("first"))
+    }
+
+    func testLongHistoryWithoutEnoughValidNightsStillLearns() {
+        let days = history(count: 6) + (6..<40).map(gap)
+        let snapshot = HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true).snapshot
+        XCTAssertEqual(snapshot.phase, .learning(nights: 0), "Raw row count must not establish a baseline")
+    }
+
+    func testImportedHistoryUsesItsOwnJournalWindow() throws {
+        let days = history(count: 30, spiked: 2) // Last stored morning is September 30, even if opened in October.
+        let bounds = try XCTUnwrap(HeadsUpBuilder.journalBounds(days))
+        XCTAssertEqual(bounds.lowerBound, "2026-09-16")
+        XCTAssertEqual(bounds.upperBound, "2026-09-30")
+        let allJournal = [logged("Did you drink any alcohol?", on: "2026-09-30")]
+        let fetched = allJournal.filter { bounds.contains($0.day) }
+        let snapshot = HeadsUpBuilder.snapshot(days: days, journal: fetched, enabled: true).snapshot
+        XCTAssertEqual(snapshot.phase, .scored(.suppressed), "An old imported cause must still soften its matching read")
+        XCTAssertEqual(snapshot.history.last?.level, .suppressed)
+        XCTAssertNil(HeadsUpBuilder.journalBounds([]))
+    }
+
+    func testHistoryBoundsStayAnchoredAndBoundedBeyondTheDashboardCache() throws {
+        let bounds = try XCTUnwrap(HeadsUpBuilder.historyBounds(through: "2026-10-29"))
+        XCTAssertEqual(bounds.lowerBound, "2026-05-03")
+        XCTAssertEqual(bounds.upperBound, "2026-10-29")
+        XCTAssertNil(HeadsUpBuilder.historyBounds(through: "not-a-day"))
+        XCTAssertNil(HeadsUpBuilder.historyBounds(through: "2026-02-30"))
+        let failed = HeadsUpSnapshot.unavailable(day: "2026-10-29")
+        XCTAssertEqual(failed.phase, .unavailable)
+        XCTAssertNil(failed.level)
+        XCTAssertEqual(HeadsUpPresentation.card(failed).pill, "No reading")
+    }
+
+    @MainActor
+    func testBoundedRepositoryHistoryRetainsMaturityOutsideDashboardCache() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let allDays = history(count: 40) + (40..<59).map(gap)
+        _ = try await store.upsertDailyMetrics(allDays, deviceId: Repository.whoopSource)
+        let bounds = try XCTUnwrap(HeadsUpBuilder.historyBounds(through: key(58)))
+        let read = await repository.headsUpHistory(fromDay: bounds.lowerBound, toDay: bounds.upperBound)
+        let days = try XCTUnwrap(read)
+        XCTAssertEqual(days.count, 59)
+        XCTAssertEqual(HeadsUpBuilder.snapshot(days: Array(days.suffix(30)), journal: [], enabled: true).snapshot.phase,
+                       .learning(nights: 11), "The dashboard cache alone loses maturity")
+        XCTAssertEqual(HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true).snapshot.phase, .unavailable)
+    }
+
+    @MainActor
+    func testBoundedRepositoryHistoryUsesComputedAndAppleFallbackVitals() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let imported = night(0, rhr: 52, hrv: 62, resp: 15.1, skin: 0)
+        let computed = night(1, rhr: 54, hrv: 60, resp: 15.2, skin: 0.1)
+        let apple = night(2, rhr: 55, hrv: 80, resp: 15.3, skin: 0.2)
+        _ = try await store.upsertDailyMetrics([imported], deviceId: Repository.whoopSource)
+        _ = try await store.upsertDailyMetrics([computed], deviceId: Repository.whoopSource + "-noop")
+        _ = try await store.upsertDailyMetrics([apple], deviceId: Repository.appleHealthSource)
+        let read = await repository.headsUpHistory(fromDay: key(0), toDay: key(2))
+        let days = try XCTUnwrap(read)
+        XCTAssertEqual(days.map(\.restingHr), [52, 54, 55])
+        XCTAssertEqual(days.map(\.avgHrv), [62, 60, nil], "Apple SDNN cannot replace missing RMSSD")
+    }
+
+    func testSparseReplayJournalBoundsIncludeFirstMorningsPredecessor() throws {
+        let days = (0..<40).map { index in
+            night(index * 3, rhr: (25...26).contains(index) ? 75 : 52,
+                  hrv: (25...26).contains(index) ? 20 : 62, resp: 15.1,
+                  skin: (25...26).contains(index) ? 0.8 : 0)
+        }
+        let bounds = try XCTUnwrap(HeadsUpBuilder.journalBounds(days))
+        XCTAssertEqual(bounds.lowerBound, key(25 * 3), "The first replayed morning needs the preceding stored night")
+        XCTAssertEqual(bounds.upperBound, key(39 * 3))
+        let entries = [logged("Did you drink any alcohol?", on: key(25 * 3))]
+        let snapshot = HeadsUpBuilder.snapshot(days: days, journal: entries.filter { bounds.contains($0.day) },
+                                               enabled: true).snapshot
+        XCTAssertEqual(snapshot.history.first?.day, key(26 * 3))
+        XCTAssertEqual(snapshot.history.first?.level, .suppressed,
+                       "A predecessor cause still explains the first sparse replayed morning")
+        let missingCause = HeadsUpBuilder.history(days, journal: [])
+        XCTAssertEqual(missingCause.first?.level, .raised, "This regression must exercise a cause that changes the result")
     }
 
     func testOneSignalAloneStaysClearAndSaysSo() throws {
@@ -303,6 +417,70 @@ final class HeadsUpModelTests: XCTestCase {
         XCTAssertEqual(snapshot.phase, .scored(.raised), "A no never softens a read")
         XCTAssertEqual(snapshot.answeredNo, [.alcohol])
         XCTAssertEqual(snapshot.causes, [])
+    }
+
+    // MARK: Invalid and extreme numeric inputs
+
+    func testInvalidRecentReadingsCannotEscapeIntoScoresOrHistory() {
+        for invalid in [Double.nan, .infinity, -.infinity, .greatestFiniteMagnitude, -.greatestFiniteMagnitude] {
+            let days = history(count: 40) { self.night($0, rhr: 52, hrv: invalid, resp: invalid, skin: invalid) }
+            let built = HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true)
+            XCTAssertTrue(built.snapshot.score.isFinite)
+            XCTAssertTrue((0...100).contains(built.snapshot.score))
+            XCTAssertTrue(built.latest?.distance.distance.isFinite ?? false)
+            XCTAssertTrue(built.snapshot.signals.allSatisfy { $0.z?.isFinite ?? true })
+            XCTAssertTrue(built.snapshot.signals.flatMap(\.history).allSatisfy { $0?.isFinite ?? true })
+            for signal in built.snapshot.signals {
+                _ = HeadsUpPresentation.delta(signal)
+                _ = HeadsUpPresentation.detailLine(signal, phase: built.snapshot.phase)
+            }
+            _ = HeadsUpPresentation.card(built.snapshot)
+        }
+    }
+
+    func testExtremeRecentRestingHRAndHRVCannotTrapLabelFormatting() {
+        let days = history(count: 40) { self.night($0, rhr: Int.max, hrv: -1e100, resp: 15.1, skin: 0.8) }
+        let built = HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true)
+        XCTAssertTrue(built.snapshot.score.isFinite)
+        XCTAssertTrue((0...100).contains(built.snapshot.score))
+        XCTAssertTrue(built.latest?.distance.distance.isFinite ?? false)
+        _ = HeadsUpPresentation.card(built.snapshot)
+    }
+
+    func testInvalidScoreAndDeltaPresentationCannotTrapOrDrawInvalidBars() {
+        for invalid in [Double.nan, .infinity, -.infinity, .greatestFiniteMagnitude, -.greatestFiniteMagnitude] {
+            let signal = HeadsUpSnapshot.Signal(kind: .hrv, latest: invalid, usual: 62, z: -3, fired: true,
+                                                normalBand: 50...70, history: [])
+            XCTAssertEqual(HeadsUpPresentation.delta(signal).text, "—")
+            XCTAssertNil(HeadsUpPresentation.delta(signal).unit)
+            let snapshot = HeadsUpSnapshot(phase: .scored(.suppressed), day: key(39), score: invalid,
+                                           rawScore: invalid, signals: [signal], causes: [.alcohol],
+                                           confidence: nil, history: [], unwellDay: nil)
+            XCTAssertNil(HeadsUpPresentation.meterNote(snapshot))
+            let bar = HeadsUpHistoryBar(id: "invalid", score: invalid, color: .clear, outline: invalid)
+            XCTAssertTrue(bar.score.isFinite)
+            XCTAssertTrue((0...100).contains(bar.score))
+            XCTAssertTrue(bar.outline?.isFinite ?? true)
+        }
+    }
+
+    func testFormattersRejectNonfiniteAndUnrepresentableNumbers() {
+        for invalid in [Double.nan, .infinity, -.infinity, .greatestFiniteMagnitude, -.greatestFiniteMagnitude,
+                        Double(Int.max), Double(Int.min)] {
+            XCTAssertEqual(HeadsUpPresentation.signed(invalid, fractionDigits: 0), "—")
+            XCTAssertEqual(HeadsUpPresentation.signed(invalid, fractionDigits: 1), "—")
+            for kind in HeadsUpSnapshot.SignalKind.allCases {
+                if invalid == Double(Int.min) { continue } // Int.min itself is a representable signed value.
+                XCTAssertEqual(HeadsUpPresentation.value(kind, invalid), "—")
+            }
+            if invalid != Double(Int.min) {
+                XCTAssertEqual(HeadsUpPresentation.contextRecovery(invalid), "—")
+                XCTAssertEqual(HeadsUpPresentation.contextSleep(invalid), "—")
+            }
+        }
+        XCTAssertEqual(HeadsUpPresentation.value(.restingHR, 52), "52 bpm")
+        XCTAssertEqual(HeadsUpPresentation.value(.hrv, 62), "62 ms")
+        XCTAssertEqual(HeadsUpPresentation.contextRecovery(70.6), "71%")
     }
 
     // MARK: Elsewhere today

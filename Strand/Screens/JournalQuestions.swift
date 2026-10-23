@@ -371,7 +371,13 @@ struct CoachingBehaviorSettingsView: View {
 
     private func persist() {
         let rows = memberships
-        Task { if let store = await repo.storeHandle() { try? await store.upsertCoachingMemberships(rows) } }
+        Task {
+            guard let store = await repo.storeHandle() else { return }
+            do {
+                try await store.upsertCoachingMemberships(rows)
+                NotificationCenter.default.post(name: .init("noop.notificationJournalDidChange"), object: nil)
+            } catch { /* Keep the local edit visible; the saved membership will be read on reopening. */ }
+        }
     }
 
     @MainActor private func load() async {
