@@ -55,7 +55,7 @@ struct CoachingRootView: View {
                         JournalMoodRow(mood: moodBinding, title: words.moodTitle)
                             .disabled(!isCurrentDayLoaded)
                         FlatSectionSeparator()
-                        JournalQuickLogSection(model: log, dayKey: dayKey, words: words, streak: doneStreak)
+                        JournalQuickLogSection(model: log, dayKey: dayKey, words: words)
                         if !note.isEmpty {
                             FlatSectionSeparator()
                             noteSection
@@ -190,8 +190,6 @@ struct CoachingRootView: View {
     private var loggedNow: Set<String> {
         JournalQuickLog.loggedDays(loggedDays, day: dayKey, values: log.dayKey == dayKey ? log.effective : nil)
     }
-
-    private var doneStreak: Int { JournalBehaviorDay.streak(logged: loggedNow, endingAt: dayKey) }
 
     private var historySection: some View {
         let logged = loggedNow

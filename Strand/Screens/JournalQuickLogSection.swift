@@ -208,7 +208,7 @@ final class JournalQuickLogModel: ObservableObject {
 
 // MARK: - Progress
 
-/// "4 of 10" and its bar, under whatever the host puts first (the day). The bar turns green when everything is answered.
+/// "4 of 10" and its bar, under whatever the host puts first (the day).
 struct JournalQuickLogProgress<Leading: View>: View {
     @ObservedObject var model: JournalQuickLogModel
     private let leading: Leading
@@ -247,7 +247,7 @@ struct JournalQuickLogProgress<Leading: View>: View {
                 ZStack(alignment: .leading) {
                     Rectangle().fill(StrandPalette.hairline)
                     Rectangle()
-                        .fill(model.isComplete ? StrandPalette.success : StrandPalette.journalAccent)
+                        .fill(StrandPalette.journalAccent)
                         .frame(width: proxy.size.width * fraction)
                 }
             }
@@ -267,8 +267,9 @@ struct JournalQuickLogSection: View {
     /// The day this section is for. Until the model holds that day, the grid is blank and cannot be tapped.
     let dayKey: String
     let words: JournalBehaviorDay.Words
-    /// Days in a row up to and including this one, for the done line.
-    let streak: Int
+    /// Days in a row up to and including this one, for the done line. 0 leaves the line out: the Journal page
+    /// leaves it out because the dots under the grid already say "N-day streak".
+    var streak: Int = 0
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -385,7 +386,7 @@ struct JournalQuickLogSection: View {
             HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 Image(systemName: "checkmark")
                     .font(StrandFont.body.weight(.semibold))
-                    .foregroundStyle(StrandPalette.statusPositive)
+                    .foregroundStyle(StrandPalette.journalAccent)
                     .padding(.top, 1)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
