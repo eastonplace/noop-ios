@@ -583,6 +583,9 @@ final class AppModel: ObservableObject {
     /// sole fire gate; this only surfaces a "how strong" confidence readout in the Heads-Up card when
     /// the engine has already raised. nil = not computed this pass. (Augment-only, Option A.)
     @Published var illnessDistance: IllnessDistance.Result?
+    /// Everything the Heads-Up card on Today and its detail page draw, from the same evaluation as
+    /// `illnessSignal`. nil until the day history first loads.
+    @Published var headsUp: HeadsUpSnapshot?
     /// Cycle-phase awareness (only computed when the user has opted in; else nil). Awareness only.
     @Published var cyclePhase: CyclePhaseEngine.Result?
     /// The nightly fused-index curve (oldest→newest) feeding the cycle card's sparkline.
@@ -3556,109 +3559,64 @@ final class AppModel: ObservableObject {
     /// read asynchronously, so this kicks a Task; the published `illnessSignal` + the `healthAlert`
     /// banner both come from the engine's single decision. On-device only, APPROXIMATE , not a diagnosis.
     private func evaluateIllness(_ days: [DailyMetric]) {
-        guard behavior.illnessWatch, days.count >= 14 else {
-            healthAlert = nil; illnessSignal = nil; illnessDistance = nil; return
+        guard behavior.illnessWatch else {
+            healthAlert = nil; illnessSignal = nil; illnessDistance = nil
+            publishHeadsUp(.off)
+            return
+        }
+        guard days.count >= HeadsUpSnapshot.nightsNeeded else {
+            healthAlert = nil; illnessSignal = nil; illnessDistance = nil
+            publishHeadsUp(HeadsUpBuilder.snapshot(days: days, journal: [], enabled: true).snapshot)
+            return
         }
         Task { [weak self] in
             guard let self else { return }
-            // Confounder tags from the recent journal (within the last ~2 days). Read once, off the
-            // engine's hot path , the engine only needs presence flags, not the rows.
-            let recentDays = Set(days.suffix(2).map(\.day))
-            let journal = await self.repo.journalEntries(days: 7)
-            var ctxAlcohol = false, ctxHardWorkout = false, ctxAlreadyUnwell = false
-            for e in journal where e.answeredYes && recentDays.contains(e.day) {
-                let q = e.question.lowercased()
-                if q.contains("alcohol") || q.contains("drink") { ctxAlcohol = true }
-                if q.contains("workout") || q.contains("train") || q.contains("exercise") { ctxHardWorkout = true }
-                if q.contains("sick") || q.contains("ill") || q.contains("unwell") { ctxAlreadyUnwell = true }
-            }
-            self.applyIllnessSignal(days, alcohol: ctxAlcohol, hardOrLateWorkout: ctxHardWorkout,
-                                    alreadyUnwell: ctxAlreadyUnwell)
+            // Journal causes for the newest window and for each morning of the history chart. Read once, off the
+            // engine's hot path: the builder only needs presence flags, matched on whole words.
+            let journal = await self.repo.journalEntries(days: HeadsUpSnapshot.historyLength + 7)
+            self.applyIllnessSignal(days, journal: journal)
         }
     }
 
-    /// Run the `IllnessSignalEngine` from the day history + the journal-derived confounder context, then
-    /// publish the result + the legacy `healthAlert` banner string (kept for the existing banner surface).
-    private func applyIllnessSignal(_ days: [DailyMetric], alcohol: Bool,
-                                    hardOrLateWorkout: Bool, alreadyUnwell: Bool) {
+    /// Run the `IllnessSignalEngine` (through `HeadsUpBuilder`, which gathers its inputs and the Heads-Up surface's
+    /// extra readings in one pass), then publish the result, the legacy `healthAlert` banner string and the
+    /// Heads-Up snapshot.
+    private func applyIllnessSignal(_ days: [DailyMetric], journal: [JournalEntry]) {
         let previous = healthAlert
-        let recent = Array(days.suffix(2))
-        let base = Array(days.suffix(31).dropLast(3))    // ~28 days ending 3 days ago
-        func mean(_ vals: [Double]) -> Double? { vals.isEmpty ? nil : vals.reduce(0, +) / Double(vals.count) }
-        func rm(_ kp: (DailyMetric) -> Double?) -> Double? { mean(recent.compactMap(kp)) }
-
-        // Build each signal's illness-ward z against the personal baseline (Baselines.deviation). The
-        // baseline is folded over the full pre-recent history; a trusted baseline (≥14 nights) is the
-        // engine's gate for actually raising. Skin-temp is already a stored DEVIATION (°C), so it's
-        // z-scored against a zero-centred personal spread; the others z-score the raw column.
-        func signal(_ kp: (DailyMetric) -> Double?, cfgKey: String, illnessUp: Bool) -> (IllnessSignalEngine.SignalReading, Bool)? {
-            guard let cfg = Baselines.metricCfg[cfgKey], let recentMean = rm(kp) else { return nil }
-            let state = Baselines.foldHistory(base.map(kp), cfg: cfg)
-            guard state.usable else { return (IllnessSignalEngine.SignalReading(zIllnessward: 0, present: false), false) }
-            let dev = Baselines.deviation(recentMean, state: state)
-            let z = illnessUp ? dev.z : -dev.z   // HRV drop is illness-ward → negate
-            return (IllnessSignalEngine.SignalReading(zIllnessward: z), state.trusted)
+        let built = HeadsUpBuilder.snapshot(days: days, journal: journal, enabled: true)
+        if let latest = built.latest {
+            // The parallel distance never gates the alert; the Heads-Up surfaces only grade a raised read with it.
+            illnessDistance = latest.distance
+            let result = latest.result
+            illnessSignal = result
+            // The banner string reflects the raised / already-unwell levels only (the calmer levels surface in
+            // the Heads-Up card and the Health hub, never as a banner).
+            healthAlert = (result.level == .raised || result.level == .alreadyUnwell) ? result.copy : nil
+        } else {
+            healthAlert = nil; illnessSignal = nil; illnessDistance = nil
         }
-
-        let rhr = signal({ $0.restingHr.map(Double.init) }, cfgKey: "resting_hr", illnessUp: true)
-        let hrv = signal({ $0.avgHrv }, cfgKey: "hrv", illnessUp: false)
-        let resp = signal({ $0.respRateBpm }, cfgKey: "resp", illnessUp: true)
-        // Skin-temp deviation: a stored °C delta. Build a small zero-centred state from its own recent
-        // spread so a +0.6 °C reads as a meaningful z without needing a separate baseline column.
-        var skin: (IllnessSignalEngine.SignalReading, Bool)? = nil
-        if let recentSkin = rm({ $0.skinTempDevC }) {
-            let z = recentSkin / 0.3     // ~0.3 °C ≈ one personal spread (matches skin_temp floorSpread)
-            skin = (IllnessSignalEngine.SignalReading(zIllnessward: z), true)
-        }
-
-        let inputs = IllnessSignalEngine.Inputs(
-            restingHR: rhr?.0, skinTemp: skin?.0, hrv: hrv?.0, respiration: resp?.0)
-
-        // PARALLEL Mahalanobis distance on the SAME illness-ward z-vector (RHR up, HRV negated, skin-temp
-        // up, respiration up). This NEVER gates the alert: the IllnessSignalEngine above remains the sole
-        // fire gate. We compute it here only so the Heads-Up card can show a "how strong" confidence band
-        // when the engine has already raised. nil where a reading is absent / not present (dropped from the
-        // distance). correlation: nil = identity, validated to agree ~100% with the z-sum detector.
-        func zIfPresent(_ r: (IllnessSignalEngine.SignalReading, Bool)?) -> Double? {
-            guard let reading = r?.0, reading.present else { return nil }
-            return reading.zIllnessward
-        }
-        let distanceFeatures = IllnessDistance.FeatureVector(
-            restingHR: zIfPresent(rhr),
-            rmssd: zIfPresent(hrv),       // hrv.zIllnessward is already the NEGATED HRV z
-            skinTemp: zIfPresent(skin),
-            respiration: zIfPresent(resp))
-        illnessDistance = IllnessDistance.evaluate(features: distanceFeatures, correlation: nil)
-
-        // baselineTrusted: require the HRV/RHR baselines to be trusted before the engine may raise.
-        let trusted = (rhr?.1 ?? false) || (hrv?.1 ?? false)
-        let context = IllnessSignalEngine.Context(
-            alcohol: alcohol, hardOrLateWorkout: hardOrLateWorkout,
-            alreadyUnwell: alreadyUnwell, baselineTrusted: trusted)
-
-        // Caller-rendered phrases for the signals that fire (the engine surfaces only the firing ones).
-        var labels: [String: String] = [:]
-        if let r = rm({ $0.restingHr.map(Double.init) }), let b = mean(base.compactMap { $0.restingHr.map(Double.init) }), r > b {
-            labels["restingHR"] = "RHR +\(Int((r - b).rounded()))"
-        }
-        if let r = rm({ $0.avgHrv }), let b = mean(base.compactMap { $0.avgHrv }), b > 0, r < b {
-            labels["hrv"] = "HRV −\(Int(((1 - r / b) * 100).rounded()))%"
-        }
-        if let r = rm({ $0.skinTempDevC }), r > 0 {
-            labels["skinTemp"] = "skin temp +\(String(format: "%.1f", r)) °C"
-        }
-        if let r = rm({ $0.respRateBpm }), let b = mean(base.compactMap { $0.respRateBpm }), r > b {
-            labels["respiration"] = "respiration up"
-        }
-
-        let result = IllnessSignalEngine.evaluate(inputs, context: context, firedLabels: labels)
-        illnessSignal = result
-        // The amber banner string reflects the raised / already-unwell levels only (the calmer levels
-        // surface in the Health hub's Heads-Up card, never as a scary banner).
-        healthAlert = (result.level == .raised || result.level == .alreadyUnwell) ? result.copy : nil
+        publishHeadsUp(built.snapshot)
         if let alert = healthAlert, previous == nil {
             IllnessNotifier.post(alert)
         }
+    }
+
+    private func publishHeadsUp(_ snapshot: HeadsUpSnapshot) {
+        #if DEBUG
+        // `--demo-heads-up <state>`: a fixed read so the card and detail page can be captured without real nights.
+        if let demo = HeadsUpSnapshot.demoOverride {
+            if headsUp != demo { headsUp = demo }
+            return
+        }
+        #endif
+        if headsUp != snapshot { headsUp = snapshot }
+    }
+
+    /// Turn Heads-Up on or off from its own card or page (the same preference as Settings → Notifications →
+    /// Health-pattern alerts), then read the history straight away.
+    func setHeadsUpEnabled(_ enabled: Bool) {
+        behavior.illnessWatch = enabled
+        reevaluateIllness()
     }
 
     /// Re-run the illness watch over the cached history. Called when the Automations toggle

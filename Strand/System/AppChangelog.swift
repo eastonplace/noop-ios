@@ -49,15 +49,15 @@ enum AppChangelog {
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
         .fork("2.0.0", "NOOP 2.0", "October 2026", [
+            Feature("heart.text.square.fill", .heart, "Heads-Up", "See when your body looks run down, and why."),
+            Feature("book.closed.fill", .journal, "One-tap Journal", "One page that saves as you tap, plus dictated notes."),
             Feature("flame.fill", .strain, "Daily training targets", "Preview a plan from your recent load and recovery."),
             Feature("dumbbell.fill", .strain, "Lift plans and imports", "Review progression or import CSV and Excel routines."),
-            Feature("book.closed.fill", .journal, "Coach and Journal", "Dictate daily notes and add a Coach brief widget."),
-            Feature("figure.walk", .accent, "Workout type review", "Check a detected workout's type before saving."),
+            Feature("figure.walk", .accent, "Workout review and export", "Check a detected workout's type; share GPS routes."),
             Feature("waveform.path.ecg", .stress, "Your stress baseline", "Compare hourly stress with your own normal."),
-            Feature("heart.fill", .hrv, "Reliable daily scores", "Cleaner readings, filtered steps and weekly totals."),
-            Feature("checkmark.shield.fill", .sleep, "Protected history", "Strap changes and Health sync preserve saved data."),
-            Feature("square.and.arrow.up", .strain, "GPS route export", "Share measured workout routes as GPX or FIT."),
+            Feature("checkmark.shield.fill", .hrv, "Steadier data", "Cleaner scores, and strap changes keep your history."),
             Feature("alarm.fill", .sleep, "Confirmed strap alarms", "Wake times check the current strap's reply."),
+            Feature("rectangle.on.rectangle", .journal, "Coach brief widget", "Add your daily Coach brief to the Home Screen."),
         ]),
         .fork("1.8.1", "Steadier readings and scores", "October 2026", [
             Feature("antenna.radiowaves.left.and.right", .accent, "Connection control", "Disconnect and Forget keep your strap released."),

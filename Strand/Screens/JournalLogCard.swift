@@ -590,61 +590,100 @@ private struct NumericLogField: View {
     }
 }
 
-// MARK: - Coaching
+// MARK: - Journal
 
-/// The journal's primary product surface. It deliberately owns no persistence of its own: every
-/// occurrence is read from and written through Repository's existing journal API, preserving the
-/// canonical question keys consumed by What Moves You.
+/// The Journal: one flat page that is the whole daily check-in. Mood, then the behaviours grouped the way a day goes,
+/// each a one-tap Yes / No or a stepper that saves the moment it is touched, then a note, the last two weeks and the
+/// shortcuts. There is no separate check-in screen or Save button to forget. It owns no persistence of its own: every
+/// answer is written through Repository's journal API under the immutable catalog canonicals (the native
+/// "noop-journal" source), so What Moves You and Heads-Up read exactly what was tapped. Typed or dictated notes keep
+/// their explicit reviewed save in the composer sheet.
 struct CoachingRootView: View {
     @EnvironmentObject private var repo: Repository
     @StateObject private var catalog = JournalCatalogStore()
 
     @State private var importedQuestions: [String] = []
-    @State private var todayAnswers: [String: Bool] = [:]
-    @State private var todayNumeric: [String: Double] = [:]
+    @State private var activeCanonicals: Set<String> = []
+    /// 0 = today, 1 = yesterday: the evening check-in and the "I forgot last night" one.
+    @State private var dayOffset = 0
+    @State private var answers: [String: Bool] = [:]
+    @State private var numeric: [String: Double] = [:]
+    @State private var previousAnswers: [String: Bool] = [:]
+    @State private var previousNumeric: [String: Double] = [:]
+    @State private var mood: Int?
+    @State private var loggedWindow: [Bool] = []
     @State private var recentEntries: [CoachingRecentEntry] = []
-    @State private var coachingMemberships: [CoachingBehaviorMembership] = []
     @State private var stacks: [CoachingStack] = []
     @State private var loaded = false
     @State private var savedMessage: String?
-    /// The typed/dictated note for today. It stays transient until its sheet's reviewed Save.
+    /// A typed/dictated note. It stays transient until its sheet's reviewed Save.
     @State private var composingEntry: JournalEntryPresentation?
     #if DEBUG && os(iOS)
     @State private var qaComposeOpened = false
     #endif
 
-    private var todayKey: String { Repository.localDayKey(Date()) }
-    private var activeItems: [JournalCatalogItem] {
-        catalog.resolvedItems(imported: importedQuestions)
+    /// The local day `daysBack` days before `now`, in the journal's own day-key form.
+    nonisolated static func key(daysBack: Int, now: Date = Date(), calendar: Calendar = .current) -> String {
+        Repository.localDayKey(calendar.date(byAdding: .day, value: -daysBack, to: now) ?? now, calendar: calendar)
+    }
+
+    private var dayKey: String { Self.key(daysBack: dayOffset) }
+
+    private var items: [JournalCatalogItem] {
+        let resolved = catalog.resolvedItems(imported: importedQuestions)
             .sorted { ($0.sortIndex, $0.display) < ($1.sortIndex, $1.display) }
+        return activeCanonicals.isEmpty ? resolved : resolved.filter { activeCanonicals.contains($0.canonical) }
     }
-    private var loggedCount: Int {
-        activeItems.filter { todayAnswers[$0.canonical] != nil || todayNumeric[$0.canonical] != nil }.count
+
+    private func isAnswered(_ item: JournalCatalogItem) -> Bool {
+        answers[item.canonical] != nil || numeric[item.canonical] != nil
     }
-    private var quickItems: [JournalCatalogItem] {
-        let quick = coachingMemberships.filter { $0.isActive && $0.isQuickAdd }.map(\.canonicalQuestion)
-        let keys = quick.isEmpty ? Array(activeItems.prefix(6).map(\.canonical)) : quick
-        let byKey = Dictionary(uniqueKeysWithValues: activeItems.map { ($0.canonical, $0) })
-        return keys.compactMap { byKey[$0] }
+
+    private var answeredCount: Int { items.filter { isAnswered($0) }.count }
+
+    private var groups: [CoachingCheckInGroup] {
+        let present = Set(items.map(coachingPresentationGroup(for:)))
+        return CoachingCheckInGroup.allCases.filter { present.contains($0) }
     }
+
+    /// Yesterday answered something today has not yet: one tap copies just those gaps.
+    private var canRepeatYesterday: Bool {
+        dayOffset == 0 && items.contains { item in
+            !isAnswered(item) && (previousAnswers[item.canonical] != nil || previousNumeric[item.canonical] != nil)
+        }
+    }
+
+    private var loadKey: String { "\(repo.refreshSeq)|\(dayKey)" }
 
     var body: some View {
         NavigationStack {
-            ScreenScaffold(title: "Coaching", subtitle: "Small check-ins, useful patterns") {
+            ScreenScaffold(title: "Journal", subtitle: "Tap once. It saves itself.") {
                 if loaded {
-                    VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                        checkInCard
-                        shortcutsCard
-                        quickAddSection
-                        recentSection
-                        NoteCard("Entries stay on this device and feed the same What Moves You analysis as the classic journal.",
-                                 style: .privacy)
+                    VStack(alignment: .leading, spacing: 0) {
+                        dayHeader
+                        FlatSectionSeparator()
+                        JournalMoodRow(mood: moodBinding)
+                        ForEach(groups) { group in
+                            FlatSectionSeparator()
+                            groupSection(group)
+                        }
+                        FlatSectionSeparator()
+                        noteSection
+                        Group {
+                            FlatSectionSeparator()
+                            historySection
+                            FlatSectionSeparator()
+                            shortcutsSection
+                            privacyLine
+                        }
                     }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("journal.home")
                 } else {
                     ComingSoon(what: "Loading today’s check-in…", symbol: "checkmark.circle")
                 }
             }
-            .task(id: repo.refreshSeq) { await load() }
+            .task(id: loadKey) { await load() }
             #if os(iOS)
             // The scaffold header is this screen's only chrome; the stack's own bar would stack a second
             // one above it.
@@ -654,7 +693,7 @@ struct CoachingRootView: View {
         .tint(StrandPalette.journalAccent)
         .sheet(item: $composingEntry) { entry in
             JournalEntryComposer(catalog: catalog, presentation: entry,
-                                 importedQuestions: importedQuestions, currentDay: todayKey,
+                                 importedQuestions: importedQuestions, currentDay: entry.day,
                                  onSaved: { Task { await load() } })
                 .environmentObject(repo)
         }
@@ -663,166 +702,197 @@ struct CoachingRootView: View {
         .onChange(of: loaded) { _, isLoaded in
             guard isLoaded, QARoute.requested == .journalCompose, !qaComposeOpened else { return }
             qaComposeOpened = true
-            composingEntry = JournalEntryPresentation(day: todayKey, sourceIdentity: repo.journalEntrySourceIdentity)
+            composingEntry = JournalEntryPresentation(day: dayKey, sourceIdentity: repo.journalEntrySourceIdentity)
         }
         #endif
     }
 
-    private var checkInCard: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                HStack(spacing: NoopMetrics.space4) {
-                    let progress = activeItems.isEmpty ? 0 : Double(loggedCount) / Double(activeItems.count)
-                    CoachingProgressRing(value: progress,
-                                         label: "\(Int((progress * 100).rounded()))%")
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Today’s check-in")
-                            .font(StrandFont.title2)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text("\(loggedCount) of \(activeItems.count) logged")
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        if let savedMessage {
-                            Label(savedMessage, systemImage: "checkmark.circle.fill")
-                                .font(StrandFont.caption)
-                                .foregroundStyle(StrandPalette.textSecondary)
+    // MARK: Day and progress
+
+    private var dayLabel: String {
+        let date = Calendar.current.date(byAdding: .day, value: -dayOffset, to: Date()) ?? Date()
+        return date.formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
+    }
+
+    private var dayHeader: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            HStack(spacing: NoopMetrics.space2) {
+                ChoiceChipButton(title: "Yesterday", isSelected: dayOffset == 1) { select(daysBack: 1) }
+                ChoiceChipButton(title: "Today", isSelected: dayOffset == 0) { select(daysBack: 0) }
+                Spacer(minLength: NoopMetrics.space2)
+                Text(verbatim: dayLabel)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            JournalProgressHeader(
+                answered: answeredCount, total: items.count,
+                caption: dayOffset == 0
+                    ? String(localized: "Saves as you tap. Answers describe the day and night leading into tomorrow.")
+                    : String(localized: "Filling in yesterday. Saves as you tap."))
+            if canRepeatYesterday || savedMessage != nil {
+                HStack(spacing: NoopMetrics.space3) {
+                    if canRepeatYesterday {
+                        Button { Task { await repeatYesterday() } } label: {
+                            Label("Same as yesterday", systemImage: "arrow.counterclockwise")
                         }
+                        .buttonStyle(SecondaryPillButtonStyle())
+                        .accessibilityHint("Copies yesterday’s answers into the questions you have not answered today")
+                        .accessibilityIdentifier("journal.repeatYesterday")
+                    }
+                    if let savedMessage {
+                        Label(savedMessage, systemImage: "checkmark.circle.fill")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
                     }
                 }
+            }
+        }
+        .padding(.top, NoopMetrics.space2)
+    }
 
-                NavigationLink {
-                    CoachingCheckInView { Task { await load() } }
-                } label: {
-                    Label("Continue check-in", systemImage: "arrow.right")
-                }
-                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-                .accessibilityHint("Opens the existing journal check-in")
+    private func select(daysBack: Int) {
+        guard dayOffset != daysBack else { return }
+        savedMessage = nil
+        dayOffset = daysBack
+    }
 
-                Divider().overlay(StrandPalette.hairline)
-                JournalComposeRow {
-                    composingEntry = JournalEntryPresentation(day: todayKey, sourceIdentity: repo.journalEntrySourceIdentity)
+    // MARK: Questions
+
+    private func groupItems(_ group: CoachingCheckInGroup) -> [JournalCatalogItem] {
+        items.filter { coachingPresentationGroup(for: $0) == group }
+    }
+
+    private func groupSection(_ group: CoachingCheckInGroup) -> some View {
+        let rows = groupItems(group)
+        let done = rows.filter { isAnswered($0) }.count
+        return FlatSection(verbatim: group.rawValue, systemImage: group.icon, tint: .journal,
+                           trailing: .text("\(done)/\(rows.count)"), contentSpacing: 2) {
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 { FlatRowSeparator(leadingInset: 42) }
+                    row(item)
                 }
             }
         }
     }
 
-    private var shortcutsCard: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Shortcuts")
-            PaperCard {
-                VStack(spacing: 0) {
-                    coachingActionRow(title: "Repeat yesterday", subtitle: "Copy yesterday’s logged behaviors",
-                                      icon: "arrow.counterclockwise", dot: StrandPalette.journalAccent) {
-                        Task { await repeatYesterday() }
-                    }
-                    Divider().overlay(StrandPalette.hairline)
-                    if let stack = stacks.first {
-                        NavigationLink { CoachingStackDetailView(stack: stack) { Task { await load() } } } label: {
-                            HStack(spacing: 12) {
-                                Circle().fill(stack.isActive ? StrandPalette.journalAccent : StrandPalette.textTertiary)
-                                    .frame(width: 8, height: 8)
-                                Image(systemName: "square.stack.3d.up")
-                                    .foregroundStyle(StrandPalette.textPrimary).frame(width: 24)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Stacks").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                                    Text(stack.name).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                                }
-                                Spacer()
-                                StatusBadge(stack.isActive ? "Active" : "Paused", style: stack.isActive ? .success : .queued)
-                                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(StrandPalette.textTertiary)
-                            }
-                            .frame(minHeight: NoopMetrics.rowHeight)
-                        }
-                        .buttonStyle(.plain)
+    @ViewBuilder private func row(_ item: JournalCatalogItem) -> some View {
+        if item.kind.isNumeric {
+            JournalQuantityRow(icon: coachingIcon(for: item), tint: coachingTint(for: item),
+                               title: coachingShortDisplayName(for: item), unit: item.kind.unitLabel ?? "",
+                               value: numericBinding(item))
+        } else {
+            JournalHabitToggle(icon: coachingIcon(for: item), tint: coachingTint(for: item),
+                               question: coachingShortDisplayName(for: item), answer: answerBinding(item))
+        }
+    }
+
+    /// Every tap writes at once for the day it was made on, then the page updates in place.
+    private func answerBinding(_ item: JournalCatalogItem) -> Binding<Bool?> {
+        Binding(
+            get: { answers[item.canonical] },
+            set: { next in
+                let day = dayKey
+                answers[item.canonical] = next
+                savedMessage = nil
+                markLogged()
+                Task {
+                    if let next {
+                        await repo.saveJournalAnswer(day: day, question: item.canonical, answeredYes: next)
                     } else {
-                        SettingsRow(icon: "square.stack.3d.up", title: "Stacks", subtitle: "No stacks configured") {
-                            StatusBadge("Not configured", style: .notConnected)
-                        }
+                        await repo.clearJournalAnswer(day: day, question: item.canonical)
                     }
-                    Divider().overlay(StrandPalette.hairline)
-                    NavigationLink { CoachingBehaviorSettingsView() } label: {
-                        SettingsRow(icon: "slider.horizontal.3", title: "Edit behaviors",
-                                    subtitle: "Names, groups and logging type")
-                    }
-                    .buttonStyle(.plain)
                 }
+            }
+        )
+    }
+
+    private func numericBinding(_ item: JournalCatalogItem) -> Binding<Double?> {
+        Binding(
+            get: { numeric[item.canonical] },
+            set: { next in
+                let day = dayKey
+                numeric[item.canonical] = next
+                answers[item.canonical] = next.map { _ in true }
+                savedMessage = nil
+                markLogged()
+                Task {
+                    if let next {
+                        await repo.saveJournalNumeric(day: day, question: item.canonical, value: next)
+                    } else {
+                        await repo.clearJournalAnswer(day: day, question: item.canonical)
+                    }
+                }
+            }
+        )
+    }
+
+    private var moodBinding: Binding<Int?> {
+        Binding(
+            get: { mood },
+            set: { next in
+                let day = dayKey
+                mood = next
+                guard let next else { return }
+                Task { await repo.saveMood(day: day, value: next) }
+            }
+        )
+    }
+
+    /// The two-week strip ends today, so a tap on today or yesterday lights its dot without a reload.
+    private func markLogged() {
+        let index = loggedWindow.count - 1 - dayOffset
+        guard loggedWindow.indices.contains(index) else { return }
+        loggedWindow[index] = !answers.isEmpty || !numeric.isEmpty
+    }
+
+    @MainActor private func repeatYesterday() async {
+        let day = dayKey
+        var copied = 0
+        for item in items where !isAnswered(item) {
+            if let value = previousNumeric[item.canonical] {
+                numeric[item.canonical] = value
+                answers[item.canonical] = true
+                await repo.saveJournalNumeric(day: day, question: item.canonical, value: value)
+                copied += 1
+            } else if let answer = previousAnswers[item.canonical] {
+                answers[item.canonical] = answer
+                await repo.saveJournalAnswer(day: day, question: item.canonical, answeredYes: answer)
+                copied += 1
+            }
+        }
+        markLogged()
+        savedMessage = copied == 0 ? String(localized: "Nothing new to copy")
+                                   : String(localized: "Copied \(copied) from yesterday")
+    }
+
+    // MARK: Note, history, shortcuts
+
+    private var noteSection: some View {
+        FlatSection("Notes", systemImage: "square.and.pencil", tint: .journal, contentSpacing: 2) {
+            JournalComposeRow {
+                composingEntry = JournalEntryPresentation(day: dayKey, sourceIdentity: repo.journalEntrySourceIdentity)
             }
         }
     }
 
-    private var quickAddSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            HStack {
-                SectionHeader("Quick Add")
-                Spacer()
-                NavigationLink { CoachingQuickAddView() } label: {
-                    Text("More").font(StrandFont.caption.weight(.semibold))
-                        .foregroundStyle(StrandPalette.journalAccent)
+    private var historySection: some View {
+        FlatSection("Your logging", systemImage: "calendar", tint: .journal) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                if !loggedWindow.isEmpty {
+                    JournalStreakStrip(logged: loggedWindow)
                 }
-            }
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: NoopMetrics.space3) {
-                ForEach(quickItems) { item in
-                    Button { Task { await quickLog(item) } } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: todayAnswers[item.canonical] == true ? "checkmark.circle.fill" : "plus.circle")
-                                .foregroundStyle(StrandPalette.journalAccent)
-                            Text(coachingShortDisplayName(for: item))
-                                .font(StrandFont.caption.weight(.medium))
-                                .foregroundStyle(StrandPalette.textPrimary)
-                                .lineLimit(2)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        .background(StrandPalette.journalAccent.opacity(0.10),
-                                    in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
-                            .strokeBorder(StrandPalette.journalAccent.opacity(0.22), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private var recentSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Recent Entries")
-            PaperCard {
                 if recentEntries.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Image(systemName: "square.and.pencil")
-                            .foregroundStyle(StrandPalette.journalAccent)
-                        Text("Nothing logged yet").font(StrandFont.body.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Your latest check-ins will appear here.").font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Your latest answers will appear here.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(Array(recentEntries.prefix(5).enumerated()), id: \.element.id) { index, entry in
-                            if index > 0 { Divider().overlay(StrandPalette.hairline) }
-                            HStack(spacing: 12) {
-                                Circle().fill(StrandPalette.journalAccent.opacity(0.16)).frame(width: 34, height: 34)
-                                    .overlay(Image(systemName: entry.numeric == nil ? "checkmark" : "number")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(StrandPalette.journalAccent))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(entry.display).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                                        .lineLimit(1)
-                                    Text(entry.day).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                                }
-                                Spacer()
-                                if let numeric = entry.numeric {
-                                    TinyMetricBadge(CoachingRecentEntry.format(numeric), tint: StrandPalette.journalAccent)
-                                } else {
-                                    Text(entry.answeredYes ? "Yes" : "No")
-                                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                                }
-                            }
-                            .frame(minHeight: NoopMetrics.rowHeight)
+                        ForEach(Array(recentEntries.enumerated()), id: \.element.id) { index, entry in
+                            if index > 0 { FlatRowSeparator() }
+                            recentRow(entry)
                         }
                     }
                 }
@@ -830,33 +900,107 @@ struct CoachingRootView: View {
         }
     }
 
-    private func coachingActionRow(title: LocalizedStringKey, subtitle: LocalizedStringKey,
-                                   icon: String, dot: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Circle().fill(dot).frame(width: 8, height: 8)
-                Image(systemName: icon).foregroundStyle(StrandPalette.textPrimary).frame(width: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                    Text(subtitle).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+    private func recentRow(_ entry: CoachingRecentEntry) -> some View {
+        HStack(spacing: NoopMetrics.space3) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: entry.display)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(1)
+                Text(verbatim: entry.day)
+                    .font(StrandFont.caption)
+                    .monospacedDigit()
                     .foregroundStyle(StrandPalette.textTertiary)
             }
-            .frame(minHeight: NoopMetrics.rowHeight)
-            .contentShape(Rectangle())
+            Spacer(minLength: NoopMetrics.space2)
+            Text(verbatim: entry.numeric.map(CoachingRecentEntry.format)
+                 ?? (entry.answeredYes ? String(localized: "Yes") : String(localized: "No")))
+                .font(StrandFont.captionNumber)
+                .foregroundStyle(StrandPalette.textSecondary)
         }
-        .buttonStyle(.plain)
+        .frame(minHeight: 48)
+        .accessibilityElement(children: .combine)
     }
 
+    private var shortcutsSection: some View {
+        FlatSection("Shortcuts", systemImage: "square.grid.2x2", tint: .journal, contentSpacing: 0) {
+            VStack(spacing: 0) {
+                NavigationLink { CoachingBehaviorSettingsView() } label: {
+                    linkRow(title: "Choose questions", subtitle: "What the check-in asks, and in what order",
+                            icon: "slider.horizontal.3")
+                }
+                .buttonStyle(.plain)
+                FlatRowSeparator(leadingInset: 36)
+                NavigationLink { CoachingQuickAddView() } label: {
+                    linkRow(title: "Quick Add", subtitle: "Log one thing without the full list", icon: "plus.circle")
+                }
+                .buttonStyle(.plain)
+                if let stack = stacks.first {
+                    FlatRowSeparator(leadingInset: 36)
+                    NavigationLink { CoachingStackDetailView(stack: stack) { Task { await load() } } } label: {
+                        linkRow(title: "Stacks", verbatimSubtitle: stack.name, icon: "square.stack.3d.up")
+                    }
+                    .buttonStyle(.plain)
+                }
+                FlatRowSeparator(leadingInset: 36)
+                NavigationLink { InsightsView(focusedJournal: true) } label: {
+                    linkRow(title: "Rename or add questions", subtitle: "Custom questions, groups and numbers",
+                            icon: "list.bullet.rectangle")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func linkRow(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil,
+                         verbatimSubtitle: String? = nil, icon: String) -> some View {
+        HStack(spacing: NoopMetrics.space3) {
+            Image(systemName: icon)
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.journalAccent)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                if let subtitle {
+                    Text(subtitle).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                } else if let verbatimSubtitle {
+                    Text(verbatim: verbatimSubtitle).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+            Spacer(minLength: NoopMetrics.space2)
+            Image(systemName: "chevron.right")
+                .font(StrandFont.caption.weight(.semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .accessibilityHidden(true)
+        }
+        .frame(minHeight: 56)
+        .contentShape(Rectangle())
+    }
+
+    private var privacyLine: some View {
+        Label {
+            Text("Entries stay on this device and feed What Moves You and Heads-Up.")
+        } icon: {
+            Image(systemName: "lock.fill")
+        }
+        .font(StrandFont.caption)
+        .foregroundStyle(StrandPalette.textTertiary)
+        .padding(.top, NoopMetrics.space4)
+        .padding(.bottom, NoopMetrics.space6)
+    }
+
+    // MARK: Load
+
     @MainActor private func load() async {
+        let day = dayKey
+        let previousDay = Self.key(daysBack: dayOffset + 1)
         let imported = await repo.importedJournalEntries()
         let all = await repo.journalEntries()
-        let answers = await repo.nativeJournalAnswers(day: todayKey)
-        let numeric = await repo.nativeJournalNumeric(day: todayKey)
-        importedQuestions = Array(Set(imported.map(\.question))).sorted()
-        let resolved = catalog.resolvedItems(imported: importedQuestions)
+        let questions = Array(Set(imported.map(\.question))).sorted()
+        let resolved = catalog.resolvedItems(imported: questions)
+        var active: Set<String> = []
+        var loadedStacks: [CoachingStack] = []
         if let store = await repo.storeHandle() {
             let defaults = resolved.enumerated().map { index, item in
                 CoachingBehaviorMembership(setId: "daily-fundamentals", canonicalQuestion: item.canonical,
@@ -864,7 +1008,8 @@ struct CoachingRootView: View {
                                            sortIndex: index, isActive: true, isQuickAdd: index < 6)
             }
             if let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) {
-                coachingMemberships = (try? await store.coachingMemberships(setId: set.id)) ?? []
+                let memberships = (try? await store.coachingMemberships(setId: set.id)) ?? []
+                active = Set(memberships.filter(\.isActive).map(\.canonicalQuestion))
             }
             let magnesium = resolved.first { JournalCatalogStore.norm($0.canonical).contains("magnesium") }
             let sauna = resolved.first { JournalCatalogStore.norm($0.canonical).contains("sauna") }
@@ -880,56 +1025,32 @@ struct CoachingRootView: View {
             if !presetItems.isEmpty {
                 _ = try? await store.ensureDefaultCoachingStack(preset, items: presetItems)
             }
-            stacks = (try? await store.coachingStacks()) ?? []
+            loadedStacks = (try? await store.coachingStacks()) ?? []
         }
-        todayAnswers = answers
-        todayNumeric = numeric
-        recentEntries = all.reversed().prefix(12).map {
+        let dayAnswers = await repo.nativeJournalAnswers(day: day)
+        let dayNumeric = await repo.nativeJournalNumeric(day: day)
+        let earlierAnswers = await repo.nativeJournalAnswers(day: previousDay)
+        let earlierNumeric = await repo.nativeJournalNumeric(day: previousDay)
+        let dayMood = await repo.mood(day: day)
+        // The person may have switched day while this was reading; the newer load owns the page.
+        guard day == dayKey else { return }
+        importedQuestions = questions
+        activeCanonicals = active
+        stacks = loadedStacks
+        answers = dayAnswers
+        numeric = dayNumeric
+        previousAnswers = earlierAnswers
+        previousNumeric = earlierNumeric
+        mood = dayMood
+        loggedWindow = JournalStreakSummary.window(loggedDays: Set(all.map(\.day)),
+                                                   endingOn: Self.key(daysBack: 0), days: 14)
+        recentEntries = all.reversed().prefix(5).map {
             CoachingRecentEntry(day: $0.day,
                                 display: catalog.displayName(for: $0.question),
                                 answeredYes: $0.answeredYes,
                                 numeric: $0.numericValue)
         }
         loaded = true
-    }
-
-    @MainActor private func quickLog(_ item: JournalCatalogItem) async {
-        await repo.saveJournalAnswer(day: todayKey, question: item.canonical, answeredYes: true)
-        savedMessage = "Saved locally"
-        await load()
-    }
-
-    @MainActor private func repeatYesterday() async {
-        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
-        let key = Repository.localDayKey(yesterday)
-        let answers = await repo.nativeJournalAnswers(day: key)
-        let numeric = await repo.nativeJournalNumeric(day: key)
-        for (question, answer) in answers {
-            if let value = numeric[question] {
-                await repo.saveJournalNumeric(day: todayKey, question: question, value: value)
-            } else {
-                await repo.saveJournalAnswer(day: todayKey, question: question, answeredYes: answer)
-            }
-        }
-        savedMessage = answers.isEmpty ? "Nothing logged yesterday" : "Yesterday repeated"
-        await load()
-    }
-}
-
-private struct CoachingProgressRing: View {
-    let value: Double
-    let label: String
-    var body: some View {
-        ZStack {
-            Circle().stroke(StrandPalette.journalAccent.opacity(0.14), lineWidth: 7)
-            Circle().trim(from: 0, to: min(max(value, 0), 1))
-                .stroke(StrandPalette.journalAccent,
-                        style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            Text(label).font(StrandFont.title2).foregroundStyle(StrandPalette.textPrimary)
-        }
-        .frame(width: 76, height: 76)
-        .accessibilityLabel("\(Int(value * 100)) percent complete")
     }
 }
 
@@ -976,6 +1097,33 @@ private func coachingPresentationGroup(for item: JournalCatalogItem) -> Coaching
     }
 }
 
+/// A behaviour's own symbol where the question says what it is, else its group's.
+private func coachingIcon(for item: JournalCatalogItem) -> String {
+    let q = JournalCatalogStore.norm(item.canonical)
+    if q.contains("alcohol") { return "wineglass" }
+    if q.contains("caffeine") || q.contains("coffee") { return "cup.and.saucer.fill" }
+    if q.contains("screen") { return "iphone" }
+    if q.contains("eat") || q.contains("meal") { return "fork.knife" }
+    if q.contains("stress") { return "bolt.heart" }
+    if q.contains("sauna") { return "thermometer.sun" }
+    if q.contains("share") && q.contains("bed") { return "person.2.fill" }
+    if q.contains("sick") { return "bed.double.fill" }
+    if q.contains("magnesium") || q.contains("supplement") { return "pills.fill" }
+    if q.contains("read") { return "book.fill" }
+    return coachingPresentationGroup(for: item).icon
+}
+
+/// The colour of a behaviour's group, matching the rest of the app's domains.
+private func coachingTint(for item: JournalCatalogItem) -> Color {
+    switch coachingPresentationGroup(for: item) {
+    case .sleep: return StrandPalette.sleepAccent
+    case .fuel: return StrandPalette.metricAmber
+    case .training: return StrandPalette.strainAccent
+    case .recovery: return StrandPalette.metricRose
+    case .supplements: return StrandPalette.metricCyan
+    }
+}
+
 /// Coaching shortcuts use compact catalog labels while every persistence/analytics call continues
 /// to receive `item.canonical`. User-authored display renames still win verbatim.
 private func coachingShortDisplayName(for item: JournalCatalogItem) -> String {
@@ -999,245 +1147,6 @@ private func coachingShortDisplayName(for item: JournalCatalogItem) -> String {
     return label.prefix(1).uppercased() + label.dropFirst()
 }
 
-private enum CoachingCheckInControl {
-    case toggle
-    case quantity(step: Double, unit: String)
-}
-
-/// Full daily check-in. Grouping and control choice are presentation only; immutable catalog
-/// canonicals remain the keys for every Repository write.
-struct CoachingCheckInView: View {
-    @EnvironmentObject private var repo: Repository
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var catalog = JournalCatalogStore()
-
-    private let onSaved: () -> Void
-    @State private var importedQuestions: [String] = []
-    @State private var answers: [String: Bool] = [:]
-    @State private var quantities: [String: Double] = [:]
-    @State private var collapsed: Set<CoachingCheckInGroup> = []
-    @State private var loaded = false
-    @State private var saving = false
-    @State private var activeCanonicals: Set<String> = []
-
-    init(onSaved: @escaping () -> Void = {}) { self.onSaved = onSaved }
-
-    private var todayKey: String { Repository.localDayKey(Date()) }
-    private var items: [JournalCatalogItem] {
-        let resolved = catalog.resolvedItems(imported: importedQuestions)
-            .sorted { ($0.sortIndex, $0.display) < ($1.sortIndex, $1.display) }
-        return activeCanonicals.isEmpty ? resolved : resolved.filter { activeCanonicals.contains($0.canonical) }
-    }
-    private var answeredCount: Int {
-        items.filter { answers[$0.canonical] != nil || quantities[$0.canonical] != nil }.count
-    }
-    private var progress: Double { items.isEmpty ? 0 : Double(answeredCount) / Double(items.count) }
-
-    var body: some View {
-        ScreenScaffold(title: "Evening Check-In", subtitle: "Saved locally", backAction: { dismiss() }) {
-            if loaded {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                    progressHeader
-                    ForEach(CoachingCheckInGroup.allCases) { group in
-                        groupCard(group)
-                    }
-                    classicLink
-                    actions
-                }
-            } else {
-                ComingSoon(what: "Loading your behaviors…", symbol: "checkmark.circle")
-            }
-        }
-        .task { await load() }
-        .tint(StrandPalette.journalAccent)
-        .navigationBarBackButtonHidden(true)
-    }
-
-    private var progressHeader: some View {
-        PaperCard {
-            HStack(spacing: NoopMetrics.space4) {
-                CoachingProgressRing(value: progress, label: "\(Int((progress * 100).rounded()))%")
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("How did today go?").font(StrandFont.title2).foregroundStyle(StrandPalette.textPrimary)
-                    Text("\(answeredCount) of \(items.count) behaviors answered")
-                        .font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
-                    Label("Nothing leaves this device", systemImage: "lock.fill")
-                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                }
-            }
-        }
-    }
-
-    private func groupItems(_ group: CoachingCheckInGroup) -> [JournalCatalogItem] {
-        items.filter { coachingGroup(for: $0) == group }
-    }
-
-    @ViewBuilder private func groupCard(_ group: CoachingCheckInGroup) -> some View {
-        let rows = groupItems(group)
-        if !rows.isEmpty {
-            PaperCard {
-                VStack(spacing: 0) {
-                    Button {
-                        if collapsed.contains(group) { collapsed.remove(group) } else { collapsed.insert(group) }
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: group.icon).foregroundStyle(StrandPalette.journalAccent).frame(width: 24)
-                            Text(group.rawValue).font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
-                            Spacer()
-                            Text("\(rows.count)").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                            Image(systemName: collapsed.contains(group) ? "chevron.right" : "chevron.down")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        .frame(minHeight: NoopMetrics.rowHeight)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    if !collapsed.contains(group) {
-                        ForEach(rows) { item in
-                            Divider().overlay(StrandPalette.hairline)
-                            checkInRow(item)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func checkInRow(_ item: JournalCatalogItem) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.display).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(controlCaption(item)).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-            }
-            Spacer(minLength: 8)
-            switch control(for: item) {
-            case .toggle:
-                Toggle("", isOn: answerBinding(item.canonical))
-                    .labelsHidden()
-                    .tint(StrandPalette.journalAccent)
-            case let .quantity(step, unit):
-                quantityControl(item, step: step, unit: unit)
-            }
-        }
-        .frame(minHeight: NoopMetrics.rowHeight)
-    }
-
-    private func quantityControl(_ item: JournalCatalogItem, step: Double, unit: String) -> some View {
-        HStack(spacing: 6) {
-            Button { adjust(item.canonical, by: -step) } label: {
-                Image(systemName: "minus").frame(width: 30, height: 30)
-                    .background(StrandPalette.inset, in: Circle())
-            }
-            .buttonStyle(.plain)
-            VStack(spacing: 0) {
-                Text(CoachingRecentEntry.format(quantities[item.canonical] ?? 0))
-                    .font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary)
-                Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
-            }
-            .frame(minWidth: 46)
-            Button { adjust(item.canonical, by: step) } label: {
-                Image(systemName: "plus").frame(width: 30, height: 30)
-                    .background(StrandPalette.journalAccent.opacity(0.12), in: Circle())
-            }
-            .buttonStyle(.plain)
-        }
-        .foregroundStyle(StrandPalette.textPrimary)
-    }
-
-    private var classicLink: some View {
-        NavigationLink { InsightsView(focusedJournal: true) } label: {
-            PaperCard {
-                SettingsRow(icon: "list.bullet.rectangle", title: "Open classic journal",
-                            subtitle: "Use Yes / No chips or edit custom questions")
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var actions: some View {
-        HStack(spacing: NoopMetrics.space3) {
-            Button("Cancel") { dismiss() }
-                .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-            Button {
-                Task { await save() }
-            } label: {
-                Label(saving ? "Saving…" : "Save check-in", systemImage: "checkmark")
-            }
-            .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-            .disabled(saving)
-        }
-    }
-
-    private func answerBinding(_ canonical: String) -> Binding<Bool> {
-        Binding(get: { answers[canonical] ?? false }, set: { answers[canonical] = $0 })
-    }
-
-    private func adjust(_ canonical: String, by step: Double) {
-        let next = max(0, (quantities[canonical] ?? 0) + step)
-        quantities[canonical] = next
-        answers[canonical] = next > 0
-    }
-
-    private func coachingGroup(for item: JournalCatalogItem) -> CoachingCheckInGroup {
-        coachingPresentationGroup(for: item)
-    }
-
-    private func control(for item: JournalCatalogItem) -> CoachingCheckInControl {
-        if item.kind.isNumeric { return .quantity(step: 1, unit: item.kind.unitLabel ?? "units") }
-        let q = JournalCatalogStore.norm(item.canonical)
-        if q.contains("alcohol") { return .quantity(step: 1, unit: "servings") }
-        if q.contains("caffeine") { return .quantity(step: 1, unit: "servings") }
-        if q.contains("magnesium") { return .quantity(step: 1, unit: "dose") }
-        if q.contains("sauna") { return .quantity(step: 10, unit: "min") }
-        return .toggle
-    }
-
-    private func controlCaption(_ item: JournalCatalogItem) -> String {
-        switch control(for: item) {
-        case .toggle: return String(localized: "Tap if this happened")
-        case let .quantity(_, unit): return String(localized: "Log \(unit)")
-        }
-    }
-
-    @MainActor private func load() async {
-        let imported = await repo.importedJournalEntries()
-        importedQuestions = Array(Set(imported.map(\.question))).sorted()
-        let resolved = catalog.resolvedItems(imported: importedQuestions)
-        if let store = await repo.storeHandle() {
-            let defaults = resolved.enumerated().map { index, item in
-                CoachingBehaviorMembership(setId: "daily-fundamentals", canonicalQuestion: item.canonical,
-                                           coachingGroup: coachingPresentationGroup(for: item).rawValue,
-                                           sortIndex: index, isActive: true, isQuickAdd: index < 6)
-            }
-            if let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) {
-                let membership = (try? await store.coachingMemberships(setId: set.id)) ?? []
-                activeCanonicals = Set(membership.filter(\.isActive).map(\.canonicalQuestion))
-            }
-        }
-        answers = await repo.nativeJournalAnswers(day: todayKey)
-        quantities = await repo.nativeJournalNumeric(day: todayKey)
-        loaded = true
-    }
-
-    @MainActor private func save() async {
-        saving = true
-        for item in items where answers[item.canonical] != nil || quantities[item.canonical] != nil {
-            if let value = quantities[item.canonical], value > 0 {
-                await repo.saveJournalNumeric(day: todayKey, question: item.canonical, value: value)
-            } else {
-                await repo.saveJournalAnswer(day: todayKey, question: item.canonical,
-                                             answeredYes: answers[item.canonical] ?? false)
-            }
-        }
-        saving = false
-        onSaved()
-        dismiss()
-    }
-}
-
 // MARK: - Behavior settings
 
 struct CoachingBehaviorSettingsView: View {
@@ -1255,61 +1164,35 @@ struct CoachingBehaviorSettingsView: View {
     }
 
     var body: some View {
-        ScreenScaffold(title: "Behavior Settings", subtitle: "Your check-in set", backAction: { dismiss() }) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                activeSetCard
-                addButton
-                SectionHeader("Behaviors", overline: "Drag to reorder")
-                PaperCard {
+        ScreenScaffold(title: "Choose questions", subtitle: "What the check-in asks", backAction: { dismiss() }) {
+            VStack(alignment: .leading, spacing: 0) {
+                FlatSection("Your check-in", systemImage: "checklist", tint: .journal,
+                            trailing: .text(activeSet?.name ?? String(localized: "Daily fundamentals"))) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                        Text("Active questions appear in the Journal. Quick Add questions get one-tap shortcuts. Neither changes your history or What Moves You.")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button { showAdd = true } label: { Label("Add a question", systemImage: "plus") }
+                            .buttonStyle(SecondaryPillButtonStyle())
+                    }
+                }
+                FlatSectionSeparator()
+                FlatSection("Questions", systemImage: "line.3.horizontal", tint: .journal, contentSpacing: 2) {
                     VStack(spacing: 0) {
                         ForEach(Array(memberships.enumerated()), id: \.element.id) { index, membership in
-                            if index > 0 { Divider().overlay(StrandPalette.hairline) }
+                            if index > 0 { FlatRowSeparator() }
                             behaviorRow(membership, index: index)
                         }
                     }
                 }
-                NoteCard("Active controls whether an item appears in Check-In. Quick Add controls the Coaching shortcut grid. Neither setting changes journal history or What Moves You keys.",
-                         style: .info)
             }
+            .padding(.top, NoopMetrics.space2)
         }
         .task { await load() }
         .sheet(isPresented: $showAdd) { CoachingAddBehaviorSheet(catalog: catalog) { Task { await load() } } }
         .tint(StrandPalette.journalAccent)
         .navigationBarBackButtonHidden(true)
-    }
-
-    private var activeSetCard: some View {
-        PaperCard {
-            HStack(spacing: 12) {
-                Circle().fill(StrandPalette.journalAccent.opacity(0.14)).frame(width: 44, height: 44)
-                    .overlay(Image(systemName: "checklist").foregroundStyle(StrandPalette.journalAccent))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Active behavior set").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                    Text(activeSet?.name ?? "Daily fundamentals")
-                        .font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
-                }
-                Spacer()
-                Menu("Change Set") {
-                    Button(activeSet?.name ?? "Daily fundamentals") {}
-                }
-                .font(StrandFont.caption.weight(.semibold))
-                .foregroundStyle(StrandPalette.journalAccent)
-            }
-        }
-    }
-
-    private var addButton: some View {
-        Button { showAdd = true } label: {
-            Label("Add custom behavior", systemImage: "plus")
-                .font(StrandFont.body.weight(.semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .frame(height: NoopMetrics.controlHeight)
-                .background(StrandPalette.journalAccent.opacity(0.10),
-                            in: RoundedRectangle(cornerRadius: NoopMetrics.radius3, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 
     private func behaviorRow(_ membership: CoachingBehaviorMembership, index: Int) -> some View {

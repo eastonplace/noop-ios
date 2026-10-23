@@ -41,12 +41,15 @@ public enum JournalStreakSummary {
     }
 }
 
+/// One yes/no habit as a flat row: the habit's symbol, its name, and a No / Yes pair of chips. Tapping a chip answers;
+/// tapping the selected chip again clears the answer (`JournalTriStateSelection`). The row saves nothing itself.
 public struct JournalHabitToggle: View {
     private let icon: String
     private let tint: Color
     private let question: String
     private let detail: String?
     @Binding private var answer: Bool?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(icon: String, tint: Color, question: String, detail: String? = nil,
                 answer: Binding<Bool?>) {
@@ -58,27 +61,47 @@ public struct JournalHabitToggle: View {
     }
 
     public var body: some View {
-        HStack(spacing: 11) {
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 10) {
+                    label
+                    chips
+                }
+            } else {
+                HStack(spacing: 12) {
+                    label
+                    Spacer(minLength: 8)
+                    chips
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .frame(minHeight: 56)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(question). \(answerWord)")
+    }
+
+    private var label: some View {
+        HStack(spacing: 12) {
             journalIcon(icon, tint: tint)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(question)
-                    .font(StrandFont.caption.weight(.medium))
+                    .font(StrandFont.body)
                     .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail {
-                    Text(detail).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    Text(detail).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                 }
             }
-            Spacer(minLength: 8)
-            HStack(spacing: 6) {
-                answerCircle(symbol: "xmark", value: false)
-                answerCircle(symbol: "checkmark", value: true)
-            }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(question). \(answerWord)")
+    }
+
+    private var chips: some View {
+        HStack(spacing: 8) {
+            answerChip(value: false)
+            answerChip(value: true)
+        }
+        .fixedSize()
     }
 
     private var answerWord: String {
@@ -89,29 +112,21 @@ public struct JournalHabitToggle: View {
         }
     }
 
-    private func answerCircle(symbol: String, value: Bool) -> some View {
+    private func answerChip(value: Bool) -> some View {
         let selected = answer == value
-        return Button {
+        let title = value ? String(localized: "Yes", bundle: .module) : String(localized: "No", bundle: .module)
+        return ChoiceChipButton(verbatimTitle: title, isSelected: selected) {
             withAnimation(StrandMotion.interactive) {
                 answer = JournalTriStateSelection.next(current: answer, tapped: value)
             }
             StrandHaptic.selection.play()
-        } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(selected ? StrandPalette.surfaceRaised : StrandPalette.textTertiary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(selected ? StrandPalette.textPrimary : StrandPalette.surfaceInset))
-                .overlay(Circle().strokeBorder(selected ? .clear : StrandPalette.hairlineStrong, lineWidth: 1))
-                .opacity(answer == nil || selected ? 1 : 0.45)
         }
-        .buttonStyle(JournalPressStyle())
-        .accessibilityLabel(value ? String(localized: "Yes", bundle: .module)
-                                  : String(localized: "No", bundle: .module))
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .opacity(answer == nil || selected ? 1 : 0.55)
     }
 }
 
+/// One counted habit as a flat row: the habit's symbol, its name over the logged amount, and a − / + stepper. Taking
+/// the amount below zero clears it. The row saves nothing itself.
 public struct JournalQuantityRow: View {
     private let icon: String
     private let tint: Color
@@ -119,6 +134,7 @@ public struct JournalQuantityRow: View {
     private let unit: String
     private let maximum: Int
     @Binding private var value: Double?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(icon: String, tint: Color, title: String, unit: String,
                 maximum: Int = 8, value: Binding<Double?>) {
@@ -131,31 +147,22 @@ public struct JournalQuantityRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 11) {
-            journalIcon(icon, tint: tint)
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(title).font(StrandFont.caption.weight(.medium)).foregroundStyle(StrandPalette.textPrimary)
-                    Text(displayValue)
-                        .font(StrandFont.micro).monospacedDigit().foregroundStyle(StrandPalette.textTertiary)
-                        .contentTransition(.numericText())
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 10) {
+                    label
+                    stepper
                 }
-                HStack(spacing: 3.5) {
-                    ForEach(0..<maximum, id: \.self) { index in
-                        Capsule(style: .continuous)
-                            .fill(index < pipCount ? tint : StrandPalette.surfaceInset)
-                            .frame(width: 11, height: 5)
-                    }
+            } else {
+                HStack(spacing: 12) {
+                    label
+                    Spacer(minLength: 8)
+                    stepper
                 }
-            }
-            Spacer(minLength: 8)
-            HStack(spacing: 7) {
-                quantityButton("minus", enabled: value != nil) { decrement() }
-                quantityButton("plus", enabled: true) { increment() }
             }
         }
-        .padding(.horizontal, 13)
         .padding(.vertical, 10)
+        .frame(minHeight: 56)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title), \(displayValue)")
         .accessibilityAdjustableAction { direction in
@@ -167,37 +174,76 @@ public struct JournalQuantityRow: View {
         }
     }
 
-    private var pipCount: Int { min(maximum, max(0, Int((value ?? 0).rounded()))) }
+    private var label: some View {
+        HStack(spacing: 12) {
+            journalIcon(icon, tint: tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(StrandFont.body)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(displayValue)
+                    .font(StrandFont.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(value == nil ? StrandPalette.textTertiary : tint)
+                    .contentTransition(.numericText())
+            }
+        }
+    }
+
+    private var stepper: some View {
+        HStack(spacing: 6) {
+            stepButton("minus", enabled: value != nil) { decrement() }
+            Text(value.map(Self.format) ?? "0")
+                .font(StrandFont.bodyNumber)
+                .foregroundStyle(value == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                .frame(minWidth: 28)
+                .contentTransition(.numericText())
+            stepButton("plus", enabled: true) { increment() }
+        }
+        .fixedSize()
+    }
+
+    private static func format(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
+    }
+
     private var displayValue: String {
         guard let value else { return String(localized: "Not logged", bundle: .module) }
-        let number = value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
-        return "\(number) \(unit)"
+        return "\(Self.format(value)) \(unit)"
     }
-    private func increment() { value = (value ?? 0) + 1 }
+
+    private func increment() { value = min(Double(maximum) * 10, (value ?? 0) + 1) }
     private func decrement() {
         guard let value else { return }
         let next = value - 1
         self.value = next < 0 ? nil : next
     }
-    private func quantityButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+
+    private func stepButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button {
             withAnimation(StrandMotion.interactive) { action() }
             StrandHaptic.selection.play()
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(enabled ? StrandPalette.textPrimary : StrandPalette.textTertiary.opacity(0.5))
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(StrandPalette.surfaceInset))
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(StrandPalette.pillFill))
+                .overlay(Circle().strokeBorder(StrandPalette.pillStroke, lineWidth: 1))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(JournalPressStyle()).disabled(!enabled).accessibilityHidden(true)
     }
 }
 
+/// The day's mood: a question over five labelled steps, the chosen one filled. Tapping saves nothing itself.
 public struct JournalMoodRow: View {
     @Binding private var mood: Int?
     private let title: String
     private let words: [String]
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(mood: Binding<Int?>, title: String = "How did today feel?",
                 words: [String] = ["Rough", "Low", "Okay", "Good", "Great"]) {
@@ -207,40 +253,103 @@ public struct JournalMoodRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 11) {
-            journalIcon("face.smiling", tint: StrandPalette.metricPurple)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(StrandFont.caption.weight(.medium)).foregroundStyle(StrandPalette.textPrimary)
-                Text(mood.flatMap(word) ?? String(localized: "Tap a step", bundle: .module))
-                    .font(StrandFont.micro)
-                    .foregroundStyle(mood == nil ? StrandPalette.textTertiary : StrandPalette.metricPurple)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                journalIcon("face.smiling", tint: StrandPalette.metricPurple)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                    Text(mood.flatMap(word) ?? String(localized: "Tap a step", bundle: .module))
+                        .font(StrandFont.caption)
+                        .foregroundStyle(mood == nil ? StrandPalette.textTertiary : StrandPalette.metricPurple)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 8)
-            HStack(spacing: 5) {
-                ForEach(1...5, id: \.self) { step in moodDot(step) }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6),
+                                     count: typeSize.isAccessibilitySize ? 2 : 5),
+                      spacing: 6) {
+                ForEach(1...5, id: \.self) { step in moodStep(step) }
             }
         }
-        .padding(.horizontal, 13).padding(.vertical, 10)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title) \(mood.flatMap(word) ?? String(localized: "Not answered", bundle: .module))")
     }
 
     private func word(_ value: Int) -> String? { (1...5).contains(value) ? words[value - 1] : nil }
-    private func moodDot(_ step: Int) -> some View {
+
+    private func moodStep(_ step: Int) -> some View {
         let selected = mood == step
         return Button {
             withAnimation(StrandMotion.interactive) { mood = step }
             StrandHaptic.selection.play()
         } label: {
-            Circle()
-                .fill(selected ? StrandPalette.metricPurple : StrandPalette.surfaceInset)
-                .overlay(Circle().strokeBorder(selected ? .clear : StrandPalette.hairlineStrong, lineWidth: 1))
-                .frame(width: selected ? 24 : 13, height: selected ? 24 : 13)
-                .frame(width: 24, height: 28).contentShape(Rectangle())
+            Text(word(step) ?? "")
+                .font(StrandFont.caption.weight(selected ? .bold : .medium))
+                .foregroundStyle(selected ? StrandPalette.onLightFill : StrandPalette.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .background(Capsule(style: .continuous).fill(selected ? StrandPalette.metricPurple : StrandPalette.pillFill))
+                .overlay(Capsule(style: .continuous).strokeBorder(selected ? Color.clear : StrandPalette.pillStroke, lineWidth: 1))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(JournalPressStyle())
         .accessibilityLabel(word(step) ?? "")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// How many of the day's questions are answered: the count, a thin bar and a caption. Flat, for the top of a check-in.
+public struct JournalProgressHeader: View {
+    private let answered: Int
+    private let total: Int
+    private let caption: String
+    private let tint: Color
+    @ScaledMetric(relativeTo: .title2) private var countSize: CGFloat = 22
+
+    public init(answered: Int, total: Int, caption: String, tint: Color = StrandPalette.journalAccent) {
+        self.answered = max(0, min(answered, total))
+        self.total = max(0, total)
+        self.caption = caption
+        self.tint = tint
+    }
+
+    private var fraction: Double { total == 0 ? 0 : Double(answered) / Double(total) }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(verbatim: "\(answered)")
+                    .font(StrandFont.number(countSize, weight: .bold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .contentTransition(.numericText())
+                Text("of \(total) answered", bundle: .module)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                Spacer(minLength: 8)
+                if total > 0, answered == total {
+                    Label { Text("Done", bundle: .module) } icon: { Image(systemName: "checkmark") }
+                        .font(StrandFont.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                }
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous).fill(StrandPalette.hairline)
+                    Capsule(style: .continuous).fill(tint)
+                        .frame(width: proxy.size.width * fraction)
+                }
+            }
+            .frame(height: 4)
+            .animation(StrandMotion.interactive, value: answered)
+            Text(caption)
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(answered) of \(total) answered. \(caption)")
     }
 }
 
@@ -353,27 +462,27 @@ public struct JournalStreakStrip: View {
         let streak = JournalStreakSummary.currentStreak(in: logged)
         return VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text("Logging", bundle: .module).textCase(.uppercase)
-                    .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                Text("Last 2 weeks", bundle: .module)
+                    .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textSecondary)
                 Spacer(minLength: 8)
                 if streak > 1 {
-                    Text("\(streak)-night streak").font(StrandFont.micro).monospacedDigit()
+                    Text("\(streak)-night streak").font(StrandFont.caption.weight(.semibold)).monospacedDigit()
                         .foregroundStyle(StrandPalette.chargeAccent)
                 }
             }
             HStack(spacing: 0) {
                 ForEach(Array(logged.enumerated()), id: \.offset) { index, isLogged in
                     let isToday = index == logged.count - 1
-                    Circle().fill(isLogged ? StrandPalette.textPrimary : StrandPalette.surfaceInset)
+                    Circle().fill(isLogged ? StrandPalette.journalAccent : StrandPalette.surfaceInset)
                         .overlay(Circle().strokeBorder(isToday ? StrandPalette.textPrimary : .clear, lineWidth: 1.5).padding(-3))
-                        .frame(width: 8, height: 8).frame(maxWidth: .infinity)
+                        .frame(width: 9, height: 9).frame(maxWidth: .infinity)
                 }
             }
-            Text("2 weeks · a night counts once any answer is saved", bundle: .module)
+            Text("A day counts once any answer is saved", bundle: .module)
                 .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
         }
-        .padding(13).background(journalCardSurface(cornerRadius: 16))
+        .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Logging, \(streak) night streak, \(logged.filter { $0 }.count) of \(logged.count) nights logged")
     }

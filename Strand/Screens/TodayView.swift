@@ -539,6 +539,8 @@ struct TodayView: View {
     /// inside a NavigationLink.
     @State private var showingHeartRateTimeline = false
     @State private var showingStressDetail = false
+    /// The Heads-Up page, from its card under Health Monitor or the banner at the top.
+    @State private var showingHeadsUp = false
     /// `nil` means the user tapped the generic first-run card / a non-section entry: open at the top.
     @State private var showGuideTop = false
 
@@ -1751,6 +1753,11 @@ struct TodayView: View {
                 paperStressCard
                 TodaySectionSeparator(above: 15, below: 13.3)
                 paperHealthMonitorCard
+                // Heads-Up reads the newest nights, so it belongs to today only. It draws its own hairline and
+                // nothing at all before the day history first loads.
+                if selectedDayOffset == 0 && selectedDayKey == Repository.logicalDayKey(Date()) {
+                    TodayHeadsUpSection(onOpen: { showingHeadsUp = true })
+                }
             }
         }
     }
@@ -2124,7 +2131,7 @@ struct TodayView: View {
                 DayNavBar(selectedOffset: selectedDayOffset,
                           today: Repository.logicalDay(Date())) { notificationSelectedDayKey = nil; selectedDayOffset = $0 }
                 #endif
-                HealthAlertBanner()
+                HealthAlertBanner(onOpen: { showingHeadsUp = true })
                 // Keeps an empty Recovery honest while a historical offload is still writing: only when the displayed
                 // day has no Recovery yet (the header spinner covers an ordinary sync).
                 if displayDay?.recovery == nil { SyncingHistoryNoteIfBackfilling() }
@@ -2231,6 +2238,10 @@ struct TodayView: View {
         }
         .navigationDestination(isPresented: $showingStressDetail) {
             stressDetail
+        }
+        .navigationDestination(isPresented: $showingHeadsUp) {
+            HeadsUpDetailView()
+                .environment(\.screenScaffoldNavigationRole, .detail)
         }
         .navigationDestination(isPresented: $showingTodayWorkouts) {
             TodayWorkoutsView(day: selectedLogicalDay)

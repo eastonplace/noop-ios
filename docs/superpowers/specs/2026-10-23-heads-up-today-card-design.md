@@ -1,6 +1,6 @@
 # Heads-Up on Today: card and detail page
 
-**Status:** Design proposal. This PR adds the mockup and this spec. It contains no app code.
+**Status:** Built in PR #77, together with the one-page Journal (see "What was built" at the end). The spec below is the design that the build follows.
 
 **Mockup:** [NOOP Heads-Up canvas](https://claude.ai/artifact/BZeCHH17532rTiAEMS2ktU). It contains a tappable prototype, every card state, four detail pages and the decision flow. The link is private to its owner until shared from the page's Share menu.
 
@@ -189,3 +189,49 @@ These are the pieces needed to build the design. None of them are in this PR.
 3. **Score.** Show the 0–100 number, or only the meter zones?
 4. **Default.** Should Heads-Up default to on for new installs? It would still stay in Learning for 14 nights.
 5. **Units.** Should skin temperature follow the locale's °C/°F?
+
+## What was built
+
+This list covers PR #77, build 246 of the held 2.0.0 batch.
+
+**Data**
+
+- `Strand/Data/HeadsUpModel.swift` adds `HeadsUpSnapshot` and `HeadsUpBuilder`.
+  - The builder gathers the engine's inputs once.
+  - It keeps every signal, including normal ones, with its value, usual, signed z, normal band and 14-night history.
+  - It replays the same evaluation for 14 days of history and reports learning progress.
+  - The alert, `illnessSignal`, `illnessDistance` and the new `headsUp` all come from one evaluation in `AppModel.applyIllnessSignal`.
+- Journal causes:
+  - Matching uses whole words (`HeadsUpBuilder.words`).
+  - Stress and sauna answers are passed to the engine.
+  - Travel is not wired, and the detail page does not claim to check it.
+- `--demo-heads-up <state>` is a DEBUG-only fixture for screenshots.
+
+**Surfaces**
+
+- `HeadsUpTodayCard`, `HeadsUpStrengthMeter`, `HeadsUpSparkline` and `HeadsUpHistoryChart` are in `StrandDesign`.
+- `Strand/Screens/HeadsUpViews.swift` holds the wording (`HeadsUpPresentation`), the Today leaf and the detail page.
+- Today shows the card under Health Monitor on today only, and the one-line banner opens the same page.
+- The Health card's `.alreadyUnwell` title now reads "Rest up".
+
+**Journal**
+
+- `CoachingRootView` is one flat page:
+  - a day switch and progress,
+  - mood,
+  - grouped questions with one-tap Yes/No chips and steppers that save as you tap,
+  - "Same as yesterday", which fills gaps only,
+  - notes, the two-week log and shortcuts.
+- The separate Evening Check-In screen and its Save button were removed.
+- The shared row components (`JournalHabitToggle`, `JournalQuantityRow`, `JournalMoodRow`, `JournalStreakStrip`) are flat. The classic journal card uses them too.
+
+**Tests**
+
+- `StrandiOSTests/HeadsUpModelTests.swift` covers phases, causes, word matching and wording.
+- `StrandiOSUITests/HeadsUpJournalUITests.swift` captures every Heads-Up state and the Journal in the simulator.
+
+**Not built**
+
+- Phone notifications for Heads-Up.
+- Travel detection.
+- A locale-dependent °F display for skin temperature.
