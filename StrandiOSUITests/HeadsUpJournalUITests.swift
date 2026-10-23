@@ -209,18 +209,14 @@ final class HeadsUpJournalUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
-    /// A field tap can place the caret before the old text. Select all explicitly, then verify the replacement.
+    /// The name is right aligned. Tap its trailing edge to place the caret after the text, then verify each edit.
     private func replaceText(in field: XCUIElement, with replacement: String, app: XCUIApplication) throws {
-        field.tap()
-        field.press(forDuration: 1.2)
-        let menuItem = app.menuItems["Select All"].firstMatch
-        if menuItem.waitForExistence(timeout: 2) {
-            menuItem.tap()
-        } else {
-            let button = app.buttons["Select All"].firstMatch
-            try require(button, in: app, timeout: 2)
-            button.tap()
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+        let current = field.value as? String ?? ""
+        if !current.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
         }
+        try waitFor(field, predicate: "value == '' OR value == nil", in: app)
         field.typeText(replacement)
         try waitFor(field, predicate: "value == '\(replacement)'", in: app)
     }
