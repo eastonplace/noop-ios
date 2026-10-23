@@ -209,9 +209,17 @@ final class HeadsUpJournalUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
-    /// Select the whole value with the iOS-supported keyboard shortcut; edge taps do not reliably place the caret.
+    /// A newly focused field can ignore the first modifier key. Confirm actual text input before selecting again.
     private func replaceText(in field: XCUIElement, with replacement: String, app: XCUIApplication) throws {
         field.tap()
+        field.typeKey("a", modifierFlags: .command)
+        let beforeMarker = field.value as? String ?? ""
+        field.typeText("~")
+        try waitFor(field, predicate: "value CONTAINS '~'", in: app)
+        guard let markedValue = field.value as? String, markedValue != beforeMarker else {
+            captureFailure(in: app)
+            throw HarnessError.unreachable("The name field did not accept the text-input marker")
+        }
         field.typeKey("a", modifierFlags: .command)
         field.typeText(XCUIKeyboardKey.delete.rawValue)
         // XCTest can expose the placeholder as the value of an empty field.
