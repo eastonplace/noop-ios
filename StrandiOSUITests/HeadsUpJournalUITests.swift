@@ -140,21 +140,20 @@ final class HeadsUpJournalUITests: XCTestCase {
         question.tap()
         let name = app.textFields["journal.question.did-you-read-before-bed.name"]
         try require(name, in: app, timeout: 10)
-        name.tap()
-        let current = name.value as? String ?? ""
-        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + "Bedtime reading")
+        try replaceText(in: name, with: "Bedtime reading", app: app)
         app.buttons["Done"].firstMatch.tap()
         let answer = element("journal.question.did-you-read-before-bed.answer", in: app)
+        try reveal(answer, in: app)
         answer.tap()
         app.buttons["Number"].tap()
+        try waitFor(answer, predicate: "label CONTAINS 'Number' OR value CONTAINS 'Number'", in: app)
         // Both pages use the scaffold's explicit Back action.
         app.buttons["Back"].firstMatch.tap()
         app.buttons["Back"].firstMatch.tap()
         let tile = element("journal.tile.Did you read before bed?", in: app)
         try require(tile, in: app, timeout: 10)
-        // Scroll toward the top after returning from the bottom link.
-        for _ in 0..<10 where !tile.isHittable { app.swipeDown() }
-        try waitFor(tile, predicate: "label BEGINSWITH 'Bedtime reading'", in: app)
+        try reveal(tile, in: app)
+        try waitFor(tile, predicate: "label BEGINSWITH 'Bedtime reading, '", in: app)
         let previous = tile.label
         tile.tap()
         try waitFor(tile, predicate: "label != '\(previous)'", in: app)
@@ -166,12 +165,12 @@ final class HeadsUpJournalUITests: XCTestCase {
         edit.tap()
         try reveal(question, in: app)
         question.tap()
-        name.tap()
-        let editedName = name.value as? String ?? ""
-        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: editedName.count) + "Read before bed")
+        try replaceText(in: name, with: "Read before bed", app: app)
         app.buttons["Done"].firstMatch.tap()
+        try reveal(answer, in: app)
         answer.tap()
         app.buttons["Yes / No"].tap()
+        try waitFor(answer, predicate: "label CONTAINS 'Yes / No' OR value CONTAINS 'Yes / No'", in: app)
         app.buttons["Back"].firstMatch.tap()
         app.buttons["Back"].firstMatch.tap()
     }
@@ -210,15 +209,39 @@ final class HeadsUpJournalUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
-    /// Scroll until `element` is on screen above the tab bar and can be tapped.
+    /// A field tap can place the caret before the old text. Select all explicitly, then verify the replacement.
+    private func replaceText(in field: XCUIElement, with replacement: String, app: XCUIApplication) throws {
+        field.tap()
+        field.press(forDuration: 1.2)
+        let menuItem = app.menuItems["Select All"].firstMatch
+        if menuItem.waitForExistence(timeout: 2) {
+            menuItem.tap()
+        } else {
+            let button = app.buttons["Select All"].firstMatch
+            try require(button, in: app, timeout: 2)
+            button.tap()
+        }
+        field.typeText(replacement)
+        try waitFor(field, predicate: "value == '\(replacement)'", in: app)
+    }
+
+    /// Require the whole target below the fixed header and above the tab bar. A clipped tile can report hittable
+    /// while its center lies behind the header, so partial intersection alone is insufficient.
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) throws {
-        let visible = app.frame.insetBy(dx: 0, dy: 90)
+        let visible = CGRect(x: app.frame.minX, y: app.frame.minY + 150,
+                             width: app.frame.width, height: app.frame.height - 250)
         for _ in 0..<16 {
             if element.exists, element.frame.width > 0, element.isHittable,
-               visible.intersects(element.frame), element.frame.minY < visible.maxY - 60 {
+               visible.contains(element.frame) {
                 return
             }
-            gutterDrag(in: app)
+            if element.exists, element.frame.minY < visible.minY {
+                let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.30))
+                let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            } else {
+                gutterDrag(in: app)
+            }
         }
         captureFailure(in: app)
         throw HarnessError.unreachable("Could not reveal \(element.identifier)")
