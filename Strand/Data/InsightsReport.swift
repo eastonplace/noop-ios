@@ -327,6 +327,7 @@ enum InsightsLoader {
     @MainActor
     private static func load(repo: Repository, afterInputs: (@MainActor () async -> Void)?,
                              afterBuild: (@MainActor () async -> Void)?) async -> InsightsReport {
+        guard await repo.prepareInsightsRead() else { return .empty }
         let identity = InsightsReadIdentity(repo: repo)
         let inputs = await readInputs(repo: repo)
         await afterInputs?()
@@ -339,6 +340,7 @@ enum InsightsLoader {
 
     @MainActor
     static func readInputs(repo: Repository, now: Date = Date()) async -> InsightsInputs {
+        guard await repo.prepareInsightsRead() else { return InsightsInputs() }
         let identity = InsightsReadIdentity(repo: repo)
         let lo = Int(Repository.dateByAddingCalendarDays(-historyDays, to: now).timeIntervalSince1970)
         let hi = Int(Repository.dateByAddingCalendarDays(1, to: now).timeIntervalSince1970)

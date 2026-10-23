@@ -149,6 +149,42 @@ final class InsightsReportTests: XCTestCase {
 
 @MainActor
 final class InsightsHistoryRepositoryTests: XCTestCase {
+    func testSharedLoaderRejectsSourceAdoptionDuringColdStorePreparation() async throws {
+        let repo = Repository(deviceId: "my-whoop")
+        repo.setStoreForTesting(try await WhoopStore.inMemory())
+        let refresh = repo.refreshSeq
+        var reachedPreparation = false
+        repo.todayHealthSnapshotDatabaseIdentityReadHook = {
+            repo.todayHealthSnapshotDatabaseIdentityReadHook = nil
+            reachedPreparation = true
+            XCTAssertTrue(repo.adoptActiveDeviceId("replacement-during-insights-open"))
+        }
+        var reachedInputs = false
+        let report = await InsightsLoader.loadForTesting(repo: repo, afterInputs: { reachedInputs = true })
+        XCTAssertTrue(reachedPreparation)
+        XCTAssertFalse(reachedInputs, "A replaced owner must be rejected before input reads begin")
+        XCTAssertEqual(repo.refreshSeq, refresh)
+        XCTAssertEqual(report, .empty)
+    }
+
+    func testSharedLoaderRejectsRestoreDuringColdStorePreparation() async throws {
+        let repo = Repository(deviceId: "my-whoop")
+        repo.setStoreForTesting(try await WhoopStore.inMemory())
+        var reachedPreparation = false
+        repo.todayHealthSnapshotDatabaseIdentityReadHook = {
+            repo.todayHealthSnapshotDatabaseIdentityReadHook = nil
+            reachedPreparation = true
+            do { try await repo.quiesceStoreForRestore() }
+            catch { XCTFail("In-memory restore quiesce failed: \(error)") }
+        }
+        var reachedInputs = false
+        let report = await InsightsLoader.loadForTesting(repo: repo, afterInputs: { reachedInputs = true })
+        XCTAssertTrue(reachedPreparation)
+        XCTAssertFalse(reachedInputs, "A replaced owner must be rejected before input reads begin")
+        XCTAssertNil(repo.todayHealthSnapshotDatabaseIdentityForTesting())
+        XCTAssertEqual(report, .empty)
+    }
+
     func testSharedLoaderRejectsSourceChangeAfterReadsAndAfterBuild() async throws {
         for switchAfterBuild in [false, true] {
             let store = try await WhoopStore.inMemory()

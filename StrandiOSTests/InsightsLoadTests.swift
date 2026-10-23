@@ -15,6 +15,54 @@ final class InsightsLoadTests: XCTestCase {
         .init(report: InsightsReport(rows: [], daysOfData: days, unclear: []), doseCards: [])
     }
 
+    func testColdStoreFirstLoadPublishesAfterResolvingSourceContext() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: Repository.whoopSource)
+        repo.setStoreForTesting(store)
+        let before = InsightsLoadIdentity(repo: repo)
+        XCTAssertTrue(before.sourceContext.hasPrefix("unavailable:"))
+        let day = Repository.localDayKey(Date())
+        let source = try XCTUnwrap(repo.computedReadIds.first)
+        try await store.upsertDailyMetrics([
+            DailyMetric(day: day, totalSleepMin: 420, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: 55, avgHrv: 60, recovery: 80,
+                        strain: 45, exerciseCount: nil)
+        ], deviceId: source)
+
+        let model = InsightsHubViewModel()
+        await model.load(repo: repo)
+        XCTAssertNotEqual(InsightsLoadIdentity(repo: repo).sourceContext, before.sourceContext)
+        XCTAssertEqual(repo.refreshSeq, before.refreshSeq)
+        XCTAssertTrue(model.loaded, "Resolving the store identity must not discard the initial UI load")
+        XCTAssertEqual(model.report.daysOfData, 1, "The first report must retain the store's real data")
+    }
+
+    func testSupersededColdPreparationCannotPublishOrStartAnOldRead() async throws {
+        let repo = try await repository()
+        let model = InsightsHubViewModel()
+        let gate = ReadGate()
+        repo.todayHealthSnapshotDatabaseIdentityReadHook = {
+            repo.todayHealthSnapshotDatabaseIdentityReadHook = nil
+            await gate.wait()
+        }
+        var oldReadStarted = false
+        let old = content(days: 20)
+        let pending = Task {
+            await model.load(repo: repo) {
+                oldReadStarted = true
+                return old
+            }
+        }
+        await gate.waitUntilStarted()
+        let current = content(days: 30)
+        await model.load(repo: repo) { current }
+        gate.finish()
+        await pending.value
+        XCTAssertFalse(oldReadStarted, "Request ownership must survive the asynchronous store preparation")
+        XCTAssertTrue(model.loaded)
+        XCTAssertEqual(model.report.daysOfData, 30)
+    }
+
     func testRetainedHubReloadsJournalDoseWithoutAWearableRefresh() async throws {
         let repo = try await repository()
         let model = InsightsHubViewModel()

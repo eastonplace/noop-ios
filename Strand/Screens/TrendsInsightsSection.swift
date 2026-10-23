@@ -27,6 +27,7 @@ struct TrendsInsightsSection: View {
     }
 
     private func loadReport() async {
+        guard await repo.prepareInsightsRead() else { return }
         let identity = InsightsLoadIdentity(repo: repo)
         let loaded = await InsightsLoader.load(repo: repo)
         guard !Task.isCancelled, identity == InsightsLoadIdentity(repo: repo) else { return }

@@ -404,6 +404,9 @@ final class InsightsHubViewModel: ObservableObject {
     func load(repo: Repository, read: @MainActor () async -> LoadedContent) async {
         let requestID = UUID()
         loadID = requestID
+        // Opening the store resolves its initially unavailable source context. Capture only after
+        // that legitimate hydration, while retaining request ownership across the suspension.
+        guard await repo.prepareInsightsRead(), !Task.isCancelled, loadID == requestID else { return }
         let identity = InsightsLoadIdentity(repo: repo)
         let content = await read()
         guard !Task.isCancelled, loadID == requestID,

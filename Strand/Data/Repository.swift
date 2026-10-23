@@ -3030,6 +3030,22 @@ final class Repository: ObservableObject {
 
     // MARK: - Detail passthroughs
 
+    /// Resolve the initially unknown database identity before an Insights read captures its context.
+    /// The stable owner/revision checks still reject adoption, restore, or data changes during opening.
+    func prepareInsightsRead() async -> Bool {
+        let generation = storeOpenGeneration
+        let owner = deviceId
+        let sourceState = liveSourceState
+        let importedIDs = importedReadIds
+        let computedIDs = computedReadIds
+        let refresh = refreshSeq
+        let journal = journalRevision
+        guard !Task.isCancelled, await ensureStore() != nil else { return false }
+        return !Task.isCancelled && generation == storeOpenGeneration && owner == deviceId
+            && sourceState == liveSourceState && importedIDs == importedReadIds && computedIDs == computedReadIds
+            && refresh == refreshSeq && journal == journalRevision
+    }
+
     /// Bounded Insights history uses the dashboard's field-level provenance rules and the same
     /// production Sleep selector. It does not depend on the dashboard's short published window.
     func insightsHistory(fromDay: String, throughDay: String, fromTs: Int, throughTs: Int) async throws
