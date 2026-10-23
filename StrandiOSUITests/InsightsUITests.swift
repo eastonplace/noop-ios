@@ -60,7 +60,7 @@ final class InsightsUITests: XCTestCase {
         _ = try revealCardHeader(card, in: app)
         XCTAssertTrue(card.isEnabled)
         XCTAssertTrue(card.label.contains("Insights"), "The visible header belongs to the Insights link")
-        if size == .normal, card.frame.height <= app.frame.height - 200 {
+        if size == .normal, card.frame.height <= usableViewport(in: app).height {
             try reveal(card, in: app)
         }
         capture(app, "insights-\(size)-1-trends-card")
@@ -68,8 +68,10 @@ final class InsightsUITests: XCTestCase {
             // Advance into the same real card to capture the stacked compact findings. Limit
             // the gesture by its measured height so a short card is not skipped entirely.
             let appFrame = app.frame
-            let distance = min(appFrame.height * 0.48, card.frame.height * 0.5)
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
+            let visible = usableViewport(in: app)
+            let distance = min(visible.height * 0.48, card.frame.height * 0.5)
+            let start = app.coordinate(withNormalizedOffset: .zero).withOffset(
+                CGVector(dx: appFrame.width * 0.02, dy: visible.minY + visible.height * 0.85 - appFrame.minY))
             let end = start.withOffset(CGVector(dx: 0, dy: -distance))
             start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
             capture(app, "insights-\(size)-1b-trends-findings")
@@ -117,64 +119,86 @@ final class InsightsUITests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
-    /// The whole compact card can be taller than the viewport at AX XXXL. Its title remains
-    /// a real hit region of the NavigationLink, so require that header on screen before activating it.
+    /// Root chrome grows to several rows at AX sizes. A lower part of the card being hittable
+    /// does not prove that its title is exposed, so measure the visible chrome before choosing a tap.
+    private func usableViewport(in app: XCUIApplication) -> CGRect {
+        let frame = app.frame
+        var top = frame.minY + 150
+        for identifier in ["app.deviceStatus", "app.battery"] {
+            let chrome = app.buttons[identifier]
+            if chrome.exists, chrome.isHittable {
+                let bounds = chrome.frame
+                if !bounds.isEmpty, frame.intersects(bounds) { top = max(top, bounds.maxY + 12) }
+            }
+        }
+        return CGRect(x: frame.minX, y: top, width: frame.width, height: max(0, frame.maxY - 100 - top))
+    }
+
+    /// The whole compact card can be taller than the viewport at AX XXXL. Require its real
+    /// title hit region to sit below all visible app chrome before activating the NavigationLink.
     private func revealCardHeader(_ card: XCUIElement, in app: XCUIApplication) throws -> XCUICoordinate {
         for _ in 0..<30 {
+            let visible = usableViewport(in: app)
             let appFrame = app.frame
-            let visible = CGRect(x: appFrame.minX, y: appFrame.minY + 100,
-                                 width: appFrame.width, height: appFrame.height - 200)
-            if card.exists, card.isHittable, !card.frame.isEmpty {
-                let header = CGRect(x: card.frame.minX, y: card.frame.minY,
-                                    width: card.frame.width, height: min(44, card.frame.height))
-                if visible.contains(header) {
-                    return app.coordinate(withNormalizedOffset: .zero)
-                        .withOffset(CGVector(dx: header.midX - appFrame.minX, dy: header.midY - appFrame.minY))
-                }
+            let exists = card.exists
+            let cardFrame = exists ? card.frame : .zero
+            let header = CGRect(x: cardFrame.minX, y: cardFrame.minY,
+                                width: cardFrame.width, height: min(44, cardFrame.height))
+            if exists, card.isHittable, !header.isEmpty, visible.contains(header) {
+                print("[insights-navigation] header=\(header) viewport=\(visible)")
+                return app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: header.midX - appFrame.minX, dy: header.midY - appFrame.minY))
             }
-            gutterDrag(in: app, down: card.exists && card.frame.minY < visible.minY)
+            scrollToward(header, exists: exists, within: visible, in: app)
         }
         captureFailure(in: app)
         throw HarnessError.unreachable("Could not reveal the Insights navigation header")
     }
 
-    private func gutterDrag(in app: XCUIApplication, down: Bool) {
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: down ? 0.30 : 0.78))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: down ? 0.78 : 0.30))
+    private func gutterDrag(in app: XCUIApplication, down: Bool, within visible: CGRect) {
+        let frame = app.frame
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: frame.width * 0.02,
+                                              dy: visible.minY + visible.height * (down ? 0.15 : 0.85) - frame.minY))
+        let end = origin.withOffset(CGVector(dx: frame.width * 0.02,
+                                            dy: visible.minY + visible.height * (down ? 0.85 : 0.15) - frame.minY))
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
-    /// Drag outside chart scrub areas. A LazyVStack can create the target only after scrolling.
+    private func scrollToward(_ target: CGRect, exists: Bool, within visible: CGRect, in app: XCUIApplication) {
+        if !exists || target.isEmpty {
+            gutterDrag(in: app, down: false, within: visible)
+        } else if target.maxY < visible.minY || target.minY > visible.maxY {
+            // Materialized rows can still be many screens away at AX XXXL.
+            gutterDrag(in: app, down: target.maxY < visible.minY, within: visible)
+        } else {
+            // Correct near targets with a measured held drag rather than jumping across
+            // their containment band. This also brings a partially obscured header below chrome.
+            let overflow = target.minY < visible.minY
+                ? visible.minY + 8 - target.minY
+                : visible.maxY - 8 - target.maxY
+            let limit = min(160, visible.height * 0.25)
+            let distance = min(limit, max(12, abs(overflow))) * (overflow > 0 ? 1 : -1)
+            print("[insights-reveal] target=\(target) viewport=\(visible) correction=\(distance)")
+            let frame = app.frame
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let startY = visible.minY + visible.height * (distance > 0 ? 0.3 : 0.7)
+            let start = origin.withOffset(CGVector(dx: frame.width * 0.02, dy: startY - frame.minY))
+            let end = start.withOffset(CGVector(dx: 0, dy: distance))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+    }
+
+    /// A LazyVStack can create the target only after scrolling. Require the full target frame
+    /// below the measured chrome, while allowing its text to occupy the entire remaining viewport.
     private func reveal(_ element: XCUIElement, in app: XCUIApplication, capturePrefix: String? = nil) throws {
         for attempt in 0..<30 {
-            let appFrame = app.frame
-            let visible = CGRect(x: appFrame.minX, y: appFrame.minY + 100,
-                                 width: appFrame.width, height: appFrame.height - 200)
+            let visible = usableViewport(in: app)
             let exists = element.exists
             let target = exists ? element.frame : .zero
             if exists, element.isHittable, !target.isEmpty, visible.contains(target) { return }
             if let capturePrefix { capture(app, "\(capturePrefix)-scroll-\(attempt)") }
-            if exists, !target.isEmpty,
-               target.maxY < visible.minY || target.minY > visible.maxY {
-                // A materialized row can still be many screens away at AX XXXL.
-                gutterDrag(in: app, down: target.maxY < visible.minY)
-            } else if exists, !target.isEmpty {
-                // A fixed half-screen drag can jump past the containment band of a tall AX row
-                // in both directions forever. Correct the measured overflow in short, held drags.
-                let overflow = target.minY < visible.minY
-                    ? visible.minY + 8 - target.minY
-                    : visible.maxY - 8 - target.maxY
-                let limit = min(160, visible.height * 0.25)
-                let distance = min(limit, max(12, abs(overflow))) * (overflow > 0 ? 1 : -1)
-                print("[insights-reveal] target=\(target) viewport=\(visible) correction=\(distance)")
-                let origin = app.coordinate(withNormalizedOffset: .zero)
-                let startY = visible.minY + visible.height * (distance > 0 ? 0.3 : 0.7)
-                let start = origin.withOffset(CGVector(dx: appFrame.width * 0.02, dy: startY - appFrame.minY))
-                let end = start.withOffset(CGVector(dx: 0, dy: distance))
-                start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
-            } else {
-                gutterDrag(in: app, down: false)
-            }
+            scrollToward(target, exists: exists, within: visible, in: app)
         }
         captureFailure(in: app)
         throw HarnessError.unreachable("Could not fully reveal \(element.identifier)")
