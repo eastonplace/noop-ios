@@ -230,7 +230,7 @@ enum AppleDemoSeeder {
 
             // --- autonomic markers ---
             let hrv = (gauss(&rng, 78.0 + fitness * 1.5 + autonomicWave * 5.0, 12.0)
-                + (weekend ? 6 : 0) - Double(prevWorkouts) * 9 - (lateWorkoutLastNight ? 10 : 0)
+                + (weekend ? 6 : 0) - Double(prevWorkouts) * 6 - (lateWorkoutLastNight ? 8 : 0)
                 - (fatigueDay ? 16 : 0))
                 .clamped(28.0, 150.0)
             let rhr = Int((gauss(&rng, 56.0 - fitness * 0.4 - autonomicWave * 1.8, 3.0)
@@ -261,10 +261,11 @@ enum AppleDemoSeeder {
             let offScheduleNight = i % 9 == 4
             let onset = Int(onsetDay.timeIntervalSince1970) + 23 * 3600 + 10 * 60 + onsetJitter
                 + (offScheduleNight ? 80 * 60 : 0)
-            // An earlier night lines up with a better morning (up to about ±14 points); a late workout costs more.
-            recovery = (recovery - Double(onsetJitter) / 1800.0 * 14.0
-                - (offScheduleNight ? 12 : 0)
-                - (lateWorkoutLastNight ? 14 : 0)).clamped(8.0, 99.0)
+            // Realistic sizes: an earlier-than-usual night is worth about 9 points of recovery over a later one,
+            // a night well off schedule costs about 5 and a late workout about 4 on top of its HRV dip.
+            recovery = (recovery + (onsetJitter < 0 ? 4.5 : -4.5)
+                - (offScheduleNight ? 5 : 0)
+                - (lateWorkoutLastNight ? 4 : 0)).clamped(8.0, 99.0)
 
             let inBedSec = Int((totalSleep + totalSleep * (100 - efficiency) / 100) * 60)
             sleeps.append(CachedSleepSession(
@@ -311,7 +312,7 @@ enum AppleDemoSeeder {
                 let sport = SPORTS[rng.nextInt(0, SPORTS.count)]
                 let durSec = gauss(&rng, 48.0, 16.0).clamped(18.0, 110.0) * 60
                 // Every fifth weekday the session runs late, ending within three hours of bed.
-                let hour = weekend ? 9 : (i % 5 == 2 ? 20 : 18)
+                let hour = weekend ? 9 : (i % 3 == 0 ? 20 : 18)
                 let dayStart = cal.startOfDay(for: date)
                 let start = Int(dayStart.timeIntervalSince1970) + hour * 3600 + rng.nextInt(0, 50) * 60 + k * 3600
                 let avg = Int(gauss(&rng, 138.0, 12.0))
@@ -336,7 +337,7 @@ enum AppleDemoSeeder {
             }
 
             prevWorkouts = nWorkouts
-            lateWorkoutLastNight = nWorkouts > 0 && !weekend && i % 5 == 2
+            lateWorkoutLastNight = nWorkouts > 0 && !weekend && i % 3 == 0
 
             // --- journal answers for the recent 40 days (real catalog strings → Insights light up) ---
             if i >= DAYS - 40 {
