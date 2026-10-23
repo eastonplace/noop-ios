@@ -212990,6 +212990,732 @@
           }
         }
       }
+    },
+    "Saved to %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved to %@"
+          }
+        }
+      }
+    },
+    "Edit questions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit questions"
+          }
+        }
+      }
+    },
+    "Turn questions on or off, rename them, add your own": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn questions on or off, rename them, add your own"
+          }
+        }
+      }
+    },
+    "%lld-day streak": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld-day streak"
+          }
+        }
+      }
+    },
+    "Edit note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit note"
+          }
+        }
+      }
+    },
+    "Last 2 weeks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last 2 weeks"
+          }
+        }
+      }
+    },
+    "Opens a note you can type or dictate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a note you can type or dictate"
+          }
+        }
+      }
+    },
+    "Stays on this iPhone. Heads-Up and Coach use it to spot patterns.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stays on this iPhone. Heads-Up and Coach use it to spot patterns."
+          }
+        }
+      }
+    },
+    "Tap a day to fill it in": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a day to fill it in"
+          }
+        }
+      }
+    },
+    "logged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "logged"
+          }
+        }
+      }
+    },
+    "not logged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not logged"
+          }
+        }
+      }
+    },
+    "“Two coffees, felt stressed, slept badly”": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Two coffees, felt stressed, slept badly”"
+          }
+        }
+      }
+    },
+    "%@ logged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ logged"
+          }
+        }
+      }
+    },
+    "How was %@?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How was %@?"
+          }
+        }
+      }
+    },
+    "How was yesterday?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How was yesterday?"
+          }
+        }
+      }
+    },
+    "How’s today going?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How’s today going?"
+          }
+        }
+      }
+    },
+    "Same as the day before": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same as the day before"
+          }
+        }
+      }
+    },
+    "Same as yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same as yesterday"
+          }
+        }
+      }
+    },
+    "Say how %@ went": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Say how %@ went"
+          }
+        }
+      }
+    },
+    "Say how today’s going": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Say how today’s going"
+          }
+        }
+      }
+    },
+    "Say how yesterday went": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Say how yesterday went"
+          }
+        }
+      }
+    },
+    "Today’s logged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today’s logged"
+          }
+        }
+      }
+    },
+    "Yesterday’s logged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yesterday’s logged"
+          }
+        }
+      }
+    },
+    "this day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this day"
+          }
+        }
+      }
+    },
+    "Loading your check-in…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading your check-in…"
+          }
+        }
+      }
+    },
+    "Add a question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a question"
+          }
+        }
+      }
+    },
+    "Add question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add question"
+          }
+        }
+      }
+    },
+    "Question name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question name"
+          }
+        }
+      }
+    },
+    "Custom questions, groups and numbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom questions, groups and numbers"
+          }
+        }
+      }
+    },
+    "Questions that are on appear in the Journal. Turning one off changes nothing about your history or What Moves You.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questions that are on appear in the Journal. Turning one off changes nothing about your history or What Moves You."
+          }
+        }
+      }
+    },
+    "Rename or add questions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename or add questions"
+          }
+        }
+      }
+    },
+    "What the Journal asks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What the Journal asks"
+          }
+        }
+      }
+    },
+    "Your questions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your questions"
+          }
+        }
+      }
+    },
+    "%lld days in a row": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld days in a row"
+          }
+        }
+      }
+    },
+    "Log %@ together": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log %@ together"
+          }
+        }
+      }
+    },
+    "%lld of %lld answered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld of %lld answered"
+          }
+        }
+      }
+    },
+    "Double-tap to add %@. Swipe up or down to change it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap to add %@. Swipe up or down to change it."
+          }
+        }
+      }
+    },
+    "Double-tap to log Yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap to log Yes"
+          }
+        }
+      }
+    },
+    "Double-tap to switch to No": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap to switch to No"
+          }
+        }
+      }
+    },
+    "Heads-Up and Coach can use all of it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heads-Up and Coach can use all of it."
+          }
+        }
+      }
+    },
+    "Mark the other %lld No": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark the other %lld No"
+          }
+        }
+      }
+    },
+    "Mark the rest No": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark the rest No"
+          }
+        }
+      }
+    },
+    "None today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None today"
+          }
+        }
+      }
+    },
+    "Tap again for No": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap again for No"
+          }
+        }
+      }
+    },
+    "Tap what applies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap what applies"
+          }
+        }
+      }
+    },
+    "What happened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What happened"
+          }
+        }
+      }
+    },
+    "not answered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not answered"
+          }
+        }
+      }
+    },
+    "yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yes"
+          }
+        }
+      }
+    },
+    "drinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "drinks"
+          }
+        }
+      }
+    },
+    "serving": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "serving"
+          }
+        }
+      }
+    },
+    "servings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "servings"
+          }
+        }
+      }
+    },
+    "dose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dose"
+          }
+        }
+      }
+    },
+    "doses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "doses"
+          }
+        }
+      }
+    },
+    "unit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unit"
+          }
+        }
+      }
+    },
+    "units": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "units"
+          }
+        }
+      }
+    },
+    "Log these together. Each one is saved as its own Journal answer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log these together. Each one is saved as its own Journal answer."
+          }
+        }
+      }
+    },
+    "Saves to %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saves to %@"
+          }
+        }
+      }
+    },
+    "Nothing in here yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing in here yet."
+          }
+        }
+      }
+    },
+    "Optional note for this routine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional note for this routine"
+          }
+        }
+      }
+    },
+    "Log these together": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log these together"
+          }
+        }
+      }
+    },
+    "Logged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logged"
+          }
+        }
+      }
+    },
+    "Logging…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logging…"
+          }
+        }
+      }
+    },
+    "Skip for now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip for now"
+          }
+        }
+      }
+    },
+    "Not used yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not used yet"
+          }
+        }
+      }
+    },
+    "Skipped %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped %@"
+          }
+        }
+      }
+    },
+    "Logged %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logged %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

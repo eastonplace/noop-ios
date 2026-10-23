@@ -94,15 +94,19 @@ final class HeadsUpJournalUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Save check-in"].exists, "Answers save as they are tapped")
         capture(app, "journal-home-1-top")
 
-        let no = app.buttons.matching(NSPredicate(format: "label == 'No'")).firstMatch
-        try require(no, in: app, timeout: 10)
-        // A re-run on the same simulator keeps the last run's answer: a tap on a chosen chip clears it first.
-        if no.isSelected {
-            no.tap()
-            try waitFor(no, predicate: "selected == false", in: app)
+        // One tile per question; a plain Yes/No question is not a counted one, so a tap is exactly Yes, then No.
+        let tile = element("journal.tile.Did you read before bed?", in: app)
+        try require(tile, in: app, timeout: 10)
+        // A re-run on the same simulator keeps the last run's answer: a tap on a Yes switches it to No, so tap
+        // again until it reads Yes.
+        if !tile.label.hasSuffix(", yes") {
+            let before = tile.label
+            tile.tap()
+            try waitFor(tile, predicate: "label != '\(before)'", in: app)
+            if tile.label.hasSuffix(", no") { tile.tap() }
         }
-        no.tap()
-        try waitFor(no, predicate: "selected == true", in: app)
+        try waitFor(tile, predicate: "label ENDSWITH ', yes'", in: app)
+        XCTAssertTrue(element("journal.progress", in: app).exists, "The progress line counts the tap")
         capture(app, "journal-home-2-answered")
 
         for index in 3...6 {
