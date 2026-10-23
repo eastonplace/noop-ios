@@ -264,9 +264,10 @@ struct SleepView: View {
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 2)
-                        FlatSectionSeparator.sleep
-                        // Sleep vs awake and Pre-sleep HR: two collapsed rows in one section. Each is an async
-                        // leaf (own fetch, own loading state), so the memoized model never waits on them.
+                        FlatSectionSeparator(above: SleepRhythm.airAbove, below: 0)
+                        // Keep each row's existing divider-to-divider height, with its former outer
+                        // separator air split evenly around the content instead of on just one side.
+                        // Each async leaf owns its fetch and loading state, so the parent never waits.
                         VStack(alignment: .leading, spacing: 0) {
                             SleepHeartRateContrastSection(
                                 sleepStart: displayedNight.night.session.effectiveStartTs,
@@ -275,6 +276,7 @@ struct SleepView: View {
                                 habitualMidsleepSec: habitualMidsleepSec,
                                 sessionsRevision: sleepHistoryRevision
                             )
+                            .padding(.vertical, SleepRhythm.airBelow / 2)
                             TodaySectionSeparator(above: 0, below: 0)
                             PreSleepHeartRateFeedbackSection(
                                 wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
@@ -284,9 +286,10 @@ struct SleepView: View {
                                 habitualMidsleepSec: habitualMidsleepSec,
                                 sessionsRevision: sleepHistoryRevision
                             )
+                            .padding(.vertical, SleepRhythm.airAbove / 2)
                         }
                         .staggeredAppear(index: 4)
-                        FlatSectionSeparator.sleep
+                        FlatSectionSeparator(above: 0, below: SleepRhythm.airBelow)
                         nightDetail(resolved, night: displayedNight.night).staggeredAppear(index: 5)
                         FlatSectionSeparator.sleep
                         // Tonight: the V2 need (its own leaf: own EnvironmentObject + async fetch, so it never
