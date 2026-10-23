@@ -56,3 +56,5 @@ Verified package suites on the final package changes:
 All 20 source audit scripts and all nine native safety harnesses passed. The combined source received independent static review; the identified Oura opcode-table omission and importer diagnostic revision were corrected.
 
 Native app/test build, simulator execution, visual checks and exact-head CI selection are recorded in the pull request. Hardware-dependent verification and overall device performance remain separate from these local regressions.
+
+The first hosted full native run passed. UI validation passed 17 of 18 cases; the routine-edit case stopped before tapping a fully visible native Edit menu item because iOS 26 reported it as non-hittable. The recording confirmed the visible menu. Its test now validates the exact label, enabled state and finite contained bounds, sends a real touch, then requires menu dismissal and a ready Save button. All routine edit/save/start separation assertions remain intact. This uses the same native-menu strategy already present in the notification-settings tests.
