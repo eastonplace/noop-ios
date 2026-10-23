@@ -104,6 +104,20 @@ enum AIKeyStore {
     }
 }
 
+/// Credential operations stay together so request ownership can be tested without accessing Keychain.
+@MainActor
+struct AICoachKeyAccess {
+    let read: () -> String?
+    let owner: () -> String?
+    let save: (String, String) -> Bool
+    let clear: () -> Void
+
+    static var keychain: Self {
+        Self(read: AIKeyStore.read, owner: { AIKeyStore.ownerProvider },
+             save: { AIKeyStore.save($0, owner: $1) }, clear: AIKeyStore.clear)
+    }
+}
+
 // MARK: - Errors
 
 /// User-facing failure reasons mapped to clear, non-crashing messages.
@@ -157,6 +171,7 @@ final class AICoachEngine: ObservableObject {
     @Published var provider: AIProvider {
         didSet {
             guard provider != oldValue else { return }
+            invalidateRequest(clearHistory: true)
             UserDefaults.standard.set(provider.rawValue, forKey: Self.providerKey)
             // Reset the model list to the new provider's built-in options.
             availableModels = provider.modelOptions
@@ -167,7 +182,10 @@ final class AICoachEngine: ObservableObject {
         }
     }
     @Published var model: String {
-        didSet { UserDefaults.standard.set(model, forKey: Self.modelKey) }
+        didSet {
+            if model != oldValue { invalidateRequest() }
+            UserDefaults.standard.set(model, forKey: Self.modelKey)
+        }
     }
     /// The model ids offered in the picker. Seeded from `provider.modelOptions`, reset when the
     /// provider changes, and optionally extended by `refreshModels()` with the provider's live list.
@@ -175,28 +193,73 @@ final class AICoachEngine: ObservableObject {
     /// Explicit permission for the coach to read & transmit the user's biometric data. OFF by
     /// default, until this is true, NO metrics are included in any request (only the question).
     @Published var dataConsent: Bool {
-        didSet { UserDefaults.standard.set(dataConsent, forKey: Self.consentKey) }
+        didSet {
+            if dataConsent != oldValue { invalidateRequest(clearHistory: true) }
+            UserDefaults.standard.set(dataConsent, forKey: Self.consentKey)
+        }
     }
     /// Base URL for the Custom (OpenAI-compatible) provider, e.g. `http://localhost:11434/v1` for a
     /// local LLM server. Only used when `provider == .custom`. Persisted so it survives relaunch.
     @Published var customBaseURL: String {
-        didSet { UserDefaults.standard.set(customBaseURL, forKey: AIProvider.customBaseURLKey) }
+        didSet {
+            if customBaseURL != oldValue { invalidateRequest(clearHistory: true) }
+            UserDefaults.standard.set(customBaseURL, forKey: AIProvider.customBaseURLKey)
+        }
     }
     /// Whether the user has committed the Custom provider (tapped Connect with a base URL). Lets the
     /// keyless local path reach the chat without a stored key, while avoiding a flip mid-typing.
     @Published var customConnected: Bool {
-        didSet { UserDefaults.standard.set(customConnected, forKey: Self.customConnectedKey) }
+        didSet {
+            if customConnected != oldValue { invalidateRequest(clearHistory: true) }
+            UserDefaults.standard.set(customConnected, forKey: Self.customConnectedKey)
+        }
     }
     /// SECOND opt-in (v5): also fold a SUMMARY of the new on-device signals, your strongest n-of-1
     /// correlations and your Lab Book markers, into the coach context. OFF by default and gated behind
     /// `dataConsent` too, so it never adds anything without both consents. Summary-only: a few one-line
     /// sentences, NEVER raw readings, the anonymity / no-raw-egress posture is preserved.
     @Published var includeOnDeviceSignals: Bool {
-        didSet { UserDefaults.standard.set(includeOnDeviceSignals, forKey: Self.onDeviceSignalsKey) }
+        didSet {
+            if includeOnDeviceSignals != oldValue { invalidateRequest(clearHistory: true) }
+            UserDefaults.standard.set(includeOnDeviceSignals, forKey: Self.onDeviceSignalsKey)
+        }
     }
 
     private let repo: Repository
     private let session: URLSession
+    private let keyAccess: AICoachKeyAccess
+    private var configurationGeneration: UInt64 = 0
+    private var requestID: UUID?
+    private var requestTask: Task<Void, Never>?
+    /// The visible transcript stays available after a privacy/settings change. Only turns admitted
+    /// under the current consent, provider and source may become outbound history.
+    private var outboundMessages: [ChatMessage] = []
+    private var historySource: SourceIdentity?
+
+    private struct SourceIdentity: Equatable {
+        let context: String
+        let invalidationEpoch: UInt64
+    }
+
+    private struct RequestConfiguration {
+        let generation: UInt64
+        let provider: AIProvider
+        let model: String
+        let customBaseURL: String
+        let customConnected: Bool
+        let key: String
+        let keyOwner: String?
+        let dataConsent: Bool
+        let includeOnDeviceSignals: Bool
+        let source: SourceIdentity
+        let systemPrompt: String
+        let client: any AIProviderClient
+    }
+
+    private struct Request {
+        let id: UUID
+        let configuration: RequestConfiguration
+    }
 
     private static let providerKey = "ai.provider"
     private static let modelKey = "ai.model"
@@ -277,9 +340,10 @@ final class AICoachEngine: ObservableObject {
     them to enable "Let the coach use my data" for guidance tailored to their real numbers.
     """
 
-    init(repo: Repository, session: URLSession = .shared) {
+    init(repo: Repository, session: URLSession = .shared, keyAccess: AICoachKeyAccess = .keychain) {
         self.repo = repo
         self.session = session
+        self.keyAccess = keyAccess
 
         // Restore persisted provider / model (falling back to sane defaults).
         let storedProvider = UserDefaults.standard.string(forKey: Self.providerKey)
@@ -310,7 +374,7 @@ final class AICoachEngine: ObservableObject {
     // MARK: Key management
 
     /// True when a key is present in the Keychain.
-    var hasKey: Bool { AIKeyStore.read() != nil }
+    var hasKey: Bool { keyAccess.read() != nil }
 
     /// True once the coach can actually send: a stored key for the cloud providers, or, for the
     /// Custom (local) provider, a committed base URL (a key is optional there, as local servers
@@ -320,12 +384,12 @@ final class AICoachEngine: ObservableObject {
     /// The key to send with a request: the stored key, or an empty string for the keyless Custom
     /// provider. `nil` means "not configured", the caller surfaces `.noKey`.
     private var resolvedKey: String? {
-        if let k = AIKeyStore.read() {
+        if let k = keyAccess.read() {
             // Only send the stored key to the provider it was SAVED for, never Bearer one provider's
             // key (e.g. a cloud OpenAI/Anthropic secret) to another provider's endpoint, above all the
             // arbitrary user-typed Custom URL. A legacy key with no recorded owner is assumed to belong
             // to a cloud provider, so it is never auto-sent to Custom.
-            let owner = AIKeyStore.ownerProvider
+            let owner = keyAccess.owner()
             if owner == provider.rawValue { return k }
             if owner == nil && provider != .custom { return k }
         }
@@ -339,9 +403,12 @@ final class AICoachEngine: ObservableObject {
         guard !url.isEmpty else { return }
         errorText = nil
         customConnected = true
+        let generation = configurationGeneration
         // Pull the server's model list; if the user hasn't picked one yet, default to the first.
         Task {
+            guard configurationGeneration == generation, provider == .custom, customConnected else { return }
             await refreshModels()
+            guard configurationGeneration == generation, provider == .custom, customConnected else { return }
             if model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let first = availableModels.first {
                 model = first
@@ -352,7 +419,8 @@ final class AICoachEngine: ObservableObject {
     /// Disconnect entirely: forget any stored key and un-commit the Custom provider. The base URL is
     /// kept so reconnecting pre-fills it.
     func disconnect() {
-        AIKeyStore.clear()
+        invalidateRequest(clearHistory: true)
+        keyAccess.clear()
         customConnected = false
         objectWillChange.send()
     }
@@ -361,7 +429,8 @@ final class AICoachEngine: ObservableObject {
     /// key is NOT saved, so surface that to the UI instead of silently proceeding (#872), and skip the
     /// model refresh (it would only hit `.noKey`).
     func setKey(_ key: String) {
-        guard AIKeyStore.save(key, owner: provider.rawValue) else {
+        invalidateRequest(clearHistory: true)
+        guard keyAccess.save(key, provider.rawValue) else {
             errorText = AICoachError.keySaveFailed.errorDescription
             objectWillChange.send()
             return
@@ -369,12 +438,17 @@ final class AICoachEngine: ObservableObject {
         errorText = nil
         objectWillChange.send() // `hasKey` is computed; nudge SwiftUI to re-read it.
         // Pull the user's ACTUAL current models from the provider so the picker is never stale.
-        Task { await refreshModels() }
+        let generation = configurationGeneration
+        Task {
+            guard configurationGeneration == generation else { return }
+            await refreshModels()
+        }
     }
 
     /// Forget the stored key.
     func clearKey() {
-        AIKeyStore.clear()
+        invalidateRequest(clearHistory: true)
+        keyAccess.clear()
         objectWillChange.send()
     }
 
@@ -395,6 +469,7 @@ final class AICoachEngine: ObservableObject {
     /// below is byte-identical in release builds.
     #if DEBUG
     var fetchModelsOverride: ((_ provider: AIProvider, _ key: String) async throws -> [String])?
+    var buildFullContextOverride: (() async -> String)?
     #endif
 
     /// Best-effort: GET the chosen provider's models endpoint with the saved key and merge the
@@ -411,7 +486,8 @@ final class AICoachEngine: ObservableObject {
         // user can switch providers mid-flight (#873). We fetch this provider's ids, then re-check on
         // resume that it's still the live one, and merge against THIS same snapshot, so the guard and
         // the merge always use one consistent provider, never a stale/mixed list for the wrong one.
-        let capturedProvider = provider
+        let configuration = captureConfiguration(key: key)
+        let capturedProvider = configuration.provider
 
         do {
             let ids: [String]
@@ -419,15 +495,15 @@ final class AICoachEngine: ObservableObject {
             if let override = fetchModelsOverride {
                 ids = try await override(capturedProvider, key)
             } else {
-                ids = try await capturedProvider.client.fetchModels(key: key, session: session)
+                ids = try await configuration.client.fetchModels(key: key, session: session)
             }
             #else
-            ids = try await capturedProvider.client.fetchModels(key: key, session: session)
+            ids = try await configuration.client.fetchModels(key: key, session: session)
             #endif
 
             // The user switched providers while we were awaiting, so these ids belong to the old one.
             // Drop them rather than write a list for a provider that's no longer selected.
-            guard provider == capturedProvider else { return }
+            guard configurationIsCurrent(configuration), !Task.isCancelled else { return }
 
             guard !ids.isEmpty else {
                 errorText = AICoachError.decode.errorDescription
@@ -443,7 +519,7 @@ final class AICoachEngine: ObservableObject {
             availableModels = merged
         } catch {
             // A switch mid-flight makes any error moot for the old provider, so don't surface it.
-            guard provider == capturedProvider else { return }
+            guard configurationIsCurrent(configuration), !Task.isCancelled else { return }
             errorText = AICoachError.network(error.localizedDescription).errorDescription
             return
         }
@@ -457,8 +533,12 @@ final class AICoachEngine: ObservableObject {
     /// Internal for focused app-target regression tests via `@testable import NOOP`.
     func appendMessage(_ message: ChatMessage) {
         messages.append(message)
+        outboundMessages.append(message)
         if messages.count > Self.maxStoredMessages {
             messages.removeFirst(messages.count - Self.maxStoredMessages)
+        }
+        if outboundMessages.count > Self.maxStoredMessages {
+            outboundMessages.removeFirst(outboundMessages.count - Self.maxStoredMessages)
         }
     }
 
@@ -466,72 +546,146 @@ final class AICoachEngine: ObservableObject {
     /// system prompt + context + running history, parse the reply, append it. Never throws/crashes;
     /// failures land in `errorText`.
     func send(_ userText: String) async {
+        reconcileSource()
+        guard !sending, !Task.isCancelled else { return }
         let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { errorText = AICoachError.emptyQuestion.errorDescription; return }
-        guard let key = resolvedKey else { errorText = AICoachError.noKey.errorDescription; return }
+        guard let key = resolvedKey, provider != .custom || customConnected else {
+            errorText = AICoachError.noKey.errorDescription; return
+        }
 
         let today = Self.localEpochDay()
         if Self.isStaleConversation(lastEpochDay: conversationDay, todayEpochDay: today) {
             messages = []
+            outboundMessages = []
         }
         conversationDay = today
 
         errorText = nil
         appendMessage(ChatMessage(role: .user, text: trimmed))
-        sending = true
-        defer { sending = false }
+        let request = beginRequest(key: key)
 
         // Build the data context once and prepend it to the FIRST user turn we send. We send the
         // full running history so follow-ups stay coherent; the context only needs to ride the
         // earliest user message.
         // Include the user's data ONLY with explicit consent; otherwise send a note instead of numbers.
-        let context = dataConsent ? await buildFullContext() : noConsentNote
-        let wire = wireMessages(context: context)
-
-        do {
-            let reply = try await callProvider(key: key, messages: wire)
-            let clean = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-            appendMessage(ChatMessage(role: .assistant, text: clean.isEmpty ? "(no reply)" : clean))
-        } catch let e as AICoachError {
-            errorText = e.errorDescription
-        } catch {
-            errorText = AICoachError.network(error.localizedDescription).errorDescription
+        await runRequest(request, wire: { self.wireMessages(context: $0) }) { clean in
+            self.appendMessage(ChatMessage(role: .assistant, text: clean.isEmpty ? "(no reply)" : clean))
         }
     }
 
     /// Proactively generate "Today's brief" the first time the Coach opens, readiness + a training
     /// prescription + one recovery tip, without the user typing. Requires a key + data consent.
     func startBriefIfNeeded() async {
+        reconcileSource()
+        guard !Task.isCancelled else { return }
         guard isConfigured, dataConsent, messages.isEmpty, !sending else { return }
         guard let key = resolvedKey else { return }
         errorText = nil
-        sending = true
-        defer { sending = false }
-
-        let context = await buildFullContext()
+        let request = beginRequest(key: key)
         let instruction = """
         Based on the data above, give me TODAY'S coaching brief in three short parts: \
         (1) my readiness in one line, citing charge, HRV and rest; \
         (2) exactly what training to do today and what to avoid; \
         (3) one specific thing to improve my charge. Be punchy and motivating.
         """
-        let wire: [(role: ChatMessage.Role, content: String)] = [(.user, context + "\n\n---\n\n" + instruction)]
-        do {
-            let reply = try await callProvider(key: key, messages: wire)
-            let clean = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        await runRequest(request, wire: { context in
+            [(.user, context + "\n\n---\n\n" + instruction)]
+        }) { clean in
             if !clean.isEmpty {
-                appendMessage(ChatMessage(role: .assistant, text: "Today's brief\n\n" + clean))
+                self.appendMessage(ChatMessage(role: .assistant, text: "Today's brief\n\n" + clean))
             }
-        } catch let e as AICoachError {
-            errorText = e.errorDescription
-        } catch {
-            errorText = AICoachError.network(error.localizedDescription).errorDescription
         }
+    }
+
+    private var sourceIdentity: SourceIdentity {
+        SourceIdentity(context: repo.notificationSourceContext,
+                       invalidationEpoch: repo.externalSurfaceInvalidationEpoch)
+    }
+
+    private func reconcileSource() {
+        let current = sourceIdentity
+        if let historySource, historySource != current { invalidateRequest(clearHistory: true) }
+        historySource = current
+    }
+
+    private func invalidateRequest(clearHistory: Bool = false) {
+        configurationGeneration &+= 1
+        requestTask?.cancel()
+        requestTask = nil
+        requestID = nil
+        sending = false
+        if clearHistory { outboundMessages = [] }
+    }
+
+    private func captureConfiguration(key: String) -> RequestConfiguration {
+        let baseURL = AIProvider.customBaseURL
+        let client: any AIProviderClient = provider == .custom ? CustomClient(baseURL: baseURL) : provider.client
+        return RequestConfiguration(generation: configurationGeneration, provider: provider, model: model,
+            customBaseURL: baseURL, customConnected: customConnected, key: key,
+            keyOwner: keyAccess.owner(), dataConsent: dataConsent, includeOnDeviceSignals: includeOnDeviceSignals,
+            source: sourceIdentity, systemPrompt: systemPrompt, client: client)
+    }
+
+    private func configurationIsCurrent(_ configuration: RequestConfiguration) -> Bool {
+        configuration.generation == configurationGeneration
+            && configuration.provider == provider && configuration.model == model
+            && (provider != .custom || (configuration.customBaseURL == AIProvider.customBaseURL
+                && configuration.customConnected == customConnected))
+            && configuration.key == resolvedKey && configuration.keyOwner == keyAccess.owner()
+            && configuration.dataConsent == dataConsent
+            && configuration.includeOnDeviceSignals == includeOnDeviceSignals
+            && configuration.source == sourceIdentity
+    }
+
+    private func beginRequest(key: String) -> Request {
+        let request = Request(id: UUID(), configuration: captureConfiguration(key: key))
+        requestID = request.id
+        sending = true
+        return request
+    }
+
+    private func accepts(_ request: Request) -> Bool {
+        reconcileSource()
+        return requestID == request.id && !Task.isCancelled
+            && configurationIsCurrent(request.configuration)
+            && (!request.configuration.dataConsent || !repo.verifiedExternalSurfaceFenced)
+    }
+
+    private func runRequest(_ request: Request,
+                            wire: @escaping (String) -> [(role: ChatMessage.Role, content: String)],
+                            publish: @escaping (String) -> Void) async {
+        let task = Task {
+            defer {
+                if requestID == request.id {
+                    requestID = nil
+                    requestTask = nil
+                    sending = false
+                }
+            }
+            guard accepts(request) else { return }
+            let context = request.configuration.dataConsent ? await buildFullContext() : noConsentNote
+            guard accepts(request) else { return }
+            do {
+                let reply = try await callProvider(request: request, messages: wire(context))
+                guard accepts(request) else { return }
+                publish(reply.trimmingCharacters(in: .whitespacesAndNewlines))
+            } catch {
+                guard accepts(request) else { return }
+                if let error = error as? AICoachError { errorText = error.errorDescription }
+                else { errorText = AICoachError.network(error.localizedDescription).errorDescription }
+            }
+        }
+        requestTask = task
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
     /// Full data context = the metrics summary + recent workouts (+ an OPT-IN on-device-signals summary
     /// when the second consent is on). Used when the user has granted data access.
     func buildFullContext() async -> String {
+        #if DEBUG
+        if let buildFullContextOverride { return await buildFullContextOverride() }
+        #endif
         var ctx = buildContext()
         ctx += "\n\n" + (await recentWorkoutsBlock())
         // Derived stress: a single Baevsky Stress Index summary line over today's R-R, computed the same
@@ -628,15 +782,18 @@ final class AICoachEngine: ObservableObject {
     }
 
     /// Dispatch to the user's chosen provider client.
-    private func callProvider(key: String,
+    private func callProvider(request: Request,
                               messages: [(role: ChatMessage.Role, content: String)]) async throws -> String {
-        try await provider.client.send(
-            key: key,
-            model: model,
-            systemPrompt: systemPrompt,
-            messages: messages,
-            session: session
-        )
+        let configuration = request.configuration
+        return try await AIRequestAdmission.$isCurrent.withValue({ @MainActor in self.accepts(request) }) {
+            try await configuration.client.send(
+                key: configuration.key,
+                model: configuration.model,
+                systemPrompt: configuration.systemPrompt,
+                messages: messages,
+                session: session
+            )
+        }
     }
 
     /// True only when local calendar time moved forward to a later day.
@@ -665,6 +822,7 @@ final class AICoachEngine: ObservableObject {
     /// provider's main use case) and balloons token cost/latency on cloud providers. (parity with Android)
     private static let maxHistoryMessages = 10
     private func windowedMessages() -> [ChatMessage] {
+        let messages = outboundMessages
         guard messages.count > Self.maxHistoryMessages + 1,
               let firstUser = messages.firstIndex(where: { $0.role == .user }) else { return messages }
         let recentStart = messages.count - Self.maxHistoryMessages

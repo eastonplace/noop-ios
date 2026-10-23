@@ -8,7 +8,7 @@ enum WhoopImporter {
 
     /// The WHOOP CSV mapping revision, stamped into the Import test-mode parser line. Bump when this
     /// importer's column->store mapping changes so a shared report's parser version is unambiguous.
-    static let importerVersion = 1
+    static let importerVersion = 2
 
     @discardableResult
     static func importExport(url: URL, into store: WhoopStore, deviceId: String,
@@ -29,7 +29,7 @@ enum WhoopImporter {
                 remMin: c.remDurationMin,
                 lightMin: c.lightSleepDurationMin,
                 disturbances: nil,
-                restingHr: c.restingHeartRate.map { Int($0.rounded()) },
+                restingHr: ImportNumericSafety.integer(c.restingHeartRate, rounding: .toNearestOrAwayFromZero),
                 avgHrv: c.hrvMs,
                 recovery: c.recoveryScore,
                 // WHOOP Day Strain (0–21) → NOOP's 0–100 Effort axis at the store boundary.
@@ -180,8 +180,8 @@ enum WhoopImporter {
             return WorkoutRow(startTs: Int(s.timeIntervalSince1970), endTs: Int(e.timeIntervalSince1970),
                               sport: w.activityName ?? "Workout", source: "whoop",
                               durationS: e.timeIntervalSince(s), energyKcal: w.energyKcal,
-                              avgHr: w.avgHeartRate.map { Int($0.rounded()) },
-                              maxHr: w.maxHeartRate.map { Int($0.rounded()) },
+                              avgHr: ImportNumericSafety.integer(w.avgHeartRate, rounding: .toNearestOrAwayFromZero),
+                              maxHr: ImportNumericSafety.integer(w.maxHeartRate, rounding: .toNearestOrAwayFromZero),
                               strain: WhoopExportImporter.effortFromImportedDayStrain(w.activityStrain), distanceM: w.distanceMeters,
                               zonesJSON: zjson, notes: nil)
         }

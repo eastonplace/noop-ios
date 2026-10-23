@@ -1,0 +1,7 @@
+{
+  "base": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+  "manifests_exist": {
+    "StrandiOS/Resources/PrivacyInfo.xcprivacy": false,
+    "StrandiOSWidgets/PrivacyInfo.xcprivacy": false
+  }
+}

@@ -127,25 +127,9 @@ struct RepositoryFreshness: Equatable, Sendable {
     var hasAnyHistory: Bool { importedDays > 0 || computedDays > 0 || appleDays > 0 }
 }
 
-/// What `deleteSleepSession` hands back so a transient UNDO can restore the night (#65). Carries the
-/// deleted row VERBATIM (stagesJSON, motion via the row's own fields, `userEdited`, the effective onset)
-/// plus the deviceId of the namespace that OWNED it (computed vs imported), so undo re-inserts it exactly
-/// where it came from. A `userEdited` night restored into computed keeps its flag and is not re-scored
-/// as a detected twin.
-struct SleepDeletionSnapshot: Equatable {
-    let session: CachedSleepSession
-    let ownerDeviceId: String
-    /// The night's wake span used in the tombstone token (== `session.endTs`).
-    let endTs: Int
-    /// The per-epoch Deep Timeline motion series (`motionJSON`), captured at delete time. Not carried on
-    /// `CachedSleepSession`, so undo must re-persist it after the upsert or a `userEdited` night's motion
-    /// track vanishes (a detected night self-heals via `analyzeRecent`; a hand-edited one is never
-    /// re-detected). nil when the column was NULL. (#65 Android parity.)
-    var motion: [Double]?
-    /// The per-epoch banked band sleep-state series (`sleepStateJSON`), captured at delete time. Same
-    /// reason as `motion`: undo re-persists it so a `userEdited` night keeps its Band Sleep State track.
-    var sleepState: [Int]?
-}
+/// The store captures deletion and all undo evidence atomically, including a recovered night's
+/// protected Rest/Charge overlay and the database identity that owns it.
+typealias SleepDeletionSnapshot = StoredSleepSessionSnapshot
 
 /// One stored sleep block with the raw/imported namespace that owns it. Health comparisons must not
 /// discard this identity and then apply one source's boundary to another source's heart-rate samples.
@@ -3401,13 +3385,14 @@ final class Repository: ObservableObject {
     /// function , so the Sleep tab's main-night pick aligns to the same value the analytics rollup used.
     /// The whole point of #547: the UI hero and the analytics daily total resolve to the SAME block for a
     /// shift/late sleeper, not just at cold-start. Reads a wide window so the distinct-day count comfortably
-    /// clears the threshold; `habitualMidsleepSec` keeps the longest block per day, so window/order/source
-    /// merge differences wash out. (#547)
-    func habitualMidsleepSec(days: Int = 30) async -> Int? {
+    /// clears the threshold; overlap duplicates are collapsed before the longest-block-per-day learner,
+    /// and each midpoint uses the wall-clock offset in force on that night. (#547)
+    func habitualMidsleepSec(days: Int = 30, now: Date = Date(), timeZone: TimeZone = .current) async -> Int? {
         guard let store = await ensureStore() else { return nil }
-        let now = Date()
-        let fromDate = Self.dateByAddingCalendarDays(-max(0, days), to: now)
-        let toDate = Self.dateByAddingCalendarDays(1, to: now)
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        let fromDate = Self.dateByAddingCalendarDays(-max(0, days), to: now, calendar: calendar)
+        let toDate = Self.dateByAddingCalendarDays(1, to: now, calendar: calendar)
         let lo = Int(fromDate.timeIntervalSince1970)
         let hi = Int(toDate.timeIntervalSince1970)
         // UNION active strap + canonical (imported) and their computed siblings, de-duplicating identical
@@ -3416,24 +3401,27 @@ final class Repository: ObservableObject {
             .filter(Self.hasValidSleepWindow))
         let computed = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: computedReadIds, from: lo, to: hi)
             .filter(Self.hasValidSleepWindow))
-        let offsetSec = TimeZone.current.secondsFromGMT()
-        let blocks = (imported + computed).compactMap { s -> SleepStageTotals.HistoryBlock? in
+        let merged = SleepSessionDedup.dedupe(imported + computed).kept
+        let blocks = merged.compactMap { s -> SleepStageTotals.HistoryBlock? in
             let start = s.effectiveStartTs, end = s.endTs
             guard Self.hasValidSleepWindow(s) else { return nil }
             let duration = end - start
             let (mid, midpointOverflow) = start.addingReportingOverflow(duration / 2)
             guard !midpointOverflow else { return nil }
+            let offsetSec = timeZone.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(mid)))
             let dayKey = AnalyticsEngine.dayString(mid, offsetSec: offsetSec)
-            return SleepStageTotals.HistoryBlock(start: start, end: end, dayKey: dayKey)
+            guard !dayKey.isEmpty else { return nil }
+            return SleepStageTotals.HistoryBlock(start: start, end: end, dayKey: dayKey,
+                                                 clockOffsetSec: offsetSec)
         }
-        return SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: offsetSec)
+        return SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: 0)
     }
 
     /// Hand-correct a night's bed (onset) and/or wake (end) time. `detectedStartTs` is the immutable
     /// detected key; the corrected onset is stored in `startTsAdjusted` so the key never moves (the
     /// recompute guard + daily override keep matching on it). The merged session list carries no source
-    /// deviceId (same reason as the journal reads below), so this applies under BOTH the imported and
-    /// computed sources , only the namespace that holds the night updates; the other is a no-op.
+    /// deviceId (same reason as the journal reads below), so resolve its exact stored key across the
+    /// computed/imported read namespaces, retaining the existing computed-first collision policy.
     ///
     /// Stages are **re-derived from the raw streams** for the corrected `[newStartTs, newEndTs]` window
     /// via `SleepStager.stageSession` , exactly what WHOOP does, so extending a boundary recovers real
@@ -3450,6 +3438,17 @@ final class Repository: ObservableObject {
         guard let window = SleepEditGuard.clampedEditWindow(
             start: newStartTs, end: newEndTs, now: Int(Date().timeIntervalSince1970)) else { return }
         let (safeStartTs, safeEndTs) = window
+        let snapshot: StoredSleepSessionSnapshot
+        do {
+            guard let stored = try await store.sleepSessionSnapshot(
+                deviceIds: computedReadIds + importedReadIds, startTs: detectedStartTs) else { return }
+            snapshot = stored
+        } catch {
+            return
+        }
+        // UI arguments may describe an older view. Reclip the persisted breakdown from its current
+        // effective bounds, not from the immutable detected key again after an earlier onset edit.
+        let oldWakeTs = snapshot.session.endTs
 
         // Pre-sleep feedback is keyed by the local wake day and its historical baseline can outlive the
         // 21-day rescore window. Remove both the old and new wake-day observations BEFORE changing the
@@ -3458,7 +3457,7 @@ final class Repository: ObservableObject {
         do {
             _ = try await invalidatePreSleepHeartRateFeedback(
                 store: store,
-                wakeTimestamps: [oldEndTs, safeEndTs]
+                wakeTimestamps: [oldWakeTs, safeEndTs]
             )
         } catch {
             return
@@ -3469,23 +3468,20 @@ final class Repository: ObservableObject {
         // transaction; the generic stage-only edit would fire the invalidation trigger
         // first and leave the corrected day blank. If provenance cannot be read, fail
         // closed rather than risk treating a recovered night as an ordinary edit.
-        do {
-            if try await store.sleepRecoveryDailyOverride(
-                deviceId: canonicalComputedId,
-                sessionStartTs: detectedStartTs
-            ) != nil {
-                _ = await recoverMissedSleep(
+        if snapshot.recoveryOverride != nil {
+            // The bounded recovery writer owns the canonical namespace. A foreign protected row must
+            // not be converted into a generic stage edit that drops its overlay.
+            guard snapshot.ownerDeviceId == canonicalComputedId else { return }
+            let recovered = await recoverMissedSleep(
                     startTs: safeStartTs,
                     endTs: safeEndTs,
                     replacingStartTs: detectedStartTs)
-                _ = try? await invalidatePreSleepHeartRateFeedback(
+            guard recovered.savedSession else { return }
+            _ = try? await invalidatePreSleepHeartRateFeedback(
                     store: store,
-                    wakeTimestamps: [oldEndTs, safeEndTs]
+                    wakeTimestamps: [oldWakeTs, safeEndTs]
                 )
-                enqueueEditedDays([oldEndTs, safeEndTs])
-                return
-            }
-        } catch {
+            enqueueEditedDays([oldWakeTs, safeEndTs])
             return
         }
 
@@ -3495,25 +3491,21 @@ final class Repository: ObservableObject {
         // a sync has imported this window , the latter then self-heals on the next post-sync
         // `analyzeRecent` (see `selfHealEditedStages`), which re-derives the real stages once raw lands.
         let stagesJSON = await restageFromRaw(start: safeStartTs, end: safeEndTs)
-            ?? SleepWindowReclip.reclip(stagesJSON: storedStagesJSON, sessionStart: detectedStartTs,
-                                        oldEnd: oldEndTs, newStart: safeStartTs, newEnd: safeEndTs)
-        // Apply to the source that actually OWNS this block. Try the computed source first; only fall
-        // back to the imported source when no computed row matched , so we never edit a coincidental
-        // same-startTs row in the other namespace (which the old unconditional double-write could do).
-        let computedChanged = (try? await store.applySleepEdit(
-            deviceId: computedDeviceId, detectedStartTs: detectedStartTs,
-            newStartTs: safeStartTs, newEndTs: safeEndTs, stagesJSON: stagesJSON)) ?? 0
-        if computedChanged == 0 {
-            _ = try? await store.applySleepEdit(
-                deviceId: deviceId, detectedStartTs: detectedStartTs,
-                newStartTs: safeStartTs, newEndTs: safeEndTs, stagesJSON: stagesJSON)
+            ?? SleepWindowReclip.reclip(stagesJSON: snapshot.session.stagesJSON,
+                                        sessionStart: snapshot.session.effectiveStartTs,
+                                        oldEnd: oldWakeTs, newStart: safeStartTs, newEnd: safeEndTs)
+        do {
+            guard try await store.applySleepEdit(to: snapshot, newStartTs: safeStartTs,
+                                                newEndTs: safeEndTs, stagesJSON: stagesJSON) else { return }
+        } catch {
+            return
         }
         _ = try? await invalidatePreSleepHeartRateFeedback(
             store: store,
-            wakeTimestamps: [oldEndTs, safeEndTs]
+            wakeTimestamps: [oldWakeTs, safeEndTs]
         )
         // DL-03: rescore both the old and the new wake day, not only today.
-        enqueueEditedDays([oldEndTs, safeEndTs])
+        enqueueEditedDays([oldWakeTs, safeEndTs])
         await invalidateTodayHealthSnapshot()
         // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
         // HealthKit or historical generation or supersede the fence owner's refresh.
@@ -3527,10 +3519,8 @@ final class Repository: ObservableObject {
     /// suppresses a re-detected onset that drifts second-to-second.
     ///
     /// Two durable effects, mirroring the workout-dismiss path:
-    ///  1. delete the row from whichever namespace OWNS it: try the computed source first, fall back to
-    ///     the imported `deviceId` only when no computed row matched, exactly as `editSleepTimes` applies
-    ///     its edit (the merged session list carries no source deviceId, so we resolve the owner here and
-    ///     never delete a coincidental same-startTs row in the other namespace);
+    ///  1. delete the row from whichever readable namespace OWNS it, keeping computed-first precedence;
+    ///     capture the complete undo state in the same transaction as that deletion;
     ///  2. persist a `dismissedSleep` span in UserDefaults so the next `analyzeRecent` re-detection doesn't
     ///     simply regenerate the night: the engine's sleep guard now skips any re-detected session
     ///     overlapping a dismissed span (just as the dismissed-WORKOUT spans hide a re-derived bout).
@@ -3543,31 +3533,29 @@ final class Repository: ObservableObject {
     @discardableResult
     func deleteSleepSession(detectedStartTs: Int, endTs: Int) async -> SleepDeletionSnapshot? {
         guard let store = await ensureStore() else { return nil }
-        // Snapshot the owning row BEFORE deleting, resolving the owner exactly as the delete does below:
-        // computed source first, imported deviceId as the fallback. A one-second-wide window around the
-        // immutable detected key uniquely identifies the row (the key never moves).
-        let snapshot = await ownedSleepRowSnapshot(store: store, detectedStartTs: detectedStartTs)
-        let affectedWakeTimestamps = [snapshot?.session.endTs ?? endTs]
+        let sourceIds = computedReadIds + importedReadIds
+        let snapshot: StoredSleepSessionSnapshot
         do {
+            guard let current = try await store.sleepSessionSnapshot(deviceIds: sourceIds, startTs: detectedStartTs) else {
+                return nil
+            }
             _ = try await invalidatePreSleepHeartRateFeedback(
                 store: store,
-                wakeTimestamps: affectedWakeTimestamps
+                wakeTimestamps: [current.endTs]
             )
+            guard let deleted = try await store.snapshotAndDeleteSleepSession(
+                deviceIds: sourceIds, startTs: detectedStartTs) else { return nil }
+            snapshot = deleted
         } catch {
             return nil
         }
+        let affectedWakeTimestamps = [snapshot.endTs]
         // Record the durable tombstone ONLY for a DETECTED night. A `userEdited` row (a hand-corrected
         // night or a manually-added nap) is never re-detected, so suppressing its window would needlessly
         // block a real future night that happens to overlap it.
-        if DismissedSleepSpans.writesTombstoneOnDelete(userEdited: snapshot?.session.userEdited ?? false) {
-            dismissedSleepSpans = DismissedSleepSpans.adding(startTs: detectedStartTs, endTs: endTs,
+        if DismissedSleepSpans.writesTombstoneOnDelete(userEdited: snapshot.session.userEdited) {
+            dismissedSleepSpans = DismissedSleepSpans.adding(startTs: snapshot.session.startTs, endTs: snapshot.endTs,
                                                              to: dismissedSleepSpans)
-        }
-        // Delete from the namespace that actually owns the row: computed first, imported as a fallback.
-        let computedDeleted = (try? await store.deleteSleepSession(
-            deviceId: computedDeviceId, startTs: detectedStartTs)) ?? 0
-        if computedDeleted == 0 {
-            _ = try? await store.deleteSleepSession(deviceId: deviceId, startTs: detectedStartTs)
         }
         _ = try? await invalidatePreSleepHeartRateFeedback(
             store: store,
@@ -3584,33 +3572,24 @@ final class Repository: ObservableObject {
     /// Undo a `deleteSleepSession` (#65): lift the tombstone and restore the deleted row into its ORIGINAL
     /// owning namespace (computed vs imported), preserving `userEdited` so the next `analyzeRecent` does
     /// NOT treat a hand-corrected night as a fresh detected twin. Single-level and transient: the Sleep
-    /// screen's undo banner calls this within a few seconds. Idempotent: a snapshot with no tombstone
-    /// (a `userEdited` delete) still restores the row.
-    func undoDeleteSleepSession(_ snapshot: SleepDeletionSnapshot) async {
-        guard let store = await ensureStore() else { return }
+    /// screen's undo banner calls this within a few seconds. A conflict or write failure returns false
+    /// and leaves the tombstone intact; a newer row or replacement database is never overwritten.
+    @discardableResult
+    func undoDeleteSleepSession(_ snapshot: SleepDeletionSnapshot) async -> Bool {
+        guard let store = await ensureStore() else { return false }
         do {
+            guard try await store.databaseInstanceId() == snapshot.databaseInstanceId else { return false }
             _ = try await invalidatePreSleepHeartRateFeedback(
                 store: store,
                 wakeTimestamps: [snapshot.session.endTs]
             )
+            guard try await store.restoreDeletedSleepSession(snapshot) == .restored else { return false }
         } catch {
-            return
+            return false
         }
-        // Lift the tombstone so the restored night is not immediately re-suppressed on the next pass.
+        // Lift the tombstone only after the complete restore committed.
         dismissedSleepSpans = DismissedSleepSpans.removing(startTs: snapshot.session.startTs,
                                                            endTs: snapshot.endTs, from: dismissedSleepSpans)
-        // Restore into the SAME namespace that owned it. upsertSleepSessions preserves userEdited.
-        _ = try? await store.upsertSleepSessions([snapshot.session], deviceId: snapshot.ownerDeviceId)
-        // Re-persist the per-epoch motion + band-state series the delete dropped (they're not carried on
-        // CachedSleepSession). Must run AFTER the upsert (both are UPDATEs keyed on (deviceId, startTs)),
-        // so a userEdited night keeps its Deep Timeline motion + Band Sleep State tracks (Android parity).
-        // A nil series persists the empty array, which the store maps to NULL (absent stays absent).
-        _ = try? await store.persistSessionMotion(deviceId: snapshot.ownerDeviceId,
-                                                  sessionStart: snapshot.session.startTs,
-                                                  motionEpochs: snapshot.motion ?? [])
-        _ = try? await store.persistSessionSleepState(deviceId: snapshot.ownerDeviceId,
-                                                     sessionStart: snapshot.session.startTs,
-                                                     states: snapshot.sleepState ?? [])
         _ = try? await invalidatePreSleepHeartRateFeedback(
             store: store,
             wakeTimestamps: [snapshot.session.endTs]
@@ -3620,35 +3599,7 @@ final class Repository: ObservableObject {
         // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
         // HealthKit or historical generation or supersede the fence owner's refresh.
         _ = await refresh(.userEdit)
-    }
-
-    /// Read the single owned sleep row for `detectedStartTs`, resolving the namespace exactly as
-    /// `deleteSleepSession` does (computed first, imported fallback). Returns the row plus the owning
-    /// deviceId so undo can restore it into that same namespace.
-    private func ownedSleepRowSnapshot(store: WhoopStore, detectedStartTs: Int) async -> SleepDeletionSnapshot? {
-        func row(_ deviceId: String) async -> CachedSleepSession? {
-            let rows = (try? await store.sleepSessions(deviceId: deviceId,
-                                                       from: detectedStartTs, to: detectedStartTs,
-                                                       limit: 4)) ?? []
-            return rows.first { $0.startTs == detectedStartTs }
-        }
-        // Capture the per-epoch motion + band-state series alongside the row (they live in the same
-        // sleepSession row but NOT on CachedSleepSession), so undo can re-persist them after the upsert.
-        // Deleting the row drops those columns, so without this a userEdited night's Deep Timeline motion
-        // + Band Sleep State tracks vanish on undo (Android preserves them). (#65 parity.)
-        func snapshot(_ session: CachedSleepSession, owner: String) async -> SleepDeletionSnapshot {
-            let motion = try? await store.sessionMotion(deviceId: owner, sessionStart: detectedStartTs)
-            let sleepState = try? await store.sessionSleepState(deviceId: owner, sessionStart: detectedStartTs)
-            return SleepDeletionSnapshot(session: session, ownerDeviceId: owner, endTs: session.endTs,
-                                         motion: motion ?? nil, sleepState: sleepState ?? nil)
-        }
-        if let computed = await row(computedDeviceId) {
-            return await snapshot(computed, owner: computedDeviceId)
-        }
-        if let imported = await row(deviceId) {
-            return await snapshot(imported, owner: deviceId)
-        }
-        return nil
+        return true
     }
 
     /// Durable "user deleted this night" tombstones as "startTs:endTs" strings, persisted in UserDefaults

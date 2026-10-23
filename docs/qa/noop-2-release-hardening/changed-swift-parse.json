@@ -1,0 +1,187 @@
+[
+  {
+    "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WeeklyCoachInsightStore.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Packages/StrandImport/Sources/StrandImport/AppleHealthAggregator.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Packages/StrandImport/Sources/StrandImport/ImportNumericSafety.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Packages/StrandImport/Sources/StrandImport/WhoopExportImporter.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Packages/StrandImport/Tests/StrandImportTests/ImportNumericSafetyTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Packages/WhoopStore/Sources/WhoopStore/SleepRecoveryDailyOverrideStore.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Packages/WhoopStore/Sources/WhoopStore/SleepSessionUndoStore.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Packages/WhoopStore/Tests/WhoopStoreTests/SleepSessionUndoTransactionTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/AI/AICoach.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/AI/AIProvider.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/AI/Providers/Custom.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/BLE/BLEManager.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/BLE/HrBroadcaster.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/BLE/SourceCoordinator.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/Data/AppleHealthImport.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/Data/IntelligenceEngine.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/Data/Repository.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/Data/WhoopImporter.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/Screens/SleepView.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/Screens/TrendsView+WeeklyReview.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/Screens/TrendsView.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "Strand/System/AppChangelog.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOS/App/HistoricalSyncBackgroundTaskRegistrar.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOS/Coach/LocalCoachEngine.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOS/Widgets/WorkoutLiveProjectionCache.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/AICoachRequestOwnershipTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionRetirementTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/BLEFallbackPublicationTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/BLEStoreBootstrapOwnershipTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/HealthImportNumericSafetyTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/HistoricalSyncCancellationTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/HrBroadcasterRegressionTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/LocalCoachWeeklyInsightOwnershipTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/PrivacyManifestTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/RepositorySleepMutationTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/SourceIdentityAdmissionTests.swift",
+    "exit": 0,
+    "output": ""
+  },
+  {
+    "file": "StrandiOSTests/WorkoutLiveProjectionCacheTests.swift",
+    "exit": 0,
+    "output": ""
+  }
+]

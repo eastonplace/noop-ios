@@ -58,7 +58,7 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// The most recent live HR pushed in, re-sent to any central that subscribes mid-session so a newly
     /// connected machine shows a value immediately rather than waiting for the next sample. nil until the
     /// first sample of a session; cleared on stop so a stale bpm can't outlive the broadcast.
-    private var lastBpm: Int?
+    private(set) var lastBpm: Int?
 
     private(set) var cancellables = Set<AnyCancellable>()
 
@@ -124,7 +124,11 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// Feed a live HR sample (bpm) to broadcast. nil (no current reading) sends nothing — we never invent
     /// a value. A non-physiological bpm is dropped so untrusted/garbage input can't be re-broadcast.
     public func update(heartRate bpm: Int?) {
-        guard wantAdvertising, let bpm, (20...255).contains(bpm) else { return }
+        guard let bpm, (20...255).contains(bpm) else {
+            lastBpm = nil
+            return
+        }
+        guard wantAdvertising else { return }
         lastBpm = bpm
         notify(bpm: bpm)
     }

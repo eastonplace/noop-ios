@@ -107,6 +107,9 @@ final class SourceCoordinator: ObservableObject {
     /// strap (#74 keep): a stop/start churn there would drop the live link and reconnect via scan. Cleared
     /// on disconnect (nil uuid).
     private var connectedWhoopUuid: String?
+    /// Identity notifications may wait behind a durable source transition. Their owner and
+    /// observation must still match when the fence admits them.
+    private var identityObservationGeneration: UInt64 = 0
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -182,6 +185,7 @@ final class SourceCoordinator: ObservableObject {
     ///   • WHOOP active after a strap → stop the strap source + resume WHOOP.
     ///   • A generic strap → pause WHOOP + (re)start `StandardHRSource` for that strap's id.
     func activeDeviceChanged(to id: String?) {
+        identityObservationGeneration &+= 1
         transitionFence.runSync { [weak self] in
             self?.reconcileActiveDevice(to: id)
         }
@@ -427,6 +431,7 @@ final class SourceCoordinator: ObservableObject {
     /// Stop every live source before a durable registry/lineage mutation. The transition owner calls this
     /// while its critical section is open; the registry publisher later starts only the committed target.
     func stopForTransition() {
+        identityObservationGeneration &+= 1
         tearDownNonWhoopSource()
         activeStrapId = nil
         onStrap = false
@@ -454,15 +459,24 @@ final class SourceCoordinator: ObservableObject {
     ///       `connectedPeripheralUUID` post-bond). The stored pin is dead (it refused the bond N× in a row);
     ///       RE-ADOPT the working strap so we stop looping on the strap that won't bond. See #52.
     ///   • it already matches → nothing to write.
-    private func connectedPeripheralChanged(to uuid: String?) {
-        Task { @MainActor [weak self] in
-            await self?.transitionFence.run { @MainActor [weak self] in
-                await self?.reconcileConnectedPeripheral(to: uuid)
+    @discardableResult
+    func connectedPeripheralChanged(to uuid: String?) -> Task<Void, Never> {
+        identityObservationGeneration &+= 1
+        let observationGeneration = identityObservationGeneration
+        let observedDeviceId = registry.activeDeviceId
+        let observedEncryptedBond = live.encryptedBond
+        return Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.transitionFence.run { @MainActor [weak self] in
+                guard let self,
+                      self.identityObservationGeneration == observationGeneration,
+                      self.registry.activeDeviceId == observedDeviceId else { return }
+                await self.reconcileConnectedPeripheral(to: uuid, encryptedBond: observedEncryptedBond)
             }
         }
     }
 
-    private func reconcileConnectedPeripheral(to uuid: String?) async {
+    private func reconcileConnectedPeripheral(to uuid: String?, encryptedBond: Bool) async {
         // Track the live strap's uuid for the WHOOP->WHOOP adopt-in-place skip (#74). nil is a
         // disconnect/never-connected republish: clear it so a later make-active can't wrongly match a stale
         // link, then fall through to the existing ignore.
@@ -487,7 +501,7 @@ final class SourceCoordinator: ObservableObject {
             // handoff (after the pinned strap refused the bond N× while this one bonded); an ordinary
             // pre-bond `didConnect` publish always carries `encryptedBond == false`, so the protective
             // "don't clobber" path below is preserved for every normal/transient different-strap connect.
-            if live.encryptedBond {
+            if encryptedBond {
                 live.append(log: "Multi-WHOOP (#52): active device \(activeId) was pinned to strap \(existing) which refused to bond — re-adopting the working strap \(uuid).")
                 do { try await adoptPeripheralIdentity(uuid, for: activeId) }
                 catch { live.append(log: "Physical source transition deferred: \(error)") }

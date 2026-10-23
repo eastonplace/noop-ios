@@ -1,0 +1,228 @@
+{
+  "reviewed_at_utc": "2026-10-23T14:30:19.339630+00:00",
+  "base_commit": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+  "branch": "audit/noop-2-release-hardening-20261023",
+  "scope": "Changed production/test Swift, privacy manifests, project/release metadata, reviewed QA callback harness and workout benchmark; documentation artifacts are covered in prose rather than this source hash manifest.",
+  "unresolved_confirmed_findings": 0,
+  "independent_findings_resolved": [
+    "R1 per-attempt Coach request admission",
+    "R2 bootstrap registry snapshot source epoch"
+  ],
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 277399,
+      "sha256": "c4f7e6a24dd7f6afbb200704ad809f03f2f36f1b81697fc61673809b667b629a"
+    },
+    {
+      "path": "Packages/StrandAnalytics/Sources/StrandAnalytics/WeeklyCoachInsightStore.swift",
+      "bytes": 5224,
+      "sha256": "f229611323df87e1ee56afc5d014ab5ded59f7b8136083547b2b9fa0ea5aa545"
+    },
+    {
+      "path": "Packages/StrandImport/Sources/StrandImport/AppleHealthAggregator.swift",
+      "bytes": 22176,
+      "sha256": "66711fded2c9b81ba865009302ddd64f023c91932d5bdb7eda2b911cfb6331de"
+    },
+    {
+      "path": "Packages/StrandImport/Sources/StrandImport/ImportNumericSafety.swift",
+      "bytes": 781,
+      "sha256": "c6a8ea7d841747d17f6e76436047ca255b4a90e5f41ed5996dca9bb9b3498a35"
+    },
+    {
+      "path": "Packages/StrandImport/Sources/StrandImport/WhoopExportImporter.swift",
+      "bytes": 21655,
+      "sha256": "aac606a52c2b47e151a68105027ba45f8321a9ad0a7df137a3a65978e3cd7602"
+    },
+    {
+      "path": "Packages/StrandImport/Tests/StrandImportTests/ImportNumericSafetyTests.swift",
+      "bytes": 3361,
+      "sha256": "17fdca0dcd1c0311356be1687f8eda3bd55702cd109d8377fc0adc6a4ded4cc7"
+    },
+    {
+      "path": "Packages/WhoopStore/Sources/WhoopStore/SleepRecoveryDailyOverrideStore.swift",
+      "bytes": 11258,
+      "sha256": "641525e43fc6d59574b9aaeaa66d72f0d462a1d044f3be69c3c8ad5e4f04bb4c"
+    },
+    {
+      "path": "Packages/WhoopStore/Sources/WhoopStore/SleepSessionUndoStore.swift",
+      "bytes": 8194,
+      "sha256": "aa84ff403e6280e632d9b980bd17b3c570ac5e6063072204d72f109ccf708240"
+    },
+    {
+      "path": "Packages/WhoopStore/Tests/WhoopStoreTests/SleepSessionUndoTransactionTests.swift",
+      "bytes": 11732,
+      "sha256": "74aa2d7029dc888bd4307a52c97aaf01732cde09687ee1f9d082468fc005b776"
+    },
+    {
+      "path": "Strand/AI/AICoach.swift",
+      "bytes": 46949,
+      "sha256": "4fabd6df09bac37f07ca2d5fbcb760521cd35f10a1ab6df58f7153c09ed615c0"
+    },
+    {
+      "path": "Strand/AI/AIProvider.swift",
+      "bytes": 6453,
+      "sha256": "5dc33da8c1301707d6982bcc1b203282953a1259e24943212104a9b4e0652804"
+    },
+    {
+      "path": "Strand/AI/Providers/Custom.swift",
+      "bytes": 5643,
+      "sha256": "be4e98445344324abddc519149d51fcad079b2d2e9b23a56881489e141909f6e"
+    },
+    {
+      "path": "Strand/BLE/BLEManager.swift",
+      "bytes": 440490,
+      "sha256": "3d2217a0c2ea007c6de43fa596536cb9254ca2069d3f5a1f2b7fe1e334a503dc"
+    },
+    {
+      "path": "Strand/BLE/HrBroadcaster.swift",
+      "bytes": 12648,
+      "sha256": "fdb56f04ce8163296ed44d9bc3e511216d17e038ea10af244e3ce4a00c9d0956"
+    },
+    {
+      "path": "Strand/BLE/SourceCoordinator.swift",
+      "bytes": 33782,
+      "sha256": "838164e1dd2f88f44812c8477e20fa3f99f1d6a38b231aa54188d448d3e7690f"
+    },
+    {
+      "path": "Strand/Data/AppleHealthImport.swift",
+      "bytes": 6090,
+      "sha256": "2de8534ef6a50a1b36e9780b80e132f211b45f34c41b724f72b6d07f7f346e9b"
+    },
+    {
+      "path": "Strand/Data/IntelligenceEngine.swift",
+      "bytes": 321610,
+      "sha256": "7582cfcfd843bc035cce4f13ca4efbfaf26a24da216dc2bd0ff32485c6e72652"
+    },
+    {
+      "path": "Strand/Data/Repository.swift",
+      "bytes": 363664,
+      "sha256": "d11641bd3a95d286d3f434404b9b7f37969ab630e71b5e9d82c0221c759bf5e8"
+    },
+    {
+      "path": "Strand/Data/WhoopImporter.swift",
+      "bytes": 15385,
+      "sha256": "2ca199b6467cf6c65ba58e84e46935e2507ec4f8c62226e91ced974c1dbb24c0"
+    },
+    {
+      "path": "Strand/Screens/SleepView.swift",
+      "bytes": 150590,
+      "sha256": "73e5c692738967782ded3714e2689d860f0bbba3eb71faf20ad9eb26f64a094f"
+    },
+    {
+      "path": "Strand/Screens/TrendsView+WeeklyReview.swift",
+      "bytes": 13670,
+      "sha256": "2c063f28bfc3831a97065de5e16401b0fd764c765fd1e8483d491ac7302b1663"
+    },
+    {
+      "path": "Strand/Screens/TrendsView.swift",
+      "bytes": 15397,
+      "sha256": "2745d508dcfe5facc0d334aa8e065501d34ad9de7363d228dc6f70814e4d657d"
+    },
+    {
+      "path": "Strand/System/AppChangelog.swift",
+      "bytes": 247253,
+      "sha256": "e002fe877654f06b5914aff2c22bef7e9629c525aaf86265412bc9d9d0a098ce"
+    },
+    {
+      "path": "StrandiOS/App/HistoricalSyncBackgroundTaskRegistrar.swift",
+      "bytes": 6939,
+      "sha256": "ecbd14b99a9ce12e4c42dbca796f845e8af2b73561d8ec7e918d5f4388385d0e"
+    },
+    {
+      "path": "StrandiOS/Coach/LocalCoachEngine.swift",
+      "bytes": 81310,
+      "sha256": "b3c2af2b31849766dcc1e48b0778a94276aff6d807f38c92eaab99b1020471b8"
+    },
+    {
+      "path": "StrandiOS/Resources/PrivacyInfo.xcprivacy",
+      "bytes": 1474,
+      "sha256": "f50e98dbb9fc9c8d4720838f528cbf3cc7664aa489b85833033380e7a382d88f"
+    },
+    {
+      "path": "StrandiOS/Widgets/WorkoutLiveProjectionCache.swift",
+      "bytes": 7450,
+      "sha256": "9715fb15656aa8737cb4248928fc99d2ce8fe49cfef57ecb66bfd1087267e9a1"
+    },
+    {
+      "path": "StrandiOSTests/AICoachRequestOwnershipTests.swift",
+      "bytes": 23987,
+      "sha256": "1e1555fcc75c522f8bfd7d6c2a03520fe2f24cfeaeab6d67623cc688ecee06a4"
+    },
+    {
+      "path": "StrandiOSTests/BLEConnectionRetirementTests.swift",
+      "bytes": 6593,
+      "sha256": "88d804e0d40f678f8b3bfe1b5efa2092bca970d58d664fe706c99a874a5c302f"
+    },
+    {
+      "path": "StrandiOSTests/BLEFallbackPublicationTests.swift",
+      "bytes": 1569,
+      "sha256": "c344481967e1da90dc8224378de5776db3fc1bc7f3ffd77eb05b2dfce05ef161"
+    },
+    {
+      "path": "StrandiOSTests/BLEStoreBootstrapOwnershipTests.swift",
+      "bytes": 7865,
+      "sha256": "0252741fc8834d30c7de8d91c88a112056f0015c6a64e62176a7028f1534dbb9"
+    },
+    {
+      "path": "StrandiOSTests/HealthImportNumericSafetyTests.swift",
+      "bytes": 3241,
+      "sha256": "8facb14ffde6d6a8076df4a72f5696b9e056081df69c71e5708ac8c95679e256"
+    },
+    {
+      "path": "StrandiOSTests/HistoricalSyncCancellationTests.swift",
+      "bytes": 892,
+      "sha256": "04a5d63305de39743dba6d4288d5c856054dfe4f0938880060844780fb00bf1b"
+    },
+    {
+      "path": "StrandiOSTests/HrBroadcasterRegressionTests.swift",
+      "bytes": 1284,
+      "sha256": "6851960ba5097313d10914806cc1eb0b676ea1cfb8632d9300e759563226b5d7"
+    },
+    {
+      "path": "StrandiOSTests/LocalCoachWeeklyInsightOwnershipTests.swift",
+      "bytes": 9094,
+      "sha256": "3d1471ea5a0ce9d336c7add33517535cec216828c7ca99606afc9a7effc0a84c"
+    },
+    {
+      "path": "StrandiOSTests/PrivacyManifestTests.swift",
+      "bytes": 1901,
+      "sha256": "2aad07fa0a8c08f32187b50e04347fe405b00d23bd838706e9efa70d24f96e4a"
+    },
+    {
+      "path": "StrandiOSTests/RepositorySleepMutationTests.swift",
+      "bytes": 13592,
+      "sha256": "72cc8d963fe86f485c6bef80a3511e5d1f95a8145fb8fcc53d6126f541db79a5"
+    },
+    {
+      "path": "StrandiOSTests/SourceIdentityAdmissionTests.swift",
+      "bytes": 3821,
+      "sha256": "7f5643b2c89e1c8d0ca1443bf510ef699b7d377a3b7aa0c8e5c9fd84fec4f95b"
+    },
+    {
+      "path": "StrandiOSTests/WorkoutLiveProjectionCacheTests.swift",
+      "bytes": 5590,
+      "sha256": "12a7723a13b8636ccc5c61b9815d1411b2b0476e67e51570228e29e5ef6e6b5f"
+    },
+    {
+      "path": "StrandiOSWidgets/PrivacyInfo.xcprivacy",
+      "bytes": 539,
+      "sha256": "c875e5c622807fb631ddef12beedbef4f7399e2e7c4f02fe4e8c003ef0f70a11"
+    },
+    {
+      "path": "Tools/qa/test_ble_connection_result_ownership.py",
+      "bytes": 10410,
+      "sha256": "7d7f99acf59325048db8571907acc4e652e191b17de154e1057304d5fe7d10fd"
+    },
+    {
+      "path": "Tools/qa/workout_projection_benchmark.py",
+      "bytes": 8233,
+      "sha256": "a957accf333bc61b5a1c13f342a92139a0abca299930bdaa6c32d4dca9b2232a"
+    },
+    {
+      "path": "project.yml",
+      "bytes": 8881,
+      "sha256": "4bc95b99067fb49f61bbba0d84e569253b35314bcb714ca26645e2963aac2648"
+    }
+  ]
+}
