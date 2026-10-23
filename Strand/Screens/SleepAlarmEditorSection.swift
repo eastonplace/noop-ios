@@ -250,6 +250,8 @@ struct SleepAlarmEditorSection: View {
     @EnvironmentObject private var alarmMode: SmartAlarmAdaptiveModeStore
     @EnvironmentObject private var alarmRuntime: SmartAlarmRuntimeController
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .title3) private var clockSize: CGFloat = 22
     @State private var needPlan: CanonicalSleepNeedPlan?
 
     private var displayedPlan: CanonicalSleepNeedPlan {
@@ -267,46 +269,49 @@ struct SleepAlarmEditorSection: View {
         SleepAlarmEditorSupport.wakeModes(recoveryHistoryCount: recoveryHistoryCount)
     }
 
-    /// The alarm as one tidy section: the eyebrow carries the on/off switch, the time is a hero-scale number with its
-    /// period muted, the status line says when it next rings (or that it is off) and on which days, and the whole
-    /// row opens the full alarm editor.
+    /// The alarm as one compact row: its symbol, the time, "Wake alarm · when · which days" and the on/off switch.
+    /// The row (not the switch) opens the full alarm editor. While armed, the strap delivery status sits under it.
     var body: some View {
-        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-            SectionEyebrow("Wake alarm", systemImage: "alarm.fill", tint: .sleep,
-                           trailing: .custom(AnyView(
-                               Toggle("Wake alarm", isOn: $behavior.smartAlarmEnabled).labelsHidden())))
-            NavigationLink {
-                SmartAlarmView()
-                    .environment(\.screenScaffoldNavigationRole, .detail)
-            } label: {
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
-                    let clock = ValueUnitSplit.parts(schedule?.wakeClock() ?? SleepAlarmTime.clock(behavior.smartAlarmMinutes))
-                    let status = behavior.smartAlarmEnabled
-                        ? (schedule?.dayLabel ?? String(localized: "No enabled day"))
-                        : String(localized: "Off")
-                    let weekdays = SmartAlarmView.alarmWeekdaySummary(behavior.smartAlarmWeekdays)
-                    HStack(alignment: .center, spacing: NoopMetrics.space2) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HeroValue(value: clock.number, unit: clock.unit)
-                            Text("\(status) · \(weekdays)")
-                                .font(StrandFont.subhead)
-                                .foregroundStyle(StrandPalette.textSecondary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: NoopMetrics.space3) {
+                NavigationLink {
+                    SmartAlarmView()
+                        .environment(\.screenScaffoldNavigationRole, .detail)
+                } label: {
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
+                        let clockText = schedule?.wakeClock() ?? SleepAlarmTime.clock(behavior.smartAlarmMinutes)
+                        let status = behavior.smartAlarmEnabled
+                            ? (schedule?.dayLabel ?? String(localized: "No enabled day"))
+                            : String(localized: "Off")
+                        let weekdays = SmartAlarmView.alarmWeekdaySummary(behavior.smartAlarmWeekdays)
+                        HStack(spacing: NoopMetrics.space3) {
+                            Image(systemName: "alarm.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(DomainTint.sleep.accent)
+                                .accessibilityHidden(true)
+                            let layout = typeSize.isAccessibilitySize
+                                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: NoopMetrics.space2))
+                            layout {
+                                UnitValueText(value: clockText, size: clockSize, weight: .bold)
+                                Text("Wake alarm · \(status) · \(weekdays)")
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        Spacer(minLength: NoopMetrics.space2)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .accessibilityHidden(true)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Edit wake alarm")
+                        .accessibilityValue("\(clockText), \(status), \(weekdays)")
                     }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Edit wake alarm")
-                    .accessibilityValue("\([clock.number, clock.unit].compactMap { $0 }.joined(separator: " ")), \(status), \(weekdays)")
                 }
+                .buttonStyle(.plain)
+                Toggle("Wake alarm", isOn: $behavior.smartAlarmEnabled).labelsHidden()
             }
-            .buttonStyle(.plain)
             if behavior.smartAlarmEnabled {
                 Text(alarmRuntime.deliveryStatus)
                     .font(StrandFont.footnote)

@@ -49,13 +49,13 @@ enum AppChangelog {
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
         .fork("2.0.0", "NOOP 2.0", "October 2026", [
-            Feature("flame.fill", .strain, "Daily training targets", "Preview a plan from your recent load and recovery."),
+            Feature("flame.fill", .strain, "Training load and targets", "Preview daily targets and see your training load mix."),
             Feature("dumbbell.fill", .strain, "Lift plans and imports", "Review progression or import CSV and Excel routines."),
             Feature("book.closed.fill", .journal, "Coach and Journal", "Dictate daily notes and add a Coach brief widget."),
             Feature("figure.walk", .accent, "Workout type review", "Check a detected workout's type before saving."),
             Feature("waveform.path.ecg", .stress, "Your stress baseline", "Compare hourly stress with your own normal."),
-            Feature("heart.fill", .hrv, "Reliable daily scores", "Cleaner readings, filtered steps and weekly totals."),
-            Feature("checkmark.shield.fill", .sleep, "Protected history", "Strap changes and Health sync preserve saved data."),
+            Feature("heart.fill", .hrv, "Reliable daily data", "Cleaner scores, filtered steps and protected history."),
+            Feature("bed.double.fill", .sleep, "Sleep at a glance", "See sleep need, stages and night detail with less scrolling."),
             Feature("square.and.arrow.up", .strain, "GPS route export", "Share measured workout routes as GPX or FIT."),
             Feature("alarm.fill", .sleep, "Confirmed strap alarms", "Wake times check the current strap's reply."),
         ]),

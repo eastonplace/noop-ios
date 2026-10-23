@@ -700,7 +700,12 @@ final class ApprovedDashboardUITests: XCTestCase {
             + ";health:" + expected.health.joined(separator: ",")
         let saved = element("todayDashboard.settings", in: app)
         let committed = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == true AND value == %@", expectedValue), object: saved
+            predicate: NSPredicate { _, _ in
+                // Re-resolve the parent on each poll after native List row reordering.
+                let current = app.descendants(matching: .any)
+                    .matching(identifier: "todayDashboard.settings").firstMatch
+                return current.exists && (current.value as? String) == expectedValue
+            }, object: app
         )
         guard XCTWaiter.wait(for: [committed], timeout: 8) == .completed else {
             let actualValue = String(describing: saved.value)

@@ -269,6 +269,13 @@ final class Repository: ObservableObject {
     /// data load on this so they reload when fresh strap data lands , `today?.day` alone is a stable
     /// date string within a day and would freeze e.g. the Today HR trend until the date rolls over.
     @Published var refreshSeq = 0
+    /// Bounded Load focus reuse; keys include committed raw input, source ownership and pauses.
+    var workoutZoneMemo: [WorkoutFocusZoneKey: [Double]] = [:]
+    var workoutFocusDismissedSpans: [String] { dismissedDetectedSpans }
+    #if DEBUG
+    var workoutFocusAfterRawReadForTesting: (@MainActor () async -> Void)?
+    var workoutFocusRawReadCountForTesting = 0
+    #endif
     /// One resolved first-paint snapshot. It carries each key metric's provenance and freshness evidence,
     /// so a full cache refresh can never replace a visible value with nil during its handoff.
     @Published var todayHealthSnapshot: TodayHealthSnapshot?
@@ -861,7 +868,7 @@ final class Repository: ObservableObject {
     /// Drop workout rows that share a (startTs, endTs, sport, source) key, the same session recorded under
     /// both union device ids, keeping the first (active strap). Distinct sessions are preserved; the
     /// downstream `dedupCrossSource` still collapses strap-vs-Apple twins by time.
-    nonisolated private static func dedupWorkoutsByNaturalKey(_ rows: [WorkoutRow]) -> [WorkoutRow] {
+    nonisolated static func dedupWorkoutsByNaturalKey(_ rows: [WorkoutRow]) -> [WorkoutRow] {
         var seen = Set<String>()
         var out: [WorkoutRow] = []
         for r in rows {

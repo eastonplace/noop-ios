@@ -383,6 +383,17 @@ enum AppleDemoSeeder {
                 physiologicalHR.removeAll { $0.ts >= night }
             }
         }
+        // Heart rate through the last four weeks of workouts, so Load focus has zone time to read. A scenario owns today's.
+        let focusFrom = todayStartTs - LoadFocus.windowDays * 86_400
+        let focusTo = StrainDemoScenario.requested == nil ? Int(Date().timeIntervalSince1970) : todayStartTs
+        let focusWindows = workouts.filter { $0.startTs >= focusFrom && $0.endTs <= focusTo }
+        if !focusWindows.isEmpty {
+            physiologicalHR.removeAll { sample in focusWindows.contains { sample.ts >= $0.startTs && sample.ts <= $0.endTs } }
+            let maxHR = Double(ProfileStore.hrMax(age: ProfileStore.storedAge(), override: ProfileStore.storedHrMaxOverride()))
+            for (index, workout) in focusWindows.enumerated() {
+                physiologicalHR += workoutHeartRateFixture(startTs: workout.startTs, endTs: workout.endTs, style: index, maxHR: maxHR)
+            }
+        }
         if !physiologicalHR.isEmpty {
             _ = try await store.insert(Streams(hr: physiologicalHR), deviceId: whoop)
         }
@@ -529,6 +540,24 @@ enum AppleDemoSeeder {
             timestamp += 60
         }
         return result
+    }
+
+    /// One reading every 15 s through a workout: an easy steady session, a tempo block or intervals (by `style`), as a share
+    /// of max heart rate, so the zone minutes differ from one workout to the next.
+    static func workoutHeartRateFixture(startTs: Int, endTs: Int, style: Int, maxHR: Double) -> [HRSample] {
+        guard endTs > startTs else { return [] }
+        let duration = Double(endTs - startTs)
+        return stride(from: startTs, to: endTs, by: 15).map { ts in
+            let elapsed = Double(ts - startTs)
+            let progress = elapsed / duration
+            let share: Double
+            switch style % 3 {
+            case 0: share = progress > 0.85 ? 0.74 : 0.60 + 0.05 * sin(elapsed / 90)
+            case 1: share = progress < 0.15 || progress > 0.85 ? 0.62 : 0.77 + 0.03 * sin(elapsed / 60)
+            default: share = progress < 0.2 ? 0.65 : (Int(elapsed) % 240 < 90 ? 0.92 : 0.66)
+            }
+            return HRSample(ts: ts, bpm: Int((share * maxHR).rounded()))
+        }
     }
 
     /// Five display-only points per recent night. Keys come from the production analytics contract,

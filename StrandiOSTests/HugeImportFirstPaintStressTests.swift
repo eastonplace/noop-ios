@@ -13,21 +13,22 @@ final class HugeImportFirstPaintStressTests: XCTestCase {
     private let dev = "my-whoop"
 
     /// Seed ~3000 days of daily rows + ~1700 workouts spread across them, plus a dense HR day for "today".
-    /// Returns the store. Kept lean (no raw streams except the one visible day) so the seed itself is fast.
+    /// Returns the store and last seeded HR timestamp. One anchor pins every row across suspended writes.
+    /// Kept lean (no raw streams except the one visible day) so the seed itself is fast.
     @MainActor
-    private func seedHugeHistory() async throws -> WhoopStore {
+    private func seedHugeHistory(anchor: Date, calendar: Calendar) async throws
+        -> (store: WhoopStore, latestHRTimestamp: Int) {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: dev, mac: nil, name: "WHOOP")
 
-        let now = Int(Date().timeIntervalSince1970)
-        let cal = Calendar.current
+        let now = Int(anchor.timeIntervalSince1970)
 
         // ~3000 daily rows, one per day going back ~8 years.
         var dailies: [DailyMetric] = []
         dailies.reserveCapacity(3_200)
         for back in 0..<3_100 {
-            guard let d = cal.date(byAdding: .day, value: -back, to: Date()) else { continue }
-            let key = Repository.localDayKey(d)
+            guard let d = calendar.date(byAdding: .day, value: -back, to: anchor) else { continue }
+            let key = Repository.localDayKey(d, calendar: calendar)
             dailies.append(DailyMetric(day: key, totalSleepMin: 420, efficiency: 0.9, deepMin: 90,
                                        remMin: 100, lightMin: 230, disturbances: 1, restingHr: 52,
                                        avgHrv: 70, recovery: 60, strain: 8, exerciseCount: 0,
@@ -50,18 +51,19 @@ final class HugeImportFirstPaintStressTests: XCTestCase {
 
         // One dense HR day for "today", the only raw stream the Today HR trend reads on first paint.
         let todayBase = now - 3_600
-        try await store.insert(Streams(hr: (0..<3_600).map { HRSample(ts: todayBase + $0, bpm: 65) }),
-                               deviceId: dev)
-        return store
+        let hr = (0..<3_600).map { HRSample(ts: todayBase + $0, bpm: 65) }
+        try await store.insert(Streams(hr: hr), deviceId: dev)
+        return (store, try XCTUnwrap(hr.last).ts)
     }
 
     /// The BOUNDED first-paint workouts read (`firstPaintWindowDays`) returns only the recent window's
     /// workouts, a small fraction of the 1700 total, so first paint never sorts the whole history.
     @MainActor
     func testFirstPaintWorkoutWindowIsBounded() async throws {
-        let store = try await seedHugeHistory()
+        let anchor = Date()
+        let history = try await seedHugeHistory(anchor: anchor, calendar: .current)
         let repo = Repository(deviceId: dev)
-        repo.setStoreForTesting(store)
+        repo.setStoreForTesting(history.store)
 
         // The bounded read WorkoutsView issues on first paint.
         let bounded = await repo.workoutRows(days: WorkoutsView.firstPaintWindowDays)
@@ -81,12 +83,14 @@ final class HugeImportFirstPaintStressTests: XCTestCase {
     /// window, not the import depth.
     @MainActor
     func testTodayHrFirstPaintReadIsBoundedByWindow() async throws {
-        let store = try await seedHugeHistory()
+        let anchor = Date()
+        let calendar = Calendar.current
+        let history = try await seedHugeHistory(anchor: anchor, calendar: calendar)
         let repo = Repository(deviceId: dev)
-        repo.setStoreForTesting(store)
+        repo.setStoreForTesting(history.store)
 
-        let now = Int(Date().timeIntervalSince1970)
-        let dayStart = Int(Calendar.current.startOfDay(for: Repository.logicalDay(Date())).timeIntervalSince1970)
+        let now = Int(anchor.timeIntervalSince1970)
+        let dayStart = Int(calendar.startOfDay(for: Repository.logicalDay(anchor, calendar: calendar)).timeIntervalSince1970)
         // The Today HR trend reads 5-minute buckets over the logical day → at most ~288 bucket points,
         // never the thousands of raw rows and never anything that scales with the 3000-day history.
         let buckets = await repo.hrBuckets(from: dayStart, to: now, bucketSeconds: 300)
@@ -98,13 +102,23 @@ final class HugeImportFirstPaintStressTests: XCTestCase {
     /// the history. With 3000 days seeded it still resolves the most-recent HR day cheaply.
     @MainActor
     func testLatestDataLookupResolvesWithoutLoadingHistory() async throws {
-        let store = try await seedHugeHistory()
-        let repo = Repository(deviceId: dev)
-        repo.setStoreForTesting(store)
-        let latest = await repo.latestDataDayStart()
-        XCTAssertNotNil(latest, "the latest-data lookup must resolve over a deep history")
-        // It points at today's dense HR day (the only raw stream), not an arbitrary old daily row.
-        let expected = Repository.logicalDayStart(Date(timeIntervalSince1970: TimeInterval(Int(Date().timeIntervalSince1970) - 3_600)))
-        XCTAssertEqual(latest, expected)
+        let calendar = Calendar.current
+        for (hour, expectedDay) in [(3, 21), (4, 22)] {
+            let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 22,
+                                                                          hour: hour, minute: 30)))
+            let history = try await seedHugeHistory(anchor: anchor, calendar: calendar)
+            let repo = Repository(deviceId: dev)
+            repo.setStoreForTesting(history.store)
+            let latest = await repo.latestDataDayStart()
+            XCTAssertNotNil(latest, "the latest-data lookup must resolve over a deep history")
+            // MAX(ts) identifies the last sample, not the first sample of an hour that can straddle 04:00.
+            let lastSample = Date(timeIntervalSince1970: TimeInterval(history.latestHRTimestamp))
+            let midnight = calendar.startOfDay(for: lastSample)
+            let dayOffset = calendar.component(.hour, from: lastSample) < 4 ? -1 : 0
+            let expected = try XCTUnwrap(calendar.date(byAdding: .day, value: dayOffset, to: midnight))
+            let explicitDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: expectedDay)))
+            XCTAssertEqual(expected, explicitDay, "the fixture covers both sides of the 04:00 logical-day rollover")
+            XCTAssertEqual(latest, expected)
+        }
     }
 }

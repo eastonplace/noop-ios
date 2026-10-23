@@ -12,7 +12,7 @@ struct TrainingLoadDetailRequest {
 /// Capture source ownership at the link, rather than after a destination's asynchronous read starts.
 ///
 /// The whole Trends section is the tap target, the way a #55 tappable section is (its eyebrow carries the chevron).
-/// VoiceOver hears one short element, the caller's summary, kept as a heading so the rotor still finds the section.
+/// VoiceOver keeps the caller's summary as a heading and exposes the separate information action.
 struct TrainingLoadDetailLink<Label: View>: View {
     let key: TrendsScreenSnapshotKey
     let rangeDays: Int
@@ -34,7 +34,8 @@ struct TrainingLoadDetailLink<Label: View>: View {
             label()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .accessibilityElement(children: .ignore)
+                // Keep the real info button reachable alongside the link summary.
+                .accessibilityElement(children: .contain)
                 .accessibilityLabel(Text(verbatim: voiceOverSummary))
         }
         .buttonStyle(PaperPressStyle())
@@ -106,6 +107,7 @@ struct TrainingLoadDetailView: View {
     /// Gregorian, in the Trends source time zone, with the person's first weekday. Built once rather than on every body pass.
     private let calendar: Calendar
     @EnvironmentObject private var repo: Repository
+    @EnvironmentObject private var profile: ProfileStore
     @Environment(\.dismiss) private var dismiss
     @State private var result: TrainingLoadEngine.Result?
     @State private var model: TrainingLoadPageModel?
@@ -118,6 +120,18 @@ struct TrainingLoadDetailView: View {
     @State private var period = 42
     @State private var selection: Date?
     @State private var showMethod = false
+    @State private var metricInfo: MetricInfo?
+    /// Load focus for the four weeks, read with the load; nil until then (and when there is no estimate to show it under).
+    @State private var loadedLoadFocus: LoadFocus.Result?
+    @State private var loadFocusScope: WorkoutFocusReadScope?
+    private var loadFocus: LoadFocus.Result? {
+        loadFocusScope == repo.workoutFocusReadScope ? loadedLoadFocus : nil
+    }
+    /// Each shown driver's intensity split, by workout start.
+    @State private var focusSplits: [Date: LoadFocus.Split] = [:]
+    @State private var focusSplitsScope: WorkoutFocusReadScope?
+    /// Which view of "Where the load came from" the person picked; nil leaves the default (Intensity once it has data).
+    @State private var mixView: LoadMixView?
     @State private var showRows = false
     @State private var readID = UUID()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -151,7 +165,11 @@ struct TrainingLoadDetailView: View {
     private var trigger: ReadTrigger {
         ReadTrigger(readID: readID, revision: liveRevision, sourceID: request.sourceID, anchorDay: request.key.anchorDay,
                     timeZoneIdentifier: request.key.timeZoneIdentifier, rangeDays: request.rangeDays,
-                    weekOffset: request.key.weekOffset)
+                    weekOffset: request.key.weekOffset, focusScope: repo.workoutFocusReadScope)
+    }
+    private var loadFocusReady: Bool {
+        if case .ready? = loadFocus { return true }
+        return false
     }
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var dayFormat: Date.FormatStyle {
@@ -191,6 +209,7 @@ struct TrainingLoadDetailView: View {
             }
         }
         .segmentedPillSelectionStyle(.quiet)
+        .metricInfoSheet($metricInfo)
         .task(id: trigger) { await load() }
         .onChange(of: period) { _, _ in selection = nil }
         .accessibilityIdentifier("trends.trainingLoad.detail")
@@ -216,9 +235,10 @@ struct TrainingLoadDetailView: View {
                 if !model.workouts.isEmpty {
                     DrillInSeparator()
                     driversSection(model)
-                    if let mix = mixSlices(model) {
+                    let slices = mixSlices(model)
+                    if slices != nil || loadFocusReady {
                         DrillInSeparator()
-                        mixSection(mix)
+                        mixSection(slices)
                     }
                 }
                 if let cells = comparisonCells(model) {
@@ -247,9 +267,12 @@ struct TrainingLoadDetailView: View {
     /// One titled section: the #55 eyebrow, then its content.
     private func section<Content: View>(_ title: LocalizedStringKey, symbol: String, trailing: EyebrowTrailing = .none,
                                         spacing: CGFloat = WidgetMetrics.headerSpacing,
+                                        info: MetricInfo? = nil,
                                         @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: spacing) {
-            SectionEyebrow(title, systemImage: symbol, tint: .strain, trailing: trailing)
+            SectionEyebrow(title, systemImage: symbol, tint: .strain, trailing: trailing,
+                           infoAction: info.map { kind in { metricInfo = kind } },
+                           infoAccessibilityLabel: info?.accessibilityLabel ?? "More info")
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -259,7 +282,9 @@ struct TrainingLoadDetailView: View {
 
     private func heroSection(_ model: TrainingLoadPageModel, result: TrainingLoadEngine.Result) -> some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow(title: heroEyebrow, systemImage: "flame.fill", tint: .strain, trailing: eyebrowPill(result))
+            SectionEyebrow(title: heroEyebrow, systemImage: "flame.fill", tint: .strain, trailing: eyebrowPill(result),
+                           infoAction: { metricInfo = .trainingLoad },
+                           infoAccessibilityLabel: MetricInfo.trainingLoad.accessibilityLabel)
             TrainingLoadHero(model: model)
         }
     }
@@ -494,8 +519,9 @@ struct TrainingLoadDetailView: View {
             TrainingLoadDrivers.Row(
                 id: index, weekday: driver.workout.start.formatted(weekday), dayNumber: driver.workout.start.formatted(dayNumber),
                 title: driver.workout.sport, symbol: sportSymbol(driver.workout.sport), meta: driverMeta(driver.workout),
-                fraction: driver.fraction, effort: driver.effort)
+                fraction: driver.fraction, effort: driver.effort, focus: focusSplitsScope == repo.workoutFocusReadScope ? focusSplits[driver.workout.start] : nil)
         }
+        let starts = week.drivers.map { Int($0.workout.start.timeIntervalSince1970) }
         return section(isLatest ? "What drove this week" : "What drove the week to the selected day", symbol: "bolt.fill",
                        trailing: .text(rangeText), spacing: 6) {
             if rows.isEmpty {
@@ -514,7 +540,33 @@ struct TrainingLoadDetailView: View {
                 TrainingLoadDrivers(rows: rows, trainingDaysText: trainingDaysText(week, isLatest: isLatest))
             }
         }
+        .task(id: WorkoutFocusTaskKey(scope: repo.workoutFocusReadScope, anchorDay: request.key.anchorDay,
+                                     timeZoneIdentifier: request.key.timeZoneIdentifier, starts: starts)) {
+            await readFocusSplits(of: week.drivers.map(\.workout.start))
+        }
         .accessibilityIdentifier("trends.trainingLoad.drivers")
+    }
+
+    /// The shown workouts' intensity splits, from heart rate remembered per workout (the same reads Load focus made).
+    @MainActor private func readFocusSplits(of starts: [Date]) async {
+        let scope = repo.workoutFocusReadScope
+        guard sourceIsCurrent, !scope.isFenced else { return }
+        guard let first = starts.min(), let last = starts.max() else {
+            focusSplits = [:]
+            focusSplitsScope = scope
+            return
+        }
+        do {
+            let workouts = try await repo.workoutLoadFocus(from: Int(first.timeIntervalSince1970),
+                to: Int(last.timeIntervalSince1970) + 60, age: ProfileStore.storedAge())
+            guard !Task.isCancelled, sourceIsCurrent, scope == repo.workoutFocusReadScope else { return }
+            focusSplits = LoadFocus.splitsByStart(workouts: workouts)
+            focusSplitsScope = scope
+        } catch {
+            guard !Task.isCancelled, sourceIsCurrent, scope == repo.workoutFocusReadScope else { return }
+            focusSplits = [:]
+            focusSplitsScope = scope
+        }
     }
 
     /// "6 training days this week · 4 workouts had no Strain score". Every day with a workout counts as a training day, but a
@@ -560,10 +612,29 @@ struct TrainingLoadDetailView: View {
         }
     }
 
-    private func mixSection(_ slices: [TrainingLoadMix.Slice]) -> some View {
-        section("Where the load came from", symbol: "square.grid.2x2", trailing: .text(String(localized: "last 6 weeks")),
-                spacing: 16) {
-            TrainingLoadMix(slices: slices)
+    /// Sport (the last 6 weeks) or Intensity (the last 4, from heart-rate zones). Intensity is the default, Sport while
+    /// there is too little heart rate for it, and the switch is only there when both have something to show.
+    private func mixSection(_ slices: [TrainingLoadMix.Slice]?) -> some View {
+        let mode: LoadMixView = slices == nil ? .intensity : loadFocus == nil ? .sport : (mixView ?? (loadFocusReady ? .intensity : .sport))
+        let weekLabels = { () -> [String] in
+            guard case .ready(let summary)? = loadFocus else { return [] }
+            return summary.weeks.indices.map {
+                $0 == summary.weeks.count - 1 ? String(localized: "This week") : summary.weeks[$0].start.formatted(monthDayFormat)
+            }
+        }()
+        return section("Where the load came from", symbol: "square.grid.2x2",
+                       trailing: .text(mode == .intensity ? String(localized: "last 4 weeks") : String(localized: "last 6 weeks")),
+                       spacing: 16,
+                       info: mode == .intensity ? .loadFocus : nil) {
+            if slices != nil, loadFocus != nil {
+                SegmentedPillControl(LoadMixView.allCases, selection: Binding(get: { mode }, set: { mixView = $0 })) { $0.title }
+            }
+            switch mode {
+            case .intensity:
+                if let loadFocus { TrainingLoadFocus(result: loadFocus, weekLabels: weekLabels) }
+            case .sport:
+                TrainingLoadMix(slices: slices ?? [])
+            }
         }
     }
 
@@ -626,8 +697,11 @@ struct TrainingLoadDetailView: View {
 
     private var methodSection: some View {
         TrainingLoadDisclosure("How this is calculated", isExpanded: $showMethod) {
+            let override = ProfileStore.storedHrMaxOverride()
             TrainingLoadMethod(configuration: model?.configuration ?? .standard,
-                               timeZoneIdentifier: request.key.timeZoneIdentifier)
+                               timeZoneIdentifier: request.key.timeZoneIdentifier,
+                               loadFocusMaxHR: ProfileStore.hrMax(age: ProfileStore.storedAge(), override: override),
+                               loadFocusMaxHRIsSet: override > 0)
         }
     }
 
@@ -786,6 +860,7 @@ struct TrainingLoadDetailView: View {
             result = nil
             model = nil
             gap = nil
+            loadedLoadFocus = nil
             selection = nil
             // Forget what was loaded too: if the request returns to it before this read finishes, it is read again
             // rather than skipped as already on screen (with nothing on screen).
@@ -819,6 +894,7 @@ struct TrainingLoadDetailView: View {
         let evaluatedGap = TrainingLoadPageModel.gap(result: evaluated, history: loads, targetDay: request.key.anchorDay)
 
         var built: TrainingLoadPageModel?
+        var focus: LoadFocus.Result?
         if evaluated.isAvailable {
             // The one workouts read, in this same load path, then the model off the main actor.
             let workouts = await readWorkouts()
@@ -839,8 +915,11 @@ struct TrainingLoadDetailView: View {
             built = await Task.detached(priority: .userInitiated) {
                 TrainingLoadPageModel(days: modelDays, workouts: workouts, calendar: modelCalendar, recorded: recorded)
             }.value
+            focus = try? await repo.loadFocus(anchorDay: request.key.anchorDay, timeZoneIdentifier: request.key.timeZoneIdentifier)
             guard !Task.isCancelled, trigger == self.trigger, sourceIsCurrent else { return }
         }
+        loadedLoadFocus = focus
+        loadFocusScope = trigger.focusScope
         result = evaluated
         model = built
         gap = evaluatedGap
@@ -856,6 +935,7 @@ struct TrainingLoadDetailView: View {
         let timeZoneIdentifier: String
         let rangeDays: Int
         let weekOffset: Int
+        let focusScope: WorkoutFocusReadScope
 
         /// The same request read again (a retry or a refresh), as opposed to another source, day, zone, range or week.
         func rereads(_ other: ReadTrigger) -> Bool {
@@ -867,6 +947,11 @@ struct TrainingLoadDetailView: View {
 }
 
 // MARK: - Parts
+
+private enum LoadMixView: CaseIterable {
+    case intensity, sport
+    var title: String { self == .intensity ? String(localized: "Intensity") : String(localized: "Sport") }
+}
 
 private enum TrainingLoadLayout {
     /// The Trends card's chart, zoomed in: about 200pt against the card's 76.

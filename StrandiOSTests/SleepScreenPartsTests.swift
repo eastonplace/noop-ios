@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 import StrandDesign
 @testable import NOOP
 
@@ -48,6 +49,15 @@ final class SleepScreenPartsTests: XCTestCase {
         XCTAssertFalse(presentation(90, typical: 0).isOnTypical)
     }
 
+    func testShortDeltaIsSignedAndAbsentWithoutATypical() {
+        func delta(_ minutes: Double, typical: Double?) -> String? {
+            SleepStageRowPresentation(stage: .rem, minutes: minutes, total: 400, typical: typical).shortDelta
+        }
+        XCTAssertEqual(delta(97, typical: 90), "+7m")
+        XCTAssertEqual(delta(78, typical: 90), "−12m")
+        XCTAssertNil(delta(90, typical: nil))
+    }
+
     // MARK: Shares of the night
 
     func testStageSharesAlwaysAddUpToOneHundred() {
@@ -86,6 +96,78 @@ final class SleepScreenPartsTests: XCTestCase {
         XCTAssertFalse(SleepNeedBreakdownVisibility.isVisible(mode: .off))
         XCTAssertTrue(SleepNeedBreakdownVisibility.isVisible(mode: .shadow))
         XCTAssertTrue(SleepNeedBreakdownVisibility.isVisible(mode: .on))
+    }
+
+    func testSelectedNightSleepNeedUsesOnlyItsOwnTotalAndProvenance() throws {
+        let onDevice = ["2026-10-20": 480.0]
+        let imported = ["2026-10-20": 450.0, "2026-10-21": 510.0]
+        func target(_ day: String) -> SleepNeedFallbackPresentation? {
+            SleepNeedFallbackPresentation.resolve(wakeDay: day,
+                onDevice: { onDevice[$0] }, imported: { imported[$0] })
+        }
+        let local = try XCTUnwrap(target("2026-10-20"))
+        XCTAssertEqual(local.wakeDay, "2026-10-20")
+        XCTAssertEqual(local.minutes, 480)
+        XCTAssertEqual(local.source, .onDevice)
+        let whoop = try XCTUnwrap(target("2026-10-21"))
+        XCTAssertEqual(whoop.wakeDay, "2026-10-21")
+        XCTAssertEqual(whoop.minutes, 510)
+        XCTAssertEqual(whoop.source, .whoop)
+        XCTAssertNil(target("2026-10-19"), "A different night's target must not carry into this night")
+    }
+
+    func testSleepNeedFallbackRequiresAValidRecordedTotal() throws {
+        for invalid in [Double.nan, .infinity, -1, 0] {
+            let imported = try XCTUnwrap(SleepNeedFallbackPresentation.resolve(wakeDay: "2026-10-21",
+                onDevice: { _ in invalid }, imported: { _ in 450 }))
+            XCTAssertEqual(imported.source, .whoop)
+            XCTAssertEqual(imported.minutes, 450)
+            XCTAssertNil(SleepNeedFallbackPresentation.resolve(wakeDay: "2026-10-21",
+                onDevice: { _ in invalid }, imported: { _ in invalid }))
+        }
+    }
+
+    func testSleepNeedFallbackRemainsUntilAnExactDayVisibleV2BreakdownExists() {
+        let day = "2026-10-21"
+        XCTAssertTrue(SleepNeedFallbackPresentation.shouldShow(mode: .off, breakdownDay: day, wakeDay: day))
+        for mode in [SleepPerformanceV2Prefs.Mode.shadow, .on] {
+            XCTAssertTrue(SleepNeedFallbackPresentation.shouldShow(mode: mode, breakdownDay: nil, wakeDay: day))
+            XCTAssertTrue(SleepNeedFallbackPresentation.shouldShow(mode: mode, breakdownDay: "2026-10-20", wakeDay: day))
+            XCTAssertFalse(SleepNeedFallbackPresentation.shouldShow(mode: mode, breakdownDay: day, wakeDay: day))
+        }
+    }
+
+    func testNeedChipFlowBoundsOversizedChipsAndPreservesTheirWrappedHeight() {
+        let idealSizes = [CGSize(width: 480, height: 24), CGSize(width: 90, height: 24)]
+        var measuredWidths: [CGFloat?] = []
+        let geometry = SleepChipFlow.Geometry(width: 240, spacing: 8, count: idealSizes.count) { index, proposedWidth in
+            measuredWidths.append(proposedWidth)
+            let ideal = idealSizes[index]
+            let width = min(ideal.width, proposedWidth ?? ideal.width)
+            return CGSize(width: width, height: ideal.height * ceil(ideal.width / width))
+        }
+        XCTAssertEqual(geometry.size, CGSize(width: 240, height: 80))
+        XCTAssertEqual(geometry.items.map(\.origin), [CGPoint.zero, CGPoint(x: 0, y: 56)])
+        XCTAssertEqual(geometry.items.map(\.proposedWidth), [240, 90])
+        XCTAssertEqual(measuredWidths.compactMap { $0 }, [240, 90])
+        for item in geometry.items {
+            XCTAssertLessThanOrEqual(item.origin.x + item.proposedWidth, 240)
+        }
+    }
+
+    func testNeedChipFlowRemeasuresNativePixelOverflowWithoutLosingWrappedHeight() {
+        let overflow: CGFloat = 240.33333333333331 - 240
+        var measuredWidths: [CGFloat] = []
+        let geometry = SleepChipFlow.Geometry(width: 240, spacing: 8, count: 1) { _, proposedWidth in
+            guard let proposedWidth else { return CGSize(width: 480, height: 24) }
+            measuredWidths.append(proposedWidth)
+            return CGSize(width: proposedWidth + overflow, height: proposedWidth < 240 ? 832 : 800)
+        }
+        XCTAssertLessThanOrEqual(geometry.size.width, 240)
+        XCTAssertEqual(geometry.size.height, 832, "Use the adjusted measurement's wrapped height")
+        XCTAssertEqual(measuredWidths, [240, 239.66666666666669])
+        XCTAssertEqual(geometry.items.first?.proposedWidth, 239.66666666666669,
+                       "Placement must use the final measured proposal")
     }
 
     // MARK: Stage timeline
