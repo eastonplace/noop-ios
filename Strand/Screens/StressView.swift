@@ -170,7 +170,7 @@ struct StressView: View {
             _ = loadState.finish(.cancelled, requestID: requestID)
             return
         } catch {
-            guard loadState.owns(requestID), requestKey == stressTaskKey else { return }
+            guard !Task.isCancelled, loadState.owns(requestID), requestKey == stressTaskKey else { return }
             loadedDaytime = nil
             loadedStressIndex = nil
             loadedFrequencyDomain = nil

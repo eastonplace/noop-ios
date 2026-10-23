@@ -637,7 +637,10 @@ final class LocalCoachEngine: ObservableObject {
             messages.removeSubrange(messages.index(after: index)..<messages.endIndex)
             state.conversations[conversation].messages = messages
             state.conversations[conversation].updatedAt = Date()
-        }) { return }
+        }) {
+            clearPublishedBrief()
+            return
+        }
         reconcileSource()
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.utf8.count <= 8_000, let index = messages.firstIndex(where: { $0.id == id }) else { return }
@@ -684,7 +687,10 @@ final class LocalCoachEngine: ObservableObject {
         if editWhileHydrating({ state in
             state.memories.removeAll { $0.id == id }
             state.historyFloor = Date()
-        }) { return }
+        }) {
+            clearPublishedBrief()
+            return
+        }
         reconcileSource()
         invalidateHistory()
         memories.removeAll { $0.id == id }

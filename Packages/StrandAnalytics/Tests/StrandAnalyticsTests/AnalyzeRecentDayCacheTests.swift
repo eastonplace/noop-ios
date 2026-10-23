@@ -17,6 +17,16 @@ final class AnalyzeRecentDayCacheTests: XCTestCase {
         XCTAssertNotEqual(key("100:200:"), key("100:200:150-160"))
     }
 
+    func testCommittedWitnessAndSuccessorSleepContextInvalidateIndependently() {
+        func key(_ input: String, _ sleep: String) -> String {
+            AnalyzeRecentDayCache.cacheKey(owner: "dev1", hrCount: 300, hrMaxTs: 1_700_000_000,
+                skinAnchorRaw: nil, stepSleepFingerprint: sleep, inputWitness: input,
+                hrvWindowDetail: false)
+        }
+        XCTAssertNotEqual(key("committed-a", "sleep-a"), key("committed-b", "sleep-a"))
+        XCTAssertNotEqual(key("committed-a", "sleep-a"), key("committed-a", "sleep-b"))
+    }
+
     func testRRProvenanceAndQualityInvalidateWithoutAnyHRChange() {
         func key(_ rr: String) -> String {
             AnalyzeRecentDayCache.cacheKey(owner: "whoop4-A", hrCount: 178_000,
