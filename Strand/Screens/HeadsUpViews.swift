@@ -244,6 +244,22 @@ enum HeadsUpPresentation {
 
     static func card(_ snapshot: HeadsUpSnapshot) -> HeadsUpCardModel {
         let color = Self.tone(snapshot.phase)
+    // MARK: Elsewhere today
+
+    static func contextRecovery(_ recovery: Double?) -> String {
+        recovery.map { "\(Int($0.rounded()))%" } ?? WidgetMetrics.missingValue
+    }
+
+    /// Today's own Sleep duration text, so "Elsewhere today" can never round differently from the tile.
+    static func contextSleep(_ minutes: Double?) -> String {
+        minutes.map { TodayView.sleepDurationText(minutes: $0) } ?? WidgetMetrics.missingValue
+    }
+
+    /// Strain on the display scale, one decimal, like the Strain ring.
+    static func contextStrain(_ stored: Double?) -> String {
+        stored.map { String(format: "%.1f", StrainScale.displayValue(fromStored: $0)) } ?? WidgetMetrics.missingValue
+    }
+
         switch snapshot.phase {
         case .off:
             return HeadsUpCardModel(
@@ -537,18 +553,48 @@ private struct TodayHeadsUpCardLeaf: View, @preconcurrency Equatable {
 
 // MARK: - Detail page
 
-/// The facts from the day row the detail page shows for context. They are not part of the Heads-Up math.
+/// The facts the detail page shows for context ("Elsewhere today"). They are not part of the Heads-Up math.
+///
+/// They are resolved exactly as Today resolves its rings and its Sleep tile: the same display day (the saved
+/// first-paint snapshot when Today would use it, else the logical-day row), the same first-paint Recovery and
+/// Strain values with the same fallbacks, Strain through the canonical resolver, and Sleep through Today's own
+/// duration formatter. Reading `repo.days.last` and the row's raw `strain` instead put this page on a different
+/// row, a different Strain source and a different rounding from the rings it sits behind.
 struct HeadsUpDayContext: Equatable {
     let day: String?
+    /// Strain on the stored 0–100 axis; `HeadsUpPresentation.contextStrain` draws it on the display scale.
     let recovery: Double?
     let sleepMinutes: Double?
     let strain: Double?
 
-    init(_ day: DailyMetric?) {
-        self.day = day?.day
-        recovery = day?.recovery
-        sleepMinutes = day?.totalSleepMin
-        strain = day?.strain
+    nonisolated static func resolve(days: [DailyMetric], snapshot: TodayHealthSnapshot?,
+                                    canonicalStrain: (String) -> Double?,
+                                    logicalKey: String, localKey: String) -> HeadsUpDayContext {
+        let firstPaint = snapshot.flatMap {
+            TodayView.acceptsFirstPaintSnapshot(displayDay: $0.displayDay, selectedDayOffset: 0,
+                                                logicalKey: logicalKey, localKey: localKey) ? $0 : nil
+        }
+        let row = firstPaint?.dailyMetric
+            ?? TodayView.resolveDisplayDay(days: days, selectedDayOffset: 0, logicalKey: logicalKey,
+                                           localKey: localKey, selectedDayKey: localKey)
+        func metric(_ kind: TodayHealthSnapshot.Metric) -> TodayHealthMetricValue? {
+            TodayView.firstPaintMetric(kind, snapshot: firstPaint, selectedDayOffset: 0,
+                                       currentLogicalDay: logicalKey, currentLocalDay: localKey)
+        }
+        return HeadsUpDayContext(
+            day: row?.day,
+            recovery: metric(.recovery)?.value ?? (firstPaint == nil ? row?.recovery : nil),
+            sleepMinutes: row?.totalSleepMin,
+            strain: TodayView.renderedStrainValue(
+                firstPaint: firstPaint, strainMetric: metric(.strain),
+                fallback: firstPaint == nil ? row.flatMap { canonicalStrain($0.day) } : nil))
+    }
+
+    @MainActor
+    static func current(_ repo: Repository, now: Date = Date()) -> HeadsUpDayContext {
+        resolve(days: repo.days, snapshot: repo.todayHealthSnapshot,
+                canonicalStrain: { repo.canonicalStrain(for: $0)?.storedValue },
+                logicalKey: Repository.logicalDayKey(now), localKey: Repository.localDayKey(now))
     }
 }
 
@@ -558,7 +604,7 @@ struct HeadsUpDetailView: View {
 
     var body: some View {
         HeadsUpDetailContent(snapshot: model.headsUp ?? HeadsUpSnapshot.off,
-                             context: HeadsUpDayContext(repo.days.last),
+                             context: HeadsUpDayContext.current(repo),
                              setEnabled: { model.setHeadsUpEnabled($0) })
             .equatable()
     }
@@ -866,22 +912,15 @@ private struct HeadsUpDetailContent: View, @preconcurrency Equatable {
     // MARK: Context
 
     private var contextSection: some View {
-        let recovery = context.recovery.map { "\(Int($0.rounded()))%" } ?? WidgetMetrics.missingValue
-        let sleep = context.sleepMinutes.map { minutes -> String in
-            let total = Int(minutes.rounded())
-            return "\(total / 60)h \(String(format: "%02d", total % 60))m"
-        } ?? WidgetMetrics.missingValue
-        let strain = context.strain.map { String(format: "%.1f", StrainScale.displayValue(fromStored: $0)) }
-            ?? WidgetMetrics.missingValue
         let today = HeadsUpPresentation.isToday(context.day)
         return FlatSection(today ? LocalizedStringKey("Elsewhere today") : LocalizedStringKey("Elsewhere"),
                            systemImage: "square.grid.2x2", tint: .neutral,
                            trailing: today ? .none : .text(HeadsUpPresentation.shortDate(context.day) ?? "")) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 FactStrip(facts: [
-                    FactStrip.Fact("Recovery", value: recovery),
-                    FactStrip.Fact("Sleep", value: sleep),
-                    FactStrip.Fact("Strain", value: strain),
+                    FactStrip.Fact("Recovery", value: HeadsUpPresentation.contextRecovery(context.recovery)),
+                    FactStrip.Fact("Sleep", value: HeadsUpPresentation.contextSleep(context.sleepMinutes)),
+                    FactStrip.Fact("Strain", value: HeadsUpPresentation.contextStrain(context.strain)),
                 ])
                 Text("For context. These are not part of the Heads-Up math.")
                     .font(StrandFont.caption)

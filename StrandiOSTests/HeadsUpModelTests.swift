@@ -252,6 +252,68 @@ final class HeadsUpModelTests: XCTestCase {
         XCTAssertEqual(leading, "6 of \(HeadsUpSnapshot.nightsNeeded) nights")
     }
 
+    // MARK: Elsewhere today
+
+    private func firstPaint(day: String, sleepMinutes: Double, strain: Double, recovery: Double) -> TodayHealthSnapshot {
+        func value(_ number: Double, version: Int? = nil) -> TodayHealthMetricValue {
+            TodayHealthMetricValue(value: number, metricDay: day, sourceId: "my-whoop-noop",
+                                   strainVersion: version)
+        }
+        return TodayHealthSnapshot(
+            scopeId: "dashboard:test", deviceId: "my-whoop", displayDay: day, logicalDay: day, localDay: day,
+            generatedAt: 1, schemaVersion: 2,
+            dailyMetric: DailyMetric(day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                                     lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil,
+                                     recovery: nil, strain: nil, exerciseCount: nil),
+            recovery: value(recovery), strain: value(strain, version: 2),
+            sleepDurationMinutes: value(sleepMinutes))
+    }
+
+    func testElsewhereTodayReadsTheSameValuesAsTodaysRings() {
+        let today = key(40)
+        // The raw daily row disagrees with what Today shows: a different sleep length and a different Strain.
+        var days = history(count: 40)
+        days.append(DailyMetric(day: today, totalSleepMin: 406.8, efficiency: 0.9, deepMin: 80, remMin: 100,
+                                lightMin: 250, disturbances: 3, restingHr: 52, avgHrv: 62, recovery: 71,
+                                strain: 60.5, exerciseCount: 1, spo2Pct: 97, skinTempDevC: 0, respRateBpm: 15.1))
+        let canonical = 58.1
+
+        // After first paint, off the canonical resolver: the row's raw Strain is not used.
+        let resolved = HeadsUpDayContext.resolve(days: days, snapshot: nil, canonicalStrain: { _ in canonical },
+                                                 logicalKey: today, localKey: today)
+        XCTAssertEqual(resolved.day, today)
+        XCTAssertEqual(resolved.strain, canonical)
+        XCTAssertEqual(HeadsUpPresentation.contextStrain(resolved.strain),
+                       String(format: "%.1f", StrainScale.displayValue(fromStored: canonical)))
+        XCTAssertEqual(resolved.recovery, 71)
+
+        // While Today is still painting from its saved snapshot, the page follows the snapshot, not the row.
+        let snapshot = firstPaint(day: today, sleepMinutes: 406.8, strain: 58.1, recovery: 64)
+        let painting = HeadsUpDayContext.resolve(days: days, snapshot: snapshot, canonicalStrain: { _ in 99 },
+                                                 logicalKey: today, localKey: today)
+        XCTAssertEqual(painting.strain, 58.1)
+        XCTAssertEqual(painting.recovery, 64)
+        XCTAssertEqual(painting.sleepMinutes, 406.8)
+    }
+
+    func testElsewhereTodaySleepUsesTodaysOwnFormatting() {
+        // 406.8 minutes is 6h 46m on Today's tile (it drops the fraction); rounding up to 6h 47m disagreed with it.
+        XCTAssertEqual(HeadsUpPresentation.contextSleep(406.8), TodayView.sleepDurationText(minutes: 406.8))
+        XCTAssertEqual(HeadsUpPresentation.contextSleep(406.8), "6h 46m")
+        XCTAssertEqual(HeadsUpPresentation.contextSleep(nil), "—")
+        XCTAssertEqual(HeadsUpPresentation.contextStrain(nil), "—")
+        XCTAssertEqual(HeadsUpPresentation.contextRecovery(70.6), "71%")
+    }
+
+    func testStrainRejectedByTodayStaysEmptyHere() {
+        // Yesterday's snapshot Strain must not become today's: Today shows nothing, and so does this page.
+        let yesterday = key(39), today = key(40)
+        let old = firstPaint(day: yesterday, sleepMinutes: 400, strain: 64, recovery: 60)
+        let context = HeadsUpDayContext.resolve(days: history(count: 41), snapshot: old,
+                                                canonicalStrain: { _ in 64 }, logicalKey: today, localKey: today)
+        XCTAssertNil(context.strain)
+    }
+
     func testHistoryEndsOnTodayOnlyWhenItIs() {
         let now = Date()
         XCTAssertEqual(HeadsUpPresentation.dayLabel(Repository.localDayKey(now), now: now), "Today")

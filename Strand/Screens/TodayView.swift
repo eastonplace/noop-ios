@@ -5184,7 +5184,13 @@ struct TodayView: View {
 
     private func sleepValue(_ d: DailyMetric?) -> String {
         guard let m = d?.totalSleepMin else { return "—" }
-        let h = Int(m) / 60, mm = Int(m) % 60
+        return Self.sleepDurationText(minutes: m)
+    }
+
+    /// "6h 46m": the Sleep tile's duration text. Heads-Up's "Elsewhere today" reads it from here, so the two
+    /// cannot round differently.
+    nonisolated static func sleepDurationText(minutes: Double) -> String {
+        let h = Int(minutes) / 60, mm = Int(minutes) % 60
         return String(localized: "\(h)h \(mm)m")
     }
 
