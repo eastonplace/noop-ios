@@ -260,8 +260,8 @@ struct JournalQuickLogProgress<Leading: View>: View {
 
 // MARK: - Section
 
-/// "What happened": the day's questions as one hairline grid of tiles, the two actions under it, and the line that
-/// says the day is done. Tapping saves. Used by the Journal page and by the Journal opened from Coach.
+/// "What happened": the day's questions as a grid of tiles with a hairline between the rows, the two actions under
+/// it, and the line that says the day is done. Tapping saves. Used by the Journal page and by the Journal opened from Coach.
 struct JournalQuickLogSection: View {
     @ObservedObject var model: JournalQuickLogModel
     /// The day this section is for. Until the model holds that day, the grid is blank and cannot be tapped.
@@ -309,15 +309,16 @@ struct JournalQuickLogSection: View {
     private var grid: some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
-                HStack(spacing: 0) {
-                    ForEach(Array(row.enumerated()), id: \.element.id) { column, tile in
+                if rowIndex > 0 {
+                    Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                }
+                HStack(spacing: NoopMetrics.space3) {
+                    ForEach(row) { tile in
                         JournalQuickLogCell(
                             tile: tile,
                             state: ready ? model.state(of: tile) : .unanswered,
                             canClear: ready && model.hasNativeAnswer(tile),
                             isEnabled: ready,
-                            showsTrailingRule: column < row.count - 1,
-                            showsBottomRule: rowIndex < rows.count - 1,
                             model: model)
                     }
                     if row.count < columnCount {
@@ -425,8 +426,6 @@ private struct JournalQuickLogCell: View {
     let state: JournalQuickLog.TileState
     let canClear: Bool
     let isEnabled: Bool
-    let showsTrailingRule: Bool
-    let showsBottomRule: Bool
     let model: JournalQuickLogModel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -479,7 +478,6 @@ private struct JournalQuickLogCell: View {
                     .contentTransition(.numericText())
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(Rectangle())
@@ -498,18 +496,6 @@ private struct JournalQuickLogCell: View {
                 .buttonStyle(.plain)
                 .accessibilityHidden(true)
                 .transition(.opacity)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            if showsTrailingRule {
-                Rectangle().fill(StrandPalette.hairline).frame(width: 1)
-                    .padding(.vertical, 16).accessibilityHidden(true)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if showsBottomRule {
-                Rectangle().fill(StrandPalette.hairline).frame(height: 1)
-                    .padding(.horizontal, 8).accessibilityHidden(true)
             }
         }
         .contextMenu { menu }
