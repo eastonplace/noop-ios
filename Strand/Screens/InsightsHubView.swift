@@ -163,11 +163,7 @@ struct InsightsHubView: View {
             VStack(alignment: .leading, spacing: 0) {
                 Button { withAnimation(.easeInOut(duration: 0.2)) { showUnclear.toggle() } } label: {
                     HStack(spacing: NoopMetrics.space3) {
-                        Image(systemName: "circle.dashed")
-                            .font(StrandFont.subhead.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .frame(width: Self.iconColumn, alignment: .leading)
-                            .accessibilityHidden(true)
+                        InsightRowIcon(symbol: "circle.dashed", tint: StrandPalette.textTertiary)
                         Text(unclear.count == 1
                              ? String(localized: "1 more checked, no clear difference yet")
                              : String(localized: "\(unclear.count) more checked, no clear difference yet"))
@@ -190,23 +186,7 @@ struct InsightsHubView: View {
                 if showUnclear {
                     ForEach(unclear) { factor in
                         FlatRowSeparator()
-                        HStack(spacing: NoopMetrics.space3) {
-                            Image(systemName: InsightWords.symbol(factor.source))
-                                .font(StrandFont.footnote.weight(.semibold))
-                                .foregroundStyle(StrandPalette.textTertiary)
-                                .frame(width: Self.iconColumn, alignment: .leading)
-                                .accessibilityHidden(true)
-                            Text(verbatim: factor.name)
-                                .font(StrandFont.subhead)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                            Spacer(minLength: NoopMetrics.space2)
-                            Text(verbatim: factor.checkedText)
-                                .font(StrandFont.footnote)
-                                .monospacedDigit()
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        .frame(minHeight: 40)
-                        .accessibilityElement(children: .combine)
+                        InsightUnclearFactorRow(factor: factor)
                     }
                 }
             }

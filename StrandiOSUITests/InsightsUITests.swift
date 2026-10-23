@@ -57,10 +57,25 @@ final class InsightsUITests: XCTestCase {
                 || labels.contains("No clear patterns yet")
                 || labels.contains("Insights appear after about 2 weeks of wear.")
         }
-        let cardHeader = try revealCardHeader(card, in: app)
+        _ = try revealCardHeader(card, in: app)
         XCTAssertTrue(card.isEnabled)
         XCTAssertTrue(card.label.contains("Insights"), "The visible header belongs to the Insights link")
+        if size == .normal, card.frame.height <= app.frame.height - 200 {
+            try reveal(card, in: app)
+        }
         capture(app, "insights-\(size)-1-trends-card")
+        if size == .accessibilityXXXL {
+            // Advance into the same real card to capture the stacked compact findings. Limit
+            // the gesture by its measured height so a short card is not skipped entirely.
+            let appFrame = app.frame
+            let distance = min(appFrame.height * 0.48, card.frame.height * 0.5)
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
+            let end = start.withOffset(CGVector(dx: 0, dy: -distance))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+            capture(app, "insights-\(size)-1b-trends-findings")
+        }
+        // Scrolling invalidates the earlier screen coordinate. Resolve the actual header again.
+        let cardHeader = try revealCardHeader(card, in: app)
         cardHeader.tap()
 
         let page = element("insights.detail", in: app)
