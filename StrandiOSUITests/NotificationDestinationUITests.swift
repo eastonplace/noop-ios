@@ -70,22 +70,43 @@ final class NotificationDestinationUITests: XCTestCase {
 
     private func assertJournal(size: TextSize) throws {
         let app = XCUIApplication()
-        // AppleDemoSeeder has imported journal history for the last 40 days. Yesterday is a real
-        // dated demo day, rather than a nonexistent id or a synthetic destination-only placeholder.
-        let day = demoDate(daysAgo: 1)
+        // Use a real imported behavior day that differs from the Journal's default Yesterday.
+        // The notification payload names that behavior day; its storage key is the next morning.
+        let day = demoDate(daysAgo: 3)
+        let storageDay = Calendar.current.date(byAdding: .day, value: 1, to: day)!
+        let expectedDay = day.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()
+            .locale(Locale(identifier: "en_US")))
         try launch(app, size: size, destinations: [try json(["journal": ["logicalDay": dayKey(day)]])])
         defer { app.terminate() }
-        try require(app.navigationBars["Journal"], in: app, timeout: 60)
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US")
-        formatter.timeZone = .current
-        formatter.dateStyle = .full
-        let dateLabel = app.staticTexts["Journal date: \(formatter.string(from: day))"]
-        try reveal(dateLabel, in: app)
-        try assertDone("notification.done", in: app)
+        let home = element("journal.home", in: app)
+        try require(home, in: app, timeout: 60)
+        let host = try presentationHost(done: "Close", in: app)
+        let viewport = try scrollSurface(within: host, in: app)
+        let picker = host.buttons["coach.journal.wakeDayPicker"]
+        try reveal(picker, in: app, within: host, viewport: viewport)
+        XCTAssertEqual(picker.label, "Day")
+        XCTAssertEqual(picker.value as? String, expectedDay, "The payload's behavior day must be open")
+        let selectedDay = host.buttons["journal.day.\(dayKey(storageDay))"]
+        try reveal(selectedDay, in: app, within: host, viewport: viewport)
+        XCTAssertTrue(selectedDay.isSelected, "The history selection must use the payload's next-morning storage key")
+        XCTAssertTrue(selectedDay.label.hasPrefix(expectedDay + ", "))
+        XCTAssertFalse(app.navigationBars["Journal"].exists, "Journal owns its scaffold header")
+        XCTAssertFalse(app.buttons["notification.done"].exists, "Journal owns its Close control")
         XCTAssertFalse(app.staticTexts["Notification update"].exists)
+        let close = host.buttons["Close"]
+        try reveal(close, in: app, within: host, viewport: viewport)
+        XCTAssertEqual(close.label, "Close")
+        XCTAssertTrue(close.isEnabled && close.isHittable && app.frame.contains(close.frame))
+        XCTAssertGreaterThanOrEqual(close.frame.width + roundingTolerance, 44)
+        XCTAssertGreaterThanOrEqual(close.frame.height + roundingTolerance, 44)
         capture(app, "typed-journal-\(size)-dated-record-read-only")
-        try dismiss("notification.done", in: app)
+        close.tap()
+        try waitFor(home, predicate: "exists == false", in: app)
+        let root = app.buttons["app.deviceStatus"]
+        try require(root, in: app)
+        XCTAssertTrue(root.label.contains("Today"), "Close restores the original root tab")
+        XCTAssertTrue(app.frame.contains(root.frame))
+        capture(app, "typed-journal-\(size)-closed-root")
     }
 
     private func assertDaySleepWeekly(size: TextSize) throws {
