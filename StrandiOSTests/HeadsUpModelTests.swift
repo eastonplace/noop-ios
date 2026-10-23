@@ -349,6 +349,33 @@ final class HeadsUpModelTests: XCTestCase {
         XCTAssertEqual(painting.sleepMinutes, 406.8)
     }
 
+    func testElsewhereTodayMovesWithTodaysStrainWhenItSettles() {
+        // Strain keeps moving early in the day: Today paints the saved snapshot's 58.1, then the live canonical
+        // value (65.2) replaces it. At each step the page must show exactly what Today's rings show.
+        let today = key(40)
+        let days = history(count: 41)
+        func rendered(snapshot: TodayHealthSnapshot?, canonical: Double?) -> Double? {
+            let firstPaint = snapshot.flatMap {
+                TodayView.acceptsFirstPaintSnapshot(displayDay: $0.displayDay, selectedDayOffset: 0,
+                                                    logicalKey: today, localKey: today) ? $0 : nil
+            }
+            return TodayView.renderedStrainValue(
+                firstPaint: firstPaint,
+                strainMetric: TodayView.firstPaintMetric(.strain, snapshot: firstPaint, selectedDayOffset: 0,
+                                                         currentLogicalDay: today, currentLocalDay: today),
+                fallback: firstPaint == nil ? canonical : nil)
+        }
+        let saved = firstPaint(day: today, sleepMinutes: 400, strain: 58.1, recovery: 35)
+        let settled = firstPaint(day: today, sleepMinutes: 400, strain: 65.2, recovery: 35)
+        for (snapshot, canonical) in [(Optional(saved), 58.1), (settled, 65.2), (nil, 65.2)] {
+            let page = HeadsUpDayContext.resolve(days: days, snapshot: snapshot, canonicalStrain: { _ in canonical },
+                                                 logicalKey: today, localKey: today)
+            XCTAssertEqual(page.strain, rendered(snapshot: snapshot, canonical: canonical))
+            XCTAssertEqual(HeadsUpPresentation.contextStrain(page.strain),
+                           String(format: "%.1f", StrainScale.displayValue(fromStored: canonical)))
+        }
+    }
+
     func testElsewhereTodaySleepUsesTodaysOwnFormatting() {
         // 406.8 minutes is 6h 46m on Today's tile (it drops the fraction); rounding up to 6h 47m disagreed with it.
         XCTAssertEqual(HeadsUpPresentation.contextSleep(406.8), TodayView.sleepDurationText(minutes: 406.8))
