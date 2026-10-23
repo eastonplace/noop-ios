@@ -4,31 +4,16 @@ import StrandDesign
 import StrandAnalytics
 import WhoopStore
 
-// MARK: - Insights Hub (v5)
+// MARK: - Insights
 //
-// The headline n-of-1 "what actually moves YOUR recovery" surface. Two halves, both
-// pure association on the user's own logged days — never advice, diagnosis, or cause:
+// The full Insights page, opened from the foot of Trends ("See all insights") and Explore. Every
+// row is one plain sentence about the user's own data, a with/without comparison, how many days it
+// rests on and how sure NOOP is. Rows come from InsightsReport: automatic factors from the wearable
+// (bedtime, sleep length and debt, late workouts, high-strain and high-step days) and explicit
+// Journal answers, tested with one fixed lag and corrected for the number of tests. Association,
+// never cause or advice.
 //
-//  1. WHAT MOVES YOUR CHARGE — the unified, LAG-AWARE EffectRanker feed. For each
-//     journal behaviour × the selected outcome it keeps the strongest honest lag
-//     ({0,+1,+2} days), so each row reads "shows up the next morning" rather than
-//     pretending everything is same-day. Each card carries the sign-aware sentence,
-//     with/without means, a lead/lag chip, the effect-size word, and a Solid /
-//     Building / Calibrating confidence pill — NOT a bare "significant" stamp.
-//
-//  2. ALCOHOL / CAFFEINE DOSE-RESPONSE — the personal DoseResponseEngine curve. A
-//     per-user slope that SHRINKS toward a documented population prior until enough
-//     nights accrue. The card plots the shrunk curve, states "each extra drink ≈ −N
-//     for you" (honest when still prior-dominated, or when YOUR data contradicts the
-//     prior), and an evening "damage forecast" preview — "a 2nd drink tonight ≈ −X
-//     Charge tomorrow" — composed from the curve's per-unit Δ on the latest Charge.
-//
-// SELF-CONTAINED: this screen owns its own load/derive (InsightsHubViewModel) and takes
-// the Repository via @EnvironmentObject — it does NOT edit AppModel / the central nav.
-// Wave 3 surfaces it as the head of the Insights hub (see 'wiringNeeded').
-//
-// All maths lives in StrandAnalytics (EffectRanker / DoseResponseEngine / DoseResponsePriors);
-// this view loads the series, shapes the engine inputs, and presents honestly.
+// Below them, the alcohol and caffeine dose-response cards (DoseResponseEngine) stay as they were.
 
 struct InsightsHubView: View {
     @EnvironmentObject private var repo: Repository
@@ -37,51 +22,30 @@ struct InsightsHubView: View {
     /// The ⓘ explainer open from the Dose-response header, if any.
     @State private var metricInfo: MetricInfo?
 
-    /// The currently-selected outcome for the ranked feed (Charge / HRV / Sleep / RHR).
-    @State private var outcome: InsightsHubViewModel.Outcome = .recovery
-    @State private var filter: AssociationFilter = .all
-    @State private var showAllAssociations = false
-
-    private enum AssociationFilter: String, CaseIterable, Identifiable {
-        case all = "All"
-        case recovery = "Recovery"
-        case sleep = "Sleep"
-        case stress = "Stress"
-        case strain = "Strain"
-
-        var id: String { rawValue }
-    }
-
     var body: some View {
-        ScreenScaffold(title: "Insights",
-                       subtitle: nil,
-                       // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
-                       // alignment/spacing/header). The content is one inner eager VStack, so the staggered
-                       // mover reveal is unchanged; this only defers building that stack until it scrolls in.
-                       lazy: true) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                // Header + journal entry are independent of the history-wide ranking load. Keep the
-                // destination useful immediately, then replace only the analysis section when ready.
-                paperHeader
+        ScreenScaffold(title: "Insights", subtitle: nil, lazy: true) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(introText)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, NoopMetrics.space3)
                 if !model.loaded {
                     DataPendingNote(
                         title: "Reading your patterns",
-                        message: "NOOP is loading your journal and outcome history on this device.",
+                        message: "NOOP is comparing your nights and days on this device.",
                         symbol: "wand.and.sparkles"
                     )
                 } else {
-                    moversSection
-                    insightCard
-                    methodNote
+                    findings
+                    unclearSection
                     doseSection
+                    journalSection
+                    methodNote
                 }
             }
         }
-        .task(id: repo.refreshSeq) {
-            await model.load(repo: repo)
-            applyFilter()
-        }
-        .onChangeCompat(of: filter) { _ in applyFilter() }
+        .task(id: repo.refreshSeq) { await model.load(repo: repo) }
         .metricInfoSheet($metricInfo)
         .sheet(isPresented: $showJournal) {
             #if os(iOS)
@@ -98,343 +62,122 @@ struct InsightsHubView: View {
         }
     }
 
-    // MARK: - What moves your Charge (ranked, lag-aware)
+    private var separator: some View { TodaySectionSeparator(above: 10, below: 12) }
 
-    private var paperHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("What Moves You")
-                    .font(StrandFont.cardTitle)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Personal data associations ranked by effect size")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 6) {
-                Button { showJournal = true } label: {
-                    MicroBadge(
-                        "Journal",
-                        systemImage: "square.and.pencil",
-                        tint: StrandPalette.textPrimary
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens your daily journal")
-                StatusBadge("Local only", style: .notConnected)
-            }
+    private var introText: String {
+        let days = model.report.daysOfData
+        guard model.loaded, days >= InsightsReport.minimumDays else {
+            return String(localized: "What lines up with your best days, from your own data.")
         }
+        return String(localized: "What lines up with your best days, from \(days) days of your own data.")
     }
 
-    private var moversSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            filterChips
-            SectionHeader("Top Associations")
+    // MARK: Findings, grouped by outcome
 
-            if model.ranked.isEmpty {
-                PaperCard {
-                    Text(emptyAssociationMessage)
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                PaperCard(padding: 14) {
-                    VStack(spacing: 0) {
-                        ForEach(Array(visibleAssociations.enumerated()), id: \.offset) { index, row in
-                            if index > 0 { Divider().overlay(StrandPalette.hairline) }
-                            associationRow(row)
-                        }
-                        if model.ranked.count > 4 {
-                            Divider().overlay(StrandPalette.hairline)
-                            Button(showAllAssociations ? "Show top associations" : "View all associations") {
-                                withAnimation(.easeInOut(duration: 0.2)) { showAllAssociations.toggle() }
-                            }
-                            .font(StrandFont.caption.weight(.semibold))
-                            .foregroundStyle(StrandPalette.link)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .buttonStyle(.plain)
-                        }
+    @ViewBuilder private var findings: some View {
+        let report = model.report
+        if !report.hasEnoughData {
+            emptyNote(String(localized: "Insights appear after about 2 weeks of wear. NOOP compares your nights with each other, so it needs enough of them first."))
+        } else if report.significant.isEmpty {
+            emptyNote(String(localized: "No clear patterns yet. NOOP checks again as more nights come in."))
+        } else {
+            ForEach(Array(InsightOutcome.allCases.filter { !report.significant(for: $0).isEmpty }.enumerated()),
+                    id: \.element) { index, outcome in
+                if index > 0 { separator }
+                FlatSection(verbatim: outcome.title, systemImage: outcome.symbol, tint: tint(outcome),
+                            contentSpacing: 0) {
+                    let rows = report.significant(for: outcome)
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                        if i > 0 { FlatRowSeparator() }
+                        InsightRowView(row: row)
                     }
                 }
+                .accessibilityIdentifier("insights.outcome.\(outcome.rawValue)")
             }
         }
     }
 
-    private var filterChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(AssociationFilter.allCases) { item in
-                    let selected = filter == item
-                    Button {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            filter = item
-                            showAllAssociations = false
-                        }
-                    } label: {
-                        ChoiceChip(verbatimTitle: item.rawValue, isSelected: selected)
-                            .chipHitTarget()
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private var visibleAssociations: ArraySlice<RankedEffect> {
-        model.ranked.prefix(showAllAssociations ? model.ranked.count : 4)
-    }
-
-    private func associationRow(_ row: RankedEffect) -> some View {
-        let tint = effectTint(row)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: associationSymbol(row.behavior))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 34, height: 34)
-                    .background(tint.opacity(0.10), in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(displayBehavior(row.behavior))
-                        .font(StrandFont.body.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .lineLimit(1)
-                    Text("\(row.outcome) · \(row.leadLagText)")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                Spacer(minLength: 8)
-                Text(String(format: "%+.2f", row.effect.cohensD))
-                    .font(StrandFont.statValue)
-                    .foregroundStyle(StrandPalette.textPrimary)
-            }
-            HStack(spacing: 8) {
-                Text("With").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                Text(format(row.effect.meanWith, outcome: row.outcome))
-                    .font(StrandFont.captionNumber.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
-                Text("Without").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                Text(format(row.effect.meanWithout, outcome: row.outcome))
-                    .font(StrandFont.captionNumber.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Spacer()
-            }
-            .padding(.leading, 44)
-        }
-        .padding(.vertical, 10)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(row.sentence())
-    }
-
-    private var insightCard: some View {
-        PaperCard {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkles")
-                    .foregroundStyle(StrandPalette.effortAccent)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(model.ranked.first?.sentence() ?? "Keep logging to uncover your strongest personal association.")
-                        .font(StrandFont.body)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Based on your data · Local only")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-            }
-        }
-    }
-
-    /// One ranked, lag-aware mover row: behaviour → effect on the outcome, with the
-    /// best lead/lag, with/without means, effect-size word, and a confidence pill.
-    private func moverCard(_ r: RankedEffect) -> some View {
-        let e = r.effect
-        // Sign-aware tint: did this behaviour move the outcome the GOOD way?
-        let movedGood: Bool? = e.delta == 0 ? nil : ((e.delta > 0) == outcome.higherIsBetter)
-        let tint: StrandTone = {
-            guard let good = movedGood else { return .neutral }
-            if e.significant { return good ? .positive : .critical }
-            return good ? .positive : .warning
-        }()
-        let tintColor = toneColor(tint)
-        let deltaText: String = {
-            let arrow = e.delta > 0 ? "↑" : (e.delta < 0 ? "↓" : "→")
-            if let pct = e.pctChange { return "\(arrow) \(Int(abs(pct).rounded()))%" }
-            return "\(arrow) \(String(format: "%.1f", abs(e.delta)))"
-        }()
-
-        return PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                // Header: behaviour name + lead/lag chip + confidence pill.
-                HStack(alignment: .firstTextBaseline) {
-                    HStack(spacing: 8) {
-                        Circle().fill(tintColor).frame(width: 8, height: 8)
-                        Text(r.behavior)
-                            .font(StrandFont.headline)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    StatePill(LocalizedStringKey(r.leadLagText), tone: .neutral, showsDot: false)
-                    ScoreStatePill(Self.scoreState(r.confidence))
-                }
-
-                // The engine's sign-aware sentence (includes the lead/lag clause).
-                Text(r.sentence())
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // With / without means as uniform StatTiles.
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)],
-                          alignment: .leading, spacing: NoopMetrics.gap) {
-                    StatTile(label: "With",
-                             value: outcome.format(e.meanWith),
-                             caption: "n = \(e.nWith)",
-                             accent: tintColor,
-                             delta: deltaText,
-                             deltaColor: tintColor)
-                    StatTile(label: "Without",
-                             value: outcome.format(e.meanWithout),
-                             caption: "n = \(e.nWithout)",
-                             accent: StrandPalette.textPrimary)
-                }
-
-                Divider().overlay(StrandPalette.hairline)
-
-                // Effect-size footer: Cohen's d + magnitude word.
-                HStack {
-                    Text("Effect size").strandOverline()
-                    Spacer()
-                    HStack(spacing: 6) {
-                        Text(String(format: "d = %.2f", e.cohensD))
-                            .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text(Self.effectMagnitudeWord(e.cohensD))
+    @ViewBuilder private var unclearSection: some View {
+        let unclear = model.report.hasEnoughData ? model.report.unclear : []
+        if !unclear.isEmpty {
+            separator
+            FlatSection("No clear difference yet", systemImage: "circle.dashed", contentSpacing: 0) {
+                ForEach(Array(unclear.enumerated()), id: \.element.id) { i, factor in
+                    if i > 0 { FlatRowSeparator() }
+                    HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                        Text(factor.name)
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        Spacer(minLength: NoopMetrics.space2)
+                        Text(factor.checkedText)
                             .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textTertiary)
                     }
+                    .padding(.vertical, NoopMetrics.space3)
+                    .accessibilityElement(children: .combine)
                 }
             }
         }
-        .accessibilityElement(children: .combine)
-        // One whole-string key; the args are complete sentences, never concatenated tails.
-        .accessibilityLabel(String(localized: "\(r.sentence()) Cohen's d \(String(format: "%.2f", e.cohensD)). \(Self.scoreState(r.confidence).accessibilityWord)"))
     }
 
-    // MARK: - Alcohol / caffeine dose-response
+    // MARK: Alcohol / caffeine dose-response
 
-    private var doseSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+    @ViewBuilder private var doseSection: some View {
+        if !model.doseCards.isEmpty {
+            separator
             SectionHeader("Dose-response", overline: "Personal curve · prior-shrunk",
                           infoAction: { metricInfo = .doseResponse },
                           infoAccessibilityLabel: MetricInfo.doseResponse.accessibilityLabel)
-            if model.doseCards.isEmpty {
-                PaperCard {
-                    Text(String(localized: "Log alcohol or late caffeine with an amount and NOOP fits a personal dose curve: how much each extra unit tends to move your numbers. Until then it shows typical patterns, clearly labelled as not yet yours."))
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                ForEach(Array(model.doseCards.enumerated()), id: \.element.id) { index, card in
-                    DoseResponseCardView(card: card)
-                        .staggeredAppear(index: index)
-                }
+                .padding(.bottom, NoopMetrics.space2)
+            VStack(spacing: NoopMetrics.gap) {
+                ForEach(model.doseCards) { card in DoseResponseCardView(card: card) }
             }
         }
     }
 
-    // MARK: - Method / honesty note
+    // MARK: Journal and method
+
+    private var journalSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            separator
+            SectionEyebrow(title: String(localized: "Add your own"), systemImage: "square.and.pencil", tint: .journal)
+            Button { showJournal = true } label: {
+                InsightsLinkRow(symbol: "square.and.pencil",
+                                title: String(localized: "Journal"),
+                                subtitle: String(localized: "Answer a few yes/no questions to test your own habits"))
+            }
+            .buttonStyle(FlatRowPressStyle())
+            .accessibilityHint("Opens your daily journal")
+        }
+    }
 
     private var methodNote: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("How this works").strandOverline()
-                Text("We analyze your data to find what's associated with better outcomes for you. Results are personal and may change over time.")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            separator
+            SectionEyebrow(title: String(localized: "How this works"), systemImage: "info.circle")
+            Text("NOOP splits your days into two groups, for example nights you went to bed before your usual time and nights you did not, and compares the morning after. An insight appears only when the gap is larger than chance would explain, after allowing for how many things were checked. Solid means 10 or more days on each side, Building means 5 to 9. These are patterns, not causes, and everything stays on this iPhone.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    // MARK: - Helpers
-
-    private var emptyAssociationMessage: LocalizedStringKey {
-        if filter == .strain {
-            return "Strain associations are not available from the current association engine yet. No values are being inferred."
-        }
-        return "Not enough overlap yet. Keep logging days both with and without a behaviour so NOOP can read its effect."
+    private func emptyNote(_ text: String) -> some View {
+        Text(text)
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, NoopMetrics.space3)
+            .accessibilityIdentifier("insights.empty")
     }
 
-    private func applyFilter() {
-        switch filter {
-        case .all:
-            model.rankAll()
-        case .recovery:
-            outcome = .recovery
-            model.rankFor(.recovery)
-        case .sleep:
-            outcome = .sleep
-            model.rankFor(.sleep)
-        case .stress:
-            outcome = .rhr
-            model.rankFor(.rhr)
-        case .strain:
-            model.clearRanking()
-        }
-    }
-
-    private func effectTint(_ row: RankedEffect) -> Color {
-        guard row.effect.delta != 0 else { return StrandPalette.textSecondary }
-        return effectMovedGood(row) ? StrandPalette.success : StrandPalette.destructive
-    }
-
-    private func effectMovedGood(_ row: RankedEffect) -> Bool {
-        let higherIsBetter = row.outcome != "Resting HR"
-        return (row.effect.delta > 0) == higherIsBetter
-    }
-
-    private func format(_ value: Double, outcome: String) -> String {
+    private func tint(_ outcome: InsightOutcome) -> DomainTint {
         switch outcome {
-        case "HRV": return "\(Int(value.rounded())) ms"
-        case "Resting HR": return "\(Int(value.rounded())) bpm"
-        default: return "\(Int(value.rounded()))%"
-        }
-    }
-
-    private func associationSymbol(_ behavior: String) -> String {
-        let value = behavior.lowercased()
-        if value.contains("sleep") || value.contains("bed") { return "moon.fill" }
-        if value.contains("stress") || value.contains("meditat") { return "brain.head.profile" }
-        if value.contains("walk") || value.contains("step") || value.contains("exercise") { return "figure.walk" }
-        if value.contains("alcohol") { return "wineglass.fill" }
-        if value.contains("caffeine") || value.contains("coffee") { return "cup.and.saucer.fill" }
-        return "sparkles"
-    }
-
-    private func displayBehavior(_ behavior: String) -> String {
-        var text = behavior.trimmingCharacters(in: .whitespacesAndNewlines)
-        for prefix in ["Did you ", "Have you ", "Were you "] where text.hasPrefix(prefix) {
-            text.removeFirst(prefix.count)
-            break
-        }
-        if text.hasSuffix("?") { text.removeLast() }
-        guard let first = text.first else { return behavior }
-        return first.uppercased() + text.dropFirst()
-    }
-
-    private func toneColor(_ tone: StrandTone) -> Color {
-        switch tone {
-        case .neutral:  return StrandPalette.textSecondary
-        case .accent:   return StrandPalette.accent
-        case .positive: return StrandPalette.statusPositive
-        case .warning:  return StrandPalette.statusWarning
-        case .critical: return StrandPalette.statusCritical
+        case .recovery: return .recovery(score: 70)
+        case .hrv: return .hrv
+        case .sleep: return .sleep
+        case .rhr: return .heart
         }
     }
 
@@ -444,28 +187,6 @@ struct InsightsHubView: View {
         case .solid:       return .solid
         case .building:    return .building
         case .calibrating: return .calibrating
-        }
-    }
-
-    /// Cohen's d → conventional magnitude word.
-    static func effectMagnitudeWord(_ d: Double) -> String {
-        switch abs(d) {
-        case ..<0.2: return String(localized: "negligible")
-        case ..<0.5: return String(localized: "small")
-        case ..<0.8: return String(localized: "moderate")
-        default:     return String(localized: "large")
-        }
-    }
-}
-
-private extension ScoreState {
-    /// VoiceOver-only certainty phrase for a mover row.
-    var accessibilityWord: String {
-        switch self {
-        case .solid:       return String(localized: "Solid signal.")
-        case .building:    return String(localized: "Building. Keep logging.")
-        case .calibrating: return String(localized: "Calibrating. Too thin to read yet.")
-        case .live:        return ""
         }
     }
 }
@@ -707,160 +428,58 @@ private struct DoseCurveChart: View {
 
 // MARK: - View-model
 //
-// Self-contained: loads the journal (behaviour → days), dose rows (under the dedicated
-// noop-journal-dose source), and the outcome series (imported metricSeries ∪ DailyMetric
-// fallback, exactly as InsightsView), then runs EffectRanker for the ranked feed and
-// DoseResponseEngine for each dosed behaviour the user has data for. No edits to AppModel.
+// Loads the shared InsightsReport (also used by Trends and the Coach) plus the alcohol/caffeine
+// dose series for the DoseResponseEngine cards.
 
 @MainActor
 final class InsightsHubViewModel: ObservableObject {
 
-    // MARK: Outcome
-
-    enum Outcome: String, CaseIterable, Identifiable {
-        case recovery, hrv, sleep, rhr
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .recovery: return String(localized: "Recovery")
-            case .hrv:      return "HRV"
-            case .sleep:    return String(localized: "Sleep")
-            case .rhr:      return "RHR"
-            }
-        }
-        /// metricSeries key.
-        var key: String {
-            switch self {
-            case .recovery: return "recovery"
-            case .hrv:      return "hrv"
-            case .sleep:    return "sleep_performance"
-            case .rhr:      return "rhr"
-            }
-        }
-        /// The engine's outcome label (carried onto each RankedEffect).
-        var outcomeName: String {
-            switch self {
-            case .recovery: return String(localized: "Recovery")
-            case .hrv:      return "HRV"
-            case .sleep:    return String(localized: "Sleep")
-            case .rhr:      return String(localized: "Resting HR")
-            }
-        }
-        var higherIsBetter: Bool { self != .rhr }
-        var domain: DomainTheme {
-            switch self {
-            case .recovery: return .charge
-            case .hrv, .sleep: return .rest
-            case .rhr: return .stress
-            }
-        }
-        func format(_ v: Double) -> String {
-            switch self {
-            case .recovery, .sleep: return "\(Int(v.rounded()))%"
-            case .hrv:              return "\(Int(v.rounded())) ms"
-            case .rhr:              return "\(Int(v.rounded())) bpm"
-            }
-        }
-    }
-
-    // MARK: Published state
-
     @Published private(set) var loaded = false
-    @Published private(set) var ranked: [RankedEffect] = []
+    @Published private(set) var report = InsightsReport.empty
     @Published private(set) var doseCards: [DoseCard] = []
-
-    // MARK: Loaded inputs (kept so the outcome segmented control can re-rank cheaply)
-
-    private var behaviours: [String: Set<String>] = [:]
-    private var controls: [String: Set<String>] = [:]
-    private var outcomeByKey: [String: [String: Double]] = [:]
-    private var currentOutcome: Outcome = .recovery
 
     /// The source id dose rows are parked under (mirrors MoodStore's noop-mood isolation).
     static let doseSource = "noop-journal-dose"
 
-    private let outcomeKeys = ["recovery", "hrv", "sleep_performance", "rhr"]
-
-    // MARK: Load
-
     func load(repo: Repository) async {
-        let mergedDays = repo.days
-
-        // Independent source reads start together. The previous loop serialized journal, four outcomes,
-        // and both dose series, making the whole-page loader wait on their summed latency.
+        async let reportLoad = InsightsLoader.load(repo: repo)
         async let entriesLoad = repo.journalEntries()
         async let recoveryLoad = repo.series(key: "recovery", source: "my-whoop")
         async let hrvLoad = repo.series(key: "hrv", source: "my-whoop")
-        async let sleepLoad = repo.series(key: "sleep_performance", source: "my-whoop")
-        async let rhrLoad = repo.series(key: "rhr", source: "my-whoop")
-        async let alcoholDoseLoad = repo.series(
-            key: Self.doseKey(for: .alcohol),
-            source: Self.doseSource
-        )
-        async let caffeineDoseLoad = repo.series(
-            key: Self.doseKey(for: .caffeine),
-            source: Self.doseSource
-        )
+        async let alcoholDoseLoad = repo.series(key: Self.doseKey(for: .alcohol), source: Self.doseSource)
+        async let caffeineDoseLoad = repo.series(key: Self.doseKey(for: .caffeine), source: Self.doseSource)
 
-        // Journal → behaviour → days (only "yes" answers count as the behaviour occurring).
-        let entries = await entriesLoad
-        var byBehaviour: [String: Set<String>] = [:]
-        var controlsByBehaviour: [String: Set<String>] = [:]
-        for e in entries {
-            if e.answeredYes {
-                byBehaviour[e.question, default: []].insert(e.day)
-            } else {
-                controlsByBehaviour[e.question, default: []].insert(e.day)
-            }
-        }
-
-        // Outcome series: imported metricSeries ∪ the DailyMetric column fallback so an
-        // account-free (strap-only) user still gets effects — the exact contract InsightsView uses.
-        let loadedOutcomes: [String: [(day: String, value: Double)]] = [
-            "recovery": await recoveryLoad,
-            "hrv": await hrvLoad,
-            "sleep_performance": await sleepLoad,
-            "rhr": await rhrLoad,
-        ]
+        let mergedDays = repo.days
         var byKey: [String: [String: Double]] = [:]
-        for key in outcomeKeys {
-            let s = loadedOutcomes[key] ?? []
+        let loadedOutcomes: [String: [(day: String, value: Double)]] = [
+            "recovery": await recoveryLoad, "hrv": await hrvLoad,
+        ]
+        for (key, rows) in loadedOutcomes {
             var dict: [String: Double] = [:]
-            for row in s { dict[row.day] = row.value }
+            for row in rows { dict[row.day] = row.value }
             for d in mergedDays where dict[d.day] == nil {
-                if let v = Self.dailyOutcome(key: key, day: d) { dict[d.day] = v }
+                let v: Double? = key == "recovery" ? d.recovery : d.avgHrv
+                if let v { dict[d.day] = v }
             }
             byKey[key] = dict
         }
 
-        // Dose rows per dosed behaviour, under the dedicated dose source, keyed by the
-        // behaviour's storage key. A logged "yes" with no dose row reads as dose = 1
-        // (back-compatible), so we union the behaviour's logged days at dose 1 with any
-        // explicit dose rows (explicit wins).
+        // A logged "yes" with no dose row reads as dose = 1; explicit dose rows win.
+        let entries = await entriesLoad
         let loadedDoses: [DosedBehavior: [(day: String, value: Double)]] = [
             .alcohol: await alcoholDoseLoad,
             .caffeine: await caffeineDoseLoad,
         ]
-        var doseByBehaviour: [DosedBehavior: [String: Int]] = [:]
-        for behavior in DosedBehavior.allCases {
-            let rows = loadedDoses[behavior] ?? []
-            var doses: [String: Int] = [:]
-            // Back-compat: any logged "yes" day for a matching journal question starts at dose 1.
-            for (question, days) in byBehaviour where Self.matches(behavior, question: question) {
-                for day in days { doses[day] = max(doses[day] ?? 0, 1) }
-            }
-            // Explicit dose rows override.
-            for row in rows { doses[row.day] = Int(row.value.rounded()) }
-            if !doses.isEmpty { doseByBehaviour[behavior] = doses }
-        }
-
-        // Build the dose cards from the engine (alcohol first, then caffeine).
         var cards: [DoseCard] = []
         for behavior in DosedBehavior.allCases {
-            guard let doses = doseByBehaviour[behavior] else { continue }
+            var doses: [String: Int] = [:]
+            for e in entries where e.answeredYes && Self.matches(behavior, question: e.question) {
+                doses[e.day] = max(doses[e.day] ?? 0, 1)
+            }
+            for row in loadedDoses[behavior] ?? [] { doses[row.day] = Int(row.value.rounded()) }
+            guard !doses.isEmpty else { continue }
             let outcomeName = DoseResponsePriors.defaultOutcome(for: behavior)
-            let outcomeKey = Self.outcomeKey(forEngineName: outcomeName)
-            let outcomeDays = byKey[outcomeKey] ?? [:]
+            let outcomeDays = byKey[Self.outcomeKey(forEngineName: outcomeName)] ?? [:]
             guard let response = DoseResponseEngine.estimate(behavior: behavior,
                                                              doseByDay: doses,
                                                              outcomeByDay: outcomeDays) else { continue }
@@ -868,66 +487,18 @@ final class InsightsHubViewModel: ObservableObject {
             cards.append(DoseCard(behavior: behavior, response: response, latestOutcome: latest))
         }
 
-        self.behaviours = byBehaviour
-        self.controls = controlsByBehaviour
-        self.outcomeByKey = byKey
+        self.report = await reportLoad
         self.doseCards = cards
         self.loaded = true
-        rankFor(currentOutcome)
     }
-
-    /// Re-rank the mover feed for a (possibly new) outcome selection — cheap, no DB.
-    func rankFor(_ outcome: Outcome) {
-        currentOutcome = outcome
-        let outcomeDays = outcomeByKey[outcome.key] ?? [:]
-        ranked = EffectRanker.rank(behaviors: behaviours,
-                                   controls: controls,
-                                   outcomeByDay: outcomeDays,
-                                   outcome: outcome.outcomeName)
-    }
-
-    /// Presentation-only combined feed using the same EffectRanker and stored series as
-    /// each individual outcome filter; no scores or persisted data are changed.
-    func rankAll() {
-        ranked = Outcome.allCases
-            .flatMap { outcome in
-                EffectRanker.rank(behaviors: behaviours,
-                                  controls: controls,
-                                  outcomeByDay: outcomeByKey[outcome.key] ?? [:],
-                                  outcome: outcome.outcomeName)
-            }
-            .sorted { lhs, rhs in
-                let left = abs(lhs.effect.cohensD)
-                let right = abs(rhs.effect.cohensD)
-                if left != right { return left > right }
-                if lhs.behavior != rhs.behavior { return lhs.behavior < rhs.behavior }
-                return lhs.outcome < rhs.outcome
-            }
-    }
-
-    func clearRanking() { ranked = [] }
 
     // MARK: Static shaping helpers
-
-    /// The merged DailyMetric column backing an outcome key (strap-only fallback). sleep_performance
-    /// has no daily column, so it stays import-only — never seeded here (matches InsightsView).
-    private static func dailyOutcome(key: String, day d: DailyMetric) -> Double? {
-        switch key {
-        case "recovery": return d.recovery
-        case "hrv":      return d.avgHrv
-        case "rhr":      return d.restingHr.map(Double.init)
-        default:         return nil
-        }
-    }
 
     /// The metricSeries key a DoseResponsePriors outcome NAME maps to ("Charge"→recovery, "HRV"→hrv).
     static func outcomeKey(forEngineName name: String) -> String {
         switch name {
-        case "Charge": return "recovery"
-        case "HRV":    return "hrv"
-        case "Rest", "Sleep": return "sleep_performance"
-        case "Resting HR": return "rhr"
-        default:       return "recovery"
+        case "HRV": return "hrv"
+        default:    return "recovery"
         }
     }
 
