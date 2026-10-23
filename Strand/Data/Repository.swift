@@ -2337,6 +2337,8 @@ final class Repository: ObservableObject {
     /// ORG-10: bumped by every journal write so screen caches can key on user-data changes that don't move
     /// `refreshSeq`. Not @Published: nothing re-renders on it.
     private(set) var dataVersion = 0
+    /// A narrowly scoped publication for Journal/Mood readers. Live sensor changes do not move it.
+    @Published private(set) var journalRevision = 0
 
     /// #833/v7.7.2 (Apple Health per-source freeze): macOS cold-mounts the NavigationSplitView detail on every
     /// sidebar switch (RootView keys it with `.id`), tearing down AppleHealthView's `@State` so its `load()`
@@ -4573,6 +4575,7 @@ final class Repository: ObservableObject {
         Task { @MainActor in await NotificationCoordinator.shared.reconcileSchedules() }
         insightsCache = nil
         dataVersion &+= 1
+        journalRevision &+= 1
     }
 
     /// Write one native NUMERIC answer (#322): stores the value AND answeredYes=true, so the existing

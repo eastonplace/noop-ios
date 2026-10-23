@@ -21,7 +21,7 @@ enum AppleDemoSeeder {
     /// Bump when the fixture shape changes. The simulator demo uses this in its
     /// database filename, so a newer fixture never gets trapped behind an older,
     /// partially-seeded database.
-    static let fixtureVersion = 4
+    static let fixtureVersion = 5
     /// The demo database is dated (and carries its Strain scenario, when one is asked for), so a seed is always
     /// relative to the day it runs: a database seeded on an earlier day would leave "today" empty and the history
     /// ending days ago.
@@ -451,6 +451,9 @@ enum AppleDemoSeeder {
         _ = try await store.upsertMetricSeries(series, deviceId: whoop)
         _ = try await store.upsertAppleDaily(appleRows, deviceId: apple)
         if !workouts.isEmpty { _ = try await store.upsertWorkouts(workouts, deviceId: whoop) }
+        // Explicit Yes and No answers laid out against the seeded recovery, enough for Coach's journal comparisons.
+        // The in-loop answers above stay (they keep the random stream, and so the rest of the seed, unchanged).
+        journal = AppleDemoJournalFixture.entries(days: daily.compactMap { row in row.recovery.map { (row.day, $0) } })
         if !journal.isEmpty { _ = try await store.upsertJournal(journal, deviceId: whoop) }
         NSLog("AppleDemoSeeder: seeded \(daily.count) days, \(workouts.count) workouts.")
     }

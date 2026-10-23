@@ -35,6 +35,8 @@ Staged combined release. Phone installation and publication remain on hold until
 
 CI work in PR76 removes duplicate package testing and selects checks by change type. It changes developer validation, not app behavior. Prior 1.8.x release history remains below.
 
+- **Journal in Coach:** capture reviewed notes and mood for a selected day, with explicit save/discard and source/date/consent checks. Notes and structured answers save atomically. Recovery association cards use bounded local history, distinguish missing data, and describe associations without claiming causes.
+
 - **Strap alarm confirmation (#69):** ordered WHOOP 4 writes and current-request readback confirm the wake time; missing confirmation ends with an explicit status.
 
 ## 1.8.1

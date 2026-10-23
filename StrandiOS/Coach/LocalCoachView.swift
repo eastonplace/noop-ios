@@ -2,6 +2,7 @@
 import SwiftUI
 import StrandDesign
 import PhotosUI
+import StrandAnalytics
 
 enum LocalCoachScreen: String, CaseIterable, Identifiable {
     case home, chat, plan, memory
@@ -25,8 +26,15 @@ struct LocalCoachView: View {
     @Environment(\.appHeaderChromeVisibility) private var chromeVisibility
     @Environment(\.dismiss) private var dismiss
     @StateObject private var voice = LocalCoachVoice()
+    @StateObject private var journal: CoachJournalSession
     @State private var screen: LocalCoachScreen
     @State private var composer = ""
+    @State private var composerMode: CoachComposerMode = .coach
+    @State private var journalDestination: CoachJournalDestination?
+    @State private var journalFollowUp: String?
+    @State private var journalPreparation: Task<Void, Never>?
+    @State private var journalPreparationID: UUID?
+    @State private var journalPreparing = false
     @State private var voicePrefix = ""
     @State private var dictating = false
     @State private var visible = false
@@ -47,8 +55,9 @@ struct LocalCoachView: View {
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(screen: LocalCoachScreen = .chat) {
+    init(screen: LocalCoachScreen = .chat, journalRepository: Repository? = nil) {
         _screen = State(initialValue: screen)
+        _journal = StateObject(wrappedValue: CoachJournalSession(repository: journalRepository))
     }
 
     var body: some View {
@@ -99,15 +108,35 @@ struct LocalCoachView: View {
         .collapsesForWorkoutJourney($showWorkouts)
         .photosPicker(isPresented: $showPhotos, selection: $photo, matching: .images)
         .sheet(isPresented: $showAttachment) { attachmentReview.noopSheetPresentation(largeFirst: true) }
-        .task { visible = true; consumeSiriDraft() }
+        .sheet(item: $journalDestination, onDismiss: journalSheetDismissed) { destination in
+            switch destination.content {
+            case .journal(let day):
+                CoachJournalSheet(repository: destination.repository, catalog: destination.catalog, day: day,
+                                  onDaySelected: journal.select, onChanged: journal.refresh,
+                                  onAskCoach: { journalFollowUp = $0 })
+                    .noopSheetPresentation(largeFirst: true)
+            case .entry(let presentation, let originalDraft, let importedQuestions):
+                JournalEntryComposer(catalog: destination.catalog, presentation: presentation,
+                                     importedQuestions: importedQuestions, currentDay: journal.day) {
+                    // Cancel or a failed save leaves the parent's original text intact. A successful
+                    // review must not erase newer text the person composed in the meantime.
+                    if let originalDraft, composer == originalDraft { composer = "" }
+                    journal.didSave()
+                }
+                .environmentObject(destination.repository)
+            }
+        }
+        .task { visible = true; configureJournal(); consumeSiriDraft() }
         .task(id: coach.recordContextID) { await coach.refresh() }
-        .onDisappear { visible = false; stopInputs() }
+        .onDisappear { visible = false; stopInputs(); journal.pause() }
         .onReceive(NotificationCenter.default.publisher(for: LocalCoachIntentBridge.notification)) { _ in consumeSiriDraft() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { consumeSiriDraft() } else { stopInputs() }
+            if phase == .active { configureJournal(); consumeSiriDraft() }
+            else { stopInputs(); journal.pause() }
         }
-        .onChange(of: coach.preferences) { _, _ in stopInputs() }
-        .onChange(of: coach.snapshot.sourceID) { _, _ in stopInputs() }
+        .onChange(of: coach.preferences) { _, _ in stopInputs(); configureJournal() }
+        .onChange(of: coach.snapshot.sourceID) { _, _ in stopInputs(); configureJournal() }
+        .onChange(of: coach.recordContextID) { _, _ in configureJournal() }
         .onChange(of: photo) { _, item in if let item { readPhoto(item) } }
         .onChange(of: voice.transcript) { _, text in if dictating { composer = voicePrefix + text } }
         .onChange(of: coach.isResponding) { old, current in
@@ -138,14 +167,15 @@ struct LocalCoachView: View {
                 progress: coach.responseProgress.stage, isPreview: coach.isPreview,
                 snapshot: coach.snapshot, hasConsent: coach.preferences.usePersonalData,
                 availability: availability, showsFollowUps: !composerFocused, onAsk: submit,
-                onEdit: { composer = $0; composerFocused = true },
+                onEdit: { composerMode = .coach; composer = $0; composerFocused = true },
                 onRetry: { Task { await coach.retryLatestAnswer() } },
                 onSpeak: { message in
                     guard coach.preferences.enabled, !coach.isPreview else { return }
                     voice.isSpeaking ? voice.stopSpeaking() : voice.speak(CoachAnswerExport.spokenText(for: message))
                 },
                 onStop: coach.cancel, onSettings: { showSettings = true },
-                onWorkouts: { showWorkouts = true }, onPlan: { showPlanBuilder = true })
+                onWorkouts: { showWorkouts = true }, onPlan: { showPlanBuilder = true },
+                journalWidget: journalWidget)
         case .home: overviewPage
         case .plan: LocalCoachPlanView(onBuild: { showPlanBuilder = true })
         case .memory: LocalCoachMemoryView()
@@ -302,11 +332,22 @@ struct LocalCoachView: View {
     /// History, a new thread and the menu as plain icons: no chip behind them, a 44pt tap area each.
     private var headerActions: some View {
         HStack(spacing: 0) {
+            if !coach.messages.isEmpty {
+                Button(action: openJournal) { headerIcon("book.closed") }
+                    .disabled(!journal.access.canUseManualJournal)
+                    .accessibilityLabel("Journal")
+                    .accessibilityIdentifier("coach.journal.accessButton")
+            }
             Button { showLibrary = true } label: { headerIcon("clock.arrow.circlepath") }
                 .accessibilityLabel("Conversation history").accessibilityIdentifier("coach.history")
             Button(action: newConversation) { headerIcon("square.and.pencil") }
                 .accessibilityLabel("New conversation").accessibilityIdentifier("coach.newConversation")
             Menu {
+                Button("Journal", systemImage: "book.closed", action: openJournal)
+                    .disabled(!journal.access.canUseManualJournal)
+                Button("Write a journal entry", systemImage: "square.and.pencil", action: enterJournalMode)
+                    .disabled(!journal.access.canUseManualJournal)
+                Divider()
                 Button("Daily overview", systemImage: "sun.horizon") { show(.home) }
                 Button("Your plan", systemImage: "figure.strengthtraining.traditional") { show(.plan) }
                 Button("About you", systemImage: "person.crop.circle") { show(.memory) }
@@ -336,7 +377,8 @@ struct LocalCoachView: View {
     }
 
     @ViewBuilder private var statusNote: some View {
-        if let error = inputError ?? voice.errorText ?? coach.errorText ?? LocalCoachIntentBridge.errorText {
+        if let error = inputError ?? voice.errorText
+            ?? (composerMode == .coach ? coach.errorText ?? LocalCoachIntentBridge.errorText : nil) {
             CoachNotice(error: error)
                 .padding(.horizontal, NoopMetrics.space5).padding(.vertical, NoopMetrics.space2)
                 .accessibilityIdentifier("coach.error")
@@ -344,7 +386,7 @@ struct LocalCoachView: View {
             CoachNotice(text: Text("Your records are updating. General chat is available."), tone: .info)
                 .padding(.horizontal, NoopMetrics.space5).padding(.vertical, NoopMetrics.space2)
                 .accessibilityIdentifier("coach.recordsUpdating")
-        } else if screen == .chat, !coach.messages.isEmpty, availability != .available {
+        } else if composerMode == .coach, screen == .chat, !coach.messages.isEmpty, availability != .available {
             // The new-chat page explains the state in its greeting; a thread that already has turns says it here.
             CoachNotice(text: Text(LocalizedStringKey(availability.title)),
                         tone: availability == .checking ? .info : .warning)
@@ -359,6 +401,23 @@ struct LocalCoachView: View {
     /// text and the controls sit on one centre line at every Dynamic Type size.
     private var composerView: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            if composerMode == .journal {
+                HStack {
+                    Label("Journal entry", systemImage: "book.closed")
+                        .font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.textSecondary)
+                    Spacer(minLength: NoopMetrics.space2)
+                    CoachTextButton("Ask Coach instead", tint: StrandPalette.textSecondary) {
+                        stopInputs(); composerMode = .coach
+                    }
+                    .accessibilityIdentifier("coach.journal.exitMode")
+                }
+                CoachJournalDayPicker(day: journal.day, onSelect: journal.select)
+                Text("You review it before anything is saved.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                if journalPreparing {
+                    ProgressView("Preparing journal review…").font(StrandFont.caption)
+                }
+            }
             if voice.isRecording || voice.isStarting {
                 Label(voice.isStarting ? "Preparing on-device dictation" : "Listening on this iPhone", systemImage: "waveform")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
@@ -372,7 +431,7 @@ struct LocalCoachView: View {
                 .foregroundStyle(StrandPalette.textSecondary)
                 .padding(.horizontal, NoopMetrics.space2)
             }
-            if visible && LocalCoachIntentBridge.hasPendingRequest {
+            if composerMode == .coach && visible && LocalCoachIntentBridge.hasPendingRequest {
                 Button("Load next Siri question", systemImage: "waveform", action: consumeSiriDraft)
                     .font(StrandFont.caption).frame(minHeight: 44)
                     .padding(.horizontal, NoopMetrics.space2)
@@ -380,12 +439,13 @@ struct LocalCoachView: View {
             }
             HStack(alignment: .bottom, spacing: 0) {
                 attachmentMenu
-                TextField(coach.messages.isEmpty ? "Ask Coach" : "Ask a follow-up", text: $composer, axis: .vertical)
+                TextField(composerMode == .journal ? "Write a journal entry"
+                          : coach.messages.isEmpty ? "Ask Coach" : "Ask a follow-up", text: $composer, axis: .vertical)
                     .coachFont(17, .regular, relativeTo: .body).lineLimit(1...6)
                     .padding(.vertical, CoachComposerRow.fieldPadding).padding(.horizontal, 4)
                     .frame(minHeight: CoachComposerRow.minHeight)
-                    .focused($composerFocused).submitLabel(.send)
-                    .onSubmit { if !coach.isResponding { submit(composer) } }
+                    .focused($composerFocused).submitLabel(composerMode == .journal ? .continue : .send)
+                    .onSubmit { if composerMode == .journal || !coach.isResponding { submitComposer() } }
                     .disabled(voice.isRecording || voice.isStarting)
                     .accessibilityIdentifier("coach.composer")
                 Button(action: toggleDictation) {
@@ -395,14 +455,17 @@ struct LocalCoachView: View {
                             .foregroundStyle(voice.isRecording ? StrandPalette.accent : StrandPalette.textSecondary)
                     }
                 }
-                .disabled(!coach.preferences.enabled || coach.isResponding)
-                .accessibilityLabel(voice.isRecording ? "Stop dictation" : "Dictate a question")
+                .disabled(coach.isPreview || journalPreparing
+                          || (composerMode == .journal ? !journal.access.canUseManualJournal
+                              : !coach.preferences.enabled || coach.isResponding))
+                .accessibilityLabel(voice.isRecording ? "Stop dictation"
+                                    : composerMode == .journal ? "Dictate a journal entry" : "Dictate a question")
                 .accessibilityIdentifier("coach.microphone")
                 Button {
-                    if coach.isResponding { coach.cancel() } else { submit(composer) }
+                    if composerMode == .coach && coach.isResponding { coach.cancel() } else { submitComposer() }
                 } label: {
                     CoachComposerSlot {
-                        Image(systemName: coach.isResponding ? "stop.fill" : "arrow.up")
+                        Image(systemName: composerMode == .journal ? "arrow.right" : coach.isResponding ? "stop.fill" : "arrow.up")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(canSend ? StrandPalette.onInk : StrandPalette.textTertiary)
                             .frame(width: 36, height: 36)
@@ -411,7 +474,8 @@ struct LocalCoachView: View {
                     }
                 }
                 .disabled(!canSend)
-                .accessibilityLabel(coach.isResponding ? "Stop response" : "Send message")
+                .accessibilityLabel(composerMode == .journal ? "Review journal entry"
+                                    : coach.isResponding ? "Stop response" : "Send message")
                 .accessibilityIdentifier("coach.send")
             }
             .padding(.horizontal, 5)
@@ -427,10 +491,21 @@ struct LocalCoachView: View {
         .background(StrandPalette.appCanvas)
     }
 
-    private var canSend: Bool { coach.isResponding || !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var canSend: Bool {
+        if composerMode == .journal {
+            return journal.access.canUseManualJournal && !journalPreparing
+                && !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return coach.isResponding || !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     private var attachmentMenu: some View {
         Menu {
+            Button("Write a journal entry", systemImage: "book.closed", action: enterJournalMode)
+                .disabled(!journal.access.canUseManualJournal)
+            Button("Full Journal", systemImage: "list.bullet", action: openJournal)
+                .disabled(!journal.access.canUseManualJournal)
+            Divider()
             Button("Build a workout", systemImage: "figure.strengthtraining.traditional") { showPlanBuilder = true }
             Button("Review my latest activity", systemImage: "figure.run") {
                 screen = .chat; Task { await coach.generateBrief(kind: .activity) }
@@ -451,6 +526,132 @@ struct LocalCoachView: View {
             }
         }
         .accessibilityLabel("Coach actions")
+    }
+
+    // MARK: Journal (explicit local capture; never a model write)
+
+    private var journalWidget: CoachJournalWidget {
+        CoachJournalWidget(day: journal.day, items: journal.quickItems,
+                           savedAnswers: journal.canRead ? journal.snapshot?.answers ?? [:] : [:],
+                           draftAnswers: $journal.draftAnswers,
+                           mood: journal.canRead ? journal.snapshot?.details.mood : nil,
+                           notePreview: journal.canRead ? journal.snapshot?.details.note : nil,
+                           isLoading: journal.isLoading, canRead: journal.canRead,
+                           isPreview: coach.isPreview, status: journal.status,
+                           onOpen: openJournal, onCompose: enterJournalMode,
+                           onReview: {
+                               presentJournalEntry(text: "", suggestions: journal.quickSuggestions, originalDraft: nil)
+                           },
+                           onInsights: { askAboutJournal() })
+    }
+
+    private func configureJournal() {
+        journal.configure(coachEnabled: coach.preferences.enabled,
+                          usesPersonalData: coach.preferences.usePersonalData,
+                          isPreview: coach.isPreview, active: visible && scenePhase == .active)
+    }
+
+    private func enterJournalMode() {
+        configureJournal()
+        guard journal.access.canUseManualJournal else {
+            inputError = coach.isPreview ? String(localized: "This preview cannot open or save personal journal records.")
+                : String(localized: "Journal is unavailable while your records are updating. Try again when the update finishes.")
+            return
+        }
+        stopInputs()
+        inputError = nil
+        composerMode = .journal
+        screen = .chat
+        composerFocused = true
+    }
+
+    private func openJournal() {
+        configureJournal()
+        guard let repository = journal.repository, let catalog = journal.manualCatalog() else { return }
+        stopInputs()
+        composerFocused = false
+        journalDestination = CoachJournalDestination(repository: repository, catalog: catalog,
+                                                       content: .journal(day: journal.day))
+    }
+
+    private func submitComposer() {
+        configureJournal()
+        switch CoachComposerRouting.destination(mode: composerMode, access: journal.access,
+                                                modelAvailable: coach.availability == .available) {
+        case .coach: submit(composer)
+        case .journalReview: presentJournalEntry(text: composer, suggestions: [], originalDraft: composer)
+        case .blocked:
+            if composerMode == .coach { submit(composer) }
+            else {
+                inputError = coach.isPreview ? String(localized: "This preview cannot save journal entries.")
+                    : String(localized: "Your journal is unavailable. Your entry is still here; try again when your records are ready.")
+            }
+        }
+    }
+
+    private func presentJournalEntry(text: String, suggestions: [JournalEntryParser.Suggestion], originalDraft: String?) {
+        configureJournal()
+        guard let repository = journal.repository, let catalog = journal.manualCatalog(), !journalPreparing else { return }
+        guard text.utf8.count <= JournalEntryParser.maximumInputBytes else {
+            inputError = String(localized: "This journal entry is too long. Shorten it before reviewing.")
+            return
+        }
+        stopInputs()
+        composerFocused = false
+        inputError = nil
+        let selectedDay = journal.day
+        let sourceIdentity = repository.journalEntrySourceIdentity
+        let request = UUID()
+        journalPreparationID = request
+        journalPreparing = true
+        // Explicit manual access also loads imported labels when Coach record consent is off. These
+        // values go only to the review sheet, never into the automatic widget or the model context.
+        journalPreparation = Task {
+            do {
+                let snapshot = try await repository.coachJournalSnapshot(day: selectedDay)
+                guard !Task.isCancelled, visible, !coach.isPreview, journalPreparationID == request,
+                      journal.day == selectedDay, snapshot.day == selectedDay,
+                      repository.journalEntrySourceIdentity == sourceIdentity,
+                      repository.journalEntrySourceContext == snapshot.sourceContext,
+                      !repository.verifiedExternalSurfaceFenced else {
+                    if journalPreparationID == request {
+                        journalPreparing = false
+                        journalPreparationID = nil
+                        inputError = String(localized: "The journal date or source changed. Your entry is still here; open review again.")
+                    }
+                    return
+                }
+                let presentation = JournalEntryPresentation(day: selectedDay, sourceIdentity: sourceIdentity,
+                                                            initialText: text, initialSuggestions: suggestions)
+                journalDestination = CoachJournalDestination(repository: repository, catalog: catalog,
+                    content: .entry(presentation, originalDraft: originalDraft, importedQuestions: snapshot.importedQuestions))
+                journalPreparing = false
+                journalPreparationID = nil
+                journalPreparation = nil
+            } catch {
+                guard journalPreparationID == request, !Task.isCancelled else { return }
+                journalPreparing = false
+                journalPreparationID = nil
+                journalPreparation = nil
+                inputError = (error as? LocalizedError)?.errorDescription
+                    ?? String(localized: "Your journal could not be loaded. Your entry is still here; try again.")
+            }
+        }
+    }
+
+    private func journalSheetDismissed() {
+        journal.reloadCatalog()
+        journal.refresh()
+        if let question = journalFollowUp {
+            journalFollowUp = nil
+            askAboutJournal(question)
+        }
+    }
+
+    private func askAboutJournal(_ question: String = CoachEvidencePolicy.journalPatternsPrompt) {
+        guard !coach.isPreview else { return }
+        guard coach.preferences.enabled, coach.preferences.usePersonalData else { showSettings = true; return }
+        submit(question)
     }
 
     private func newConversation() {
@@ -480,7 +681,7 @@ struct LocalCoachView: View {
         guard text.utf8.count <= 8_000 else { inputError = "This question is too long. Split it into smaller questions before sending."; return }
         inputError = nil
         dictating = false; voiceTask?.cancel(); voice.cancel()
-        let wasDraft = text == composer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wasDraft = composerMode == .coach && text == composer.trimmingCharacters(in: .whitespacesAndNewlines)
         if wasDraft { composer = "" }
         composerFocused = false
         screen = .chat
@@ -499,7 +700,7 @@ struct LocalCoachView: View {
     }
 
     private func consumeSiriDraft() {
-        guard visible, !coach.isPreview, !coach.isResponding, composer.isEmpty,
+        guard composerMode == .coach, visible, !coach.isPreview, !coach.isResponding, composer.isEmpty,
               !voice.isRecording, LocalCoachIntentBridge.hasPendingRequest,
               let question = LocalCoachIntentBridge.consume() else { return }
         screen = .chat; composer = question
@@ -508,6 +709,7 @@ struct LocalCoachView: View {
     private func stopInputs() {
         dictating = false; voiceTask?.cancel(); voiceTask = nil; voice.cancel()
         attachmentID = nil; attachmentTask?.cancel(); attachmentTask = nil; photo = nil
+        journalPreparationID = nil; journalPreparation?.cancel(); journalPreparation = nil; journalPreparing = false
     }
 
     private func readPhoto(_ item: PhotosPickerItem) {
@@ -552,6 +754,19 @@ struct LocalCoachView: View {
         }
         .coachSettingsSheetEnvironment()
     }
+}
+
+/// A route is created only after an explicit, preview-fenced Journal action. Captured dependencies
+/// keep sheet presentation non-optional without requiring a repository in Coach's isolated previews.
+private struct CoachJournalDestination: Identifiable {
+    enum Content {
+        case journal(day: String)
+        case entry(JournalEntryPresentation, originalDraft: String?, importedQuestions: [String])
+    }
+    let id = UUID()
+    let repository: Repository
+    let catalog: JournalCatalogStore
+    let content: Content
 }
 
 /// The composer's row. The pill is one row tall at rest: one line of the field's own text with 15pt above and below,

@@ -2,10 +2,10 @@ import XCTest
 
 @MainActor
 final class LocalCoachShellTests: XCTestCase {
-    func testComposerQuickActionsAndLiveReplyInFullTabShell() throws {
+    func testComposerQuickActionsAndStreamingReplyInFullTabShell() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--noop-coach-shell-qa", "--demo-tab", "coach", "-AppleInterfaceStyle", "Dark"]
+        app.launchArguments = ["--noop-coach-shell-qa", "--noop-coach-shell-fixture", "--demo-tab", "coach", "-AppleInterfaceStyle", "Dark"]
         app.launch()
         let coachTab = app.buttons["app.tab.4"]
         XCTAssertTrue(coachTab.waitForExistence(timeout: 30))
@@ -32,8 +32,12 @@ final class LocalCoachShellTests: XCTestCase {
         capture(app, "03-keyboard-and-composer")
         app.buttons["coach.send"].tap()
         XCTAssertTrue(app.buttons["Read aloud"].waitForExistence(timeout: 90), app.debugDescription)
+        // Native fixture tests prove cumulative callbacks; this shell test proves their final rendering.
+        XCTAssertTrue(app.staticTexts["READY"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "coach.error").firstMatch.exists)
+        XCTAssertFalse(app.buttons["coach.retry"].exists)
         XCTAssertFalse(app.staticTexts["The data source changed. The previous operation was stopped."].exists)
-        capture(app, "04-live-model-reply")
+        capture(app, "04-streaming-fixture-reply")
     }
 
     private func capture(_ app: XCUIApplication, _ name: String) {

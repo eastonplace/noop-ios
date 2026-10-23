@@ -45,6 +45,43 @@ final class CoachExperiencePolicyTests: XCTestCase {
         }
     }
 
+    func testJournalAssociationPromptsAcceptNinetyDays() {
+        let f = DateFormatter(); f.calendar = calendar; f.timeZone = calendar.timeZone
+        f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
+        let end = calendar.startOfDay(for: now)
+        let start = calendar.date(byAdding: .day, value: -89, to: end)!
+        let prompts = [
+            CoachEvidencePolicy.journalPatternsPrompt,
+            "Explain the recorded journal association for my explicitly logged habits from \(f.string(from: start)) through \(f.string(from: end)). Distinguish association from causation.",
+            "Explain the recorded journal association for the logged habit “Food after 8pm” from \(f.string(from: start)) through \(f.string(from: end)).",
+        ]
+        for prompt in prompts {
+            XCTAssertEqual(CoachEvidencePolicy.plan(for: prompt, now: now, calendar: calendar),
+                           .read(tool: "journal_associations", days: 90), prompt)
+        }
+    }
+
+    func testJournalAssociationIsStillBoundedAtNinetyDays() {
+        for question in ["What associations do my journal entries have with recovery over the last 120 days?",
+                         "Show my journal associations over 4 months"] {
+            XCTAssertEqual(CoachEvidencePolicy.plan(for: question, now: now, calendar: calendar), .needsNarrowerRange, question)
+        }
+    }
+
+    func testOtherIntentsKeepTheThirtyOneDayCapAtNinetyDays() {
+        for question in ["Show my recovery trends over the last 90 days", "Show my sleep over 90 days",
+                         "Show my workouts over the last 90 days", "How is my nutrition over 90 days?",
+                         "Show my training load over 90 days"] {
+            XCTAssertEqual(CoachEvidencePolicy.plan(for: question, now: now, calendar: calendar), .needsNarrowerRange, question)
+        }
+        XCTAssertEqual(CoachEvidencePolicy.maximumDays(for: "metric_trends"), 31)
+        XCTAssertEqual(CoachEvidencePolicy.maximumDays(for: "journal_associations"), 90)
+    }
+
+    func testRangeExplanationIsOnePlainSentence() {
+        XCTAssertEqual(CoachEvidencePolicy.rangeExplanation, "Coach can look at up to 31 days at a time. Try a shorter range.")
+    }
+
     func testAgeIsNotTreatedAsAReadWindow() {
         XCTAssertEqual(CoachEvidencePolicy.plan(for: "I'm 40 years old, should I train today?", now: now, calendar: calendar),
                        .read(tool: "workout_history", days: 1))

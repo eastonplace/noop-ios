@@ -27,7 +27,7 @@ public enum ReviewedJournalSaveError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .invalidChange: return "Check the journal date and values, then review the entry again."
-        case .changedSinceReview: return "An answer changed after this review. Review the entry again to see the current values before saving."
+        case .changedSinceReview: return "An answer, note, or mood changed after this review. Review the entry again to see the current values before saving."
         case .databaseChanged: return "The journal database changed. Open a new entry and review it before saving."
         }
     }
@@ -35,18 +35,27 @@ public enum ReviewedJournalSaveError: Error, LocalizedError, Equatable {
 
 extension WhoopStore {
     /// Compare and write one reviewed wake day in one transaction. The namespace is intentionally
-    /// fixed: imported answers cannot be edited through this API. No row is deleted, and only the
-    /// explicitly included keys are changed. A conflict rolls back the complete batch.
+    /// fixed: imported answers cannot be edited through this API. Only included answer keys are
+    /// changed, with their notes preserved. Optional, explicitly reviewed day details are saved in
+    /// this same transaction; empty note/nil mood clears only those native day-detail rows.
+    /// A conflict or write failure rolls back the complete batch.
     @discardableResult
-    public func saveReviewedJournal(_ changes: [ReviewedJournalChange], expectedDatabaseInstanceId: String) async throws -> Int {
+    public func saveReviewedJournal(_ changes: [ReviewedJournalChange], expectedDatabaseInstanceId: String,
+                                    dayDetails: ReviewedJournalDayDetailsChange? = nil) async throws -> Int {
         try Task.checkCancellation()
-        guard let first = changes.first, changes.count <= 256,
-              Self.validReviewedJournalDay(first.day),
+        guard let day = changes.first?.day ?? dayDetails?.day, changes.count <= 256,
+              Self.isValidJournalDay(day),
               Set(changes.map(\.question)).count == changes.count else {
             throw ReviewedJournalSaveError.invalidChange
         }
+        if let dayDetails {
+            guard dayDetails.day == day, dayDetails.expected.day == day,
+                  ReviewedJournalDayDetailsChange.isValid(note: dayDetails.note, mood: dayDetails.mood) else {
+                throw ReviewedJournalSaveError.invalidChange
+            }
+        }
         for change in changes {
-            guard change.day == first.day,
+            guard change.day == day,
                   !change.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   change.question.utf8.count <= 1_000,
                   !change.question.contains("\0"),
@@ -76,6 +85,10 @@ extension WhoopStore {
                 }
                 guard current == change.expected else { throw ReviewedJournalSaveError.changedSinceReview }
             }
+            if let dayDetails {
+                let current = try Self.journalDayDetails(day: day, in: db)
+                guard current == dayDetails.expected else { throw ReviewedJournalSaveError.changedSinceReview }
+            }
             try Task.checkCancellation()
             var count = 0
             for change in changes {
@@ -89,11 +102,13 @@ extension WhoopStore {
                                      change.expected?.notes, change.numericValue])
                 count += db.changesCount
             }
+            if let dayDetails { count += try Self.saveJournalDayDetails(dayDetails, in: db) }
             return count
         }
     }
 
-    private static func validReviewedJournalDay(_ day: String) -> Bool {
+    /// Exact Gregorian civil-day key accepted by both the read/review and save boundaries.
+    public static func isValidJournalDay(_ day: String) -> Bool {
         guard day.utf8.count == 10,
               day.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else { return false }
         let formatter = DateFormatter()

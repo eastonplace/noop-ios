@@ -230,6 +230,13 @@ final class LocalCoachEngine: ObservableObject {
             settingsReadable = false
             stateReadable = false
         }
+        #if DEBUG
+        // In memory only, before `initialized`; hydration reapplies this override without saving it.
+        if !isPreview, CoachJournalDemo.requested {
+            preferences.enabled = true
+            preferences.usePersonalData = true
+        }
+        #endif
         initialized = true
         persistenceWriter?.reportError = { [weak self] message, sourceID in
             guard let self, sourceID == nil || sourceID == self.scope.storageID else { return }
@@ -294,6 +301,12 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     static func makeModel() -> (any LocalCoachModelDriver)? {
+        #if DEBUG && targetEnvironment(simulator) && os(iOS)
+        if CoachShellFixture.isRequested() { return CoachShellFixtureModelDriver() }
+        #endif
+        #if DEBUG
+        if CoachJournalDemo.requested { return CoachJournalDemoModelDriver() }
+        #endif
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) { return AppleLocalCoachModelDriver() }
         #endif
@@ -782,7 +795,8 @@ final class LocalCoachEngine: ObservableObject {
         guard let data, data.toolDescriptors.contains(where: { $0.id == name }) else { throw LocalCoachFailure.unknownTool }
         guard readCount < 3 else { throw LocalCoachFailure.toolBudget }
         readCount += 1
-        publishProgress(.reading(tool: name, days: min(31, max(1, days))), token: token)
+        let boundedDays = min(CoachEvidencePolicy.maximumDays(for: name), max(1, days))
+        publishProgress(.reading(tool: name, days: boundedDays), token: token)
         runningTools[name, default: 0] += 1
         activeTools = runningTools.keys.sorted()
         if let index = messages.firstIndex(where: { $0.id == assistantID }), !messages[index].toolNames.contains(name) {
@@ -795,7 +809,7 @@ final class LocalCoachEngine: ObservableObject {
                 activeTools = runningTools.keys.sorted()
             }
         }
-        let result = try await data.query(name, query: LocalCoachText.bounded(query, bytes: 240), days: min(31, max(1, days)))
+        let result = try await data.query(name, query: LocalCoachText.bounded(query, bytes: 240), days: boundedDays)
         try requireCurrent(token, scope: captured, personal: personal)
         let evidence = Array(result.evidence.prefix(24)).map { value in
             var value = value
@@ -1026,6 +1040,14 @@ final class LocalCoachEngine: ObservableObject {
             if let settings {
                 switch settings {
                 case .success(var loaded):
+                    #if DEBUG
+                    // Preserve the simulator demo after asynchronous settings hydration. Treat the
+                    // override as loaded state so it never becomes a queued preference write.
+                    if CoachJournalDemo.requested {
+                        loaded.enabled = true
+                        loaded.usePersonalData = true
+                    }
+                    #endif
                     loadedPreferences = loaded
                     if self.preferenceEdits.contains("enabled") { loaded.enabled = editedPreferences.enabled }
                     if self.preferenceEdits.contains("usePersonalData") { loaded.usePersonalData = editedPreferences.usePersonalData }

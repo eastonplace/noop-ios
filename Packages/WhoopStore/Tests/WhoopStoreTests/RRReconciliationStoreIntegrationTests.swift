@@ -124,11 +124,11 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
                 XCTAssertEqual(row["tsSuspect"] as Int?, 1)
                 try MigrationPreservationFixture.assertNotificationTablesEmpty(db)
                 let identifiers = try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY rowid")
-                XCTAssertEqual(Array(identifiers.suffix(3)), [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier])
+                XCTAssertEqual(Array(identifiers.suffix(4)), [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier, JournalDayNoteMigration.identifier])
                 XCTAssertEqual(Set(identifiers).count, identifiers.count)
             }
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 62)
     }
 
     func testCurrentMigratorUpgradesV59WithoutChangingStrengthStateOrRawRR() throws {
@@ -164,10 +164,10 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
                     """).map { $0["tsSuspect"] as Int? }
                 XCTAssertEqual(annotations, [1, 1, 1, nil])
                 let identifiers = try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY rowid")
-                for identifier in [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier] {
+                for identifier in [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier, JournalDayNoteMigration.identifier] {
                     XCTAssertEqual(identifiers.filter { $0 == identifier }.count, 1, identifier)
                 }
-                XCTAssertEqual(Array(identifiers.suffix(3)), [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier])
+                XCTAssertEqual(Array(identifiers.suffix(4)), [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier, JournalDayNoteMigration.identifier])
                 try MigrationPreservationFixture.assertNotificationTablesEmpty(db)
                 return identifiers
             }
@@ -177,7 +177,7 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
                 firstMigrationIDs = identifiers
             }
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 62)
     }
 }
 

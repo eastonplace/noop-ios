@@ -73,8 +73,13 @@ extension Repository {
     func saveMood(day: String, value: Int) async {
         guard MoodStore.scale.contains(value),
               let store = await storeHandle() else { return }
-        _ = try? await store.upsertMetricSeries(
-            [MetricPoint(day: day, key: MoodStore.moodKey, value: Double(value))],
-            deviceId: MoodStore.moodDeviceId)
+        do {
+            _ = try await store.upsertMetricSeries(
+                [MetricPoint(day: day, key: MoodStore.moodKey, value: Double(value))],
+                deviceId: MoodStore.moodDeviceId)
+            journalDidChange()
+        } catch {
+            // Do not announce a successful change when persistence failed.
+        }
     }
 }
