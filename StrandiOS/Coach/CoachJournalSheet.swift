@@ -163,12 +163,13 @@ struct CoachJournalSheet: View {
         let recent = await repository.journalEntries(days: 60)
         guard !Task.isCancelled, session.snapshot == snapshot, catalog.items == catalogItems else { return }
         loggedDays = Set(recent.map(\.day))
-        log.writer = writer
-        log.seed(day: snapshot.day, tiles: JournalQuickLogTile.tiles(from: items, active: active),
+        log.seed(day: snapshot.day, sourceContext: snapshot.sourceContext,
+                 tiles: JournalQuickLogTile.tiles(from: items, active: active),
                  native: .init(answers: snapshot.answers, numeric: snapshot.numericAnswers),
                  imported: .init(answers: snapshot.importedAnswers, numeric: snapshot.importedNumeric),
                  earlier: JournalQuickLog.merged(native: earlier.native, imported: earlier.imported),
                  epoch: epoch)
+        log.writer = writer
     }
 
     /// Writes honour consent and the source check at the moment of the tap and again as each answer is stored, then

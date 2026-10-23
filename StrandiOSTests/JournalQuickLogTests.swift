@@ -279,7 +279,7 @@ final class JournalQuickLogModelTests: XCTestCase {
         let recorder = Recorder()
         let model = model(recorder: recorder)
         let tiles = tiles()
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
         model.tap(plain(tiles))
         XCTAssertEqual(model.state(of: plain(tiles)), .yes)
         XCTAssertEqual(model.answeredCount, 1)
@@ -298,7 +298,7 @@ final class JournalQuickLogModelTests: XCTestCase {
         let model = model(recorder: recorder)
         let tiles = tiles()
         let alcohol = tiles.first { $0.amount != nil }!
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
         model.tap(alcohol)
         model.tap(alcohol)
         XCTAssertEqual(model.state(of: alcohol), .amount(2))
@@ -314,7 +314,7 @@ final class JournalQuickLogModelTests: XCTestCase {
         let recorder = Recorder()
         let model = model(recorder: recorder)
         let tiles = tiles()
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(),
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(),
                    imported: .init(answers: ["Did you read before bed?": true]), earlier: .init(), epoch: 0)
         XCTAssertEqual(model.answeredCount, 1, "The import counts as answered")
         XCTAssertEqual(model.state(of: plain(tiles)), .yes)
@@ -329,7 +329,7 @@ final class JournalQuickLogModelTests: XCTestCase {
         let recorder = Recorder()
         let model = model(recorder: recorder)
         let tiles = tiles()
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
         model.tap(plain(tiles))
         XCTAssertFalse(model.isComplete)
         XCTAssertEqual(model.markRestWrites.count, 1)
@@ -344,7 +344,7 @@ final class JournalQuickLogModelTests: XCTestCase {
         let recorder = Recorder()
         let model = model(recorder: recorder, canWrite: false)
         let tiles = tiles()
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
         model.tap(plain(tiles))
         XCTAssertEqual(model.state(of: plain(tiles)), .unanswered)
         XCTAssertTrue(recorder.saved.isEmpty)
@@ -354,10 +354,10 @@ final class JournalQuickLogModelTests: XCTestCase {
         let recorder = Recorder()
         let model = model(recorder: recorder)
         let tiles = tiles()
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
         let staleEpoch = model.changeEpoch
         model.tap(plain(tiles))
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: staleEpoch)
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: staleEpoch)
         XCTAssertEqual(model.state(of: plain(tiles)), .yes, "The older, blank read is dropped")
     }
 
@@ -375,15 +375,15 @@ final class JournalQuickLogModelTests: XCTestCase {
                 }
                 saved.append(write)
             }, clear: { _, _ in }, canWrite: { true }, didWrite: {})
-            model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+            model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
             model.markRest()
             for _ in 0..<1000 where release == nil { try? await Task.sleep(for: .milliseconds(1)) }
             XCTAssertNotNil(release)
             if returnToDay {
                 model.reset()
-                model.seed(day: "2026-10-21", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+                model.seed(day: "2026-10-21", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
                 model.reset()
-                model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+                model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
             }
             let alcohol = tiles.first { $0.amount != nil }!
             model.set(alcohol, yes: true)
@@ -396,6 +396,48 @@ final class JournalQuickLogModelTests: XCTestCase {
         }
     }
 
+    func testSameDaySourceChangeClearsOldOptimisticAnswerBeforeBlockedWriteCompletes() async {
+        let model = JournalQuickLogModel()
+        let tiles = tiles()
+        let tile = plain(tiles)
+        var sourceContext = "store-A"
+        let oldContext = sourceContext
+        var release: CheckedContinuation<Void, Never>?
+        var oldFinished = false
+        var revision = 0
+        var oldCompletions = 0
+        var newAnswers: [JournalQuickLog.Write] = []
+        model.writer = .init(save: { _, _ in
+            await withCheckedContinuation { release = $0 }
+            if sourceContext == oldContext { revision += 1 }
+            oldFinished = true
+        }, clear: { _, _ in }, canWrite: { sourceContext == oldContext },
+                             didWrite: { oldCompletions += 1 })
+        model.seed(day: "2026-10-22", sourceContext: oldContext, tiles: tiles,
+                   native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.tap(tile)
+        for _ in 0..<1000 where release == nil { try? await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertNotNil(release)
+        XCTAssertEqual(model.state(of: tile), .yes)
+        sourceContext = "store-B"
+        model.writer = .init(save: { _, write in newAnswers.append(write); revision += 1 },
+                             clear: { _, _ in }, canWrite: { true }, didWrite: {})
+        model.seed(day: "2026-10-22", sourceContext: sourceContext, tiles: tiles,
+                   native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+        XCTAssertEqual(model.state(of: tile), .unanswered, "An old source's in-flight count must not block replacement values")
+        XCTAssertEqual(model.sourceContext, "store-B")
+        release?.resume()
+        for _ in 0..<1000 where !oldFinished { try? await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertTrue(oldFinished)
+        XCTAssertEqual(revision, 0, "The old write was rejected after the source changed")
+        XCTAssertEqual(oldCompletions, 0, "The old completion cannot publish into the replacement source")
+        XCTAssertEqual(model.state(of: tile), .unanswered, "The replacement must stay blank without another revision")
+        model.tap(tile)
+        for _ in 0..<1000 where newAnswers.isEmpty { try? await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertEqual(newAnswers, [.answer(question: "Did you read before bed?", yes: true)])
+        XCTAssertEqual(model.state(of: tile), .yes)
+    }
+
     func testAcceptedBulkAnswersFinishAfterResetWithoutPublishingOldCompletion() async {
         let model = JournalQuickLogModel()
         let tiles = tiles()
@@ -406,12 +448,12 @@ final class JournalQuickLogModelTests: XCTestCase {
             saved.append((day, write))
             if saved.count == 1 { await withCheckedContinuation { release = $0 } }
         }, clear: { _, _ in }, canWrite: { true }, didWrite: { oldCompletions += 1 })
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
         model.markRest()
         for _ in 0..<1000 where release == nil { try? await Task.sleep(for: .milliseconds(1)) }
         XCTAssertNotNil(release, "The first write must be suspended before switching days")
         model.reset()
-        model.seed(day: "2026-10-21", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
+        model.seed(day: "2026-10-21", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: model.changeEpoch)
         var replacementWrites = 0
         model.writer = .init(save: { _, _ in replacementWrites += 1 }, clear: { _, _ in },
                              canWrite: { true }, didWrite: { oldCompletions += 1 })
@@ -431,14 +473,14 @@ final class JournalQuickLogModelTests: XCTestCase {
         let recorder = Recorder()
         let model = model(recorder: recorder)
         let tiles = tiles()
-        model.seed(day: "2026-10-22", tiles: tiles, native: .init(answers: ["Did you read before bed?": true]),
+        model.seed(day: "2026-10-22", sourceContext: "store-A", tiles: tiles, native: .init(answers: ["Did you read before bed?": true]),
                    imported: .init(), earlier: .init(), epoch: 0)
         model.reset()
         XCTAssertNil(model.dayKey)
         XCTAssertEqual(model.answeredCount, 0)
         model.tap(plain(tiles))
         XCTAssertTrue(recorder.saved.isEmpty, "Nothing is stored while the day is loading")
-        model.seed(day: "2026-10-21", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
+        model.seed(day: "2026-10-21", sourceContext: "store-A", tiles: tiles, native: .init(), imported: .init(), earlier: .init(), epoch: 0)
         XCTAssertEqual(model.dayKey, "2026-10-21")
         XCTAssertEqual(model.answeredCount, 0)
     }
