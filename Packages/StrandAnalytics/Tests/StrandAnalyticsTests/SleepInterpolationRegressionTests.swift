@@ -5,9 +5,12 @@ final class SleepInterpolationRegressionTests: XCTestCase {
     func testSparseHRMatchesPreviousAlgorithmBitForBit() {
         for count in [0, 1, 10, 240, 960, 2_880] {
             for spacing in [1, 2, 7, 31] {
-                let input: [Double] = (0..<count).map { i in
-                    i % spacing == 0 && i > 3 && i < count - 3
-                        ? 50.0 + Double((i * 13) % 31) / 7.0 : Double.nan
+                let input: [Double] = (0..<count).map { (i: Int) -> Double in
+                    guard i % spacing == 0, i > 3, i < count - 3 else { return Double.nan }
+                    let scaledIndex: Int = i * 13
+                    let remainder: Int = scaledIndex % 31
+                    let offset: Double = Double(remainder) / 7.0
+                    return 50.0 + offset
                 }
                 XCTAssertEqual(SleepStager.dogHRVariability(input).map(\.bitPattern),
                                reference(input).map(\.bitPattern), "count=\(count) spacing=\(spacing)")
