@@ -19,9 +19,8 @@ extension TrendsView {
 
     private func paperWeekReview(_ snapshot: TrendsScreenSnapshot) -> some View {
         let digest = snapshot.weeklyDigest
-        let reviewLines = paperReviewLines(digest)
         let movers = paperMoverRows(digest)
-        let insight = paperInsight(digest, reviewLines: reviewLines)
+        let reviewLines = paperHighlightLines(digest)
 
         return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow(
@@ -89,18 +88,6 @@ extension TrendsView {
                     .foregroundStyle(StrandPalette.textTertiary)
                     .padding(.top, NoopMetrics.space1)
                 }
-            }
-            .padding(.top, NoopMetrics.space1)
-
-            WidgetCard(
-                title: insight.fromCoach ? String(localized: "Coach insight") : String(localized: "Insight"),
-                systemImage: "sparkles",
-                tint: .accent
-            ) {
-                Text(insight.text)
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, NoopMetrics.space1)
         }
@@ -191,6 +178,15 @@ extension TrendsView {
     private func paperReviewLines(_ digest: WeeklyDigest) -> [String] {
         WeeklyDigestEngine.highlightLines(
             for: digest, effortDisplayFactor: UnitPrefs.currentEffortDisplayFactor())
+    }
+
+    /// The week's highlights, plus the takeaway as one more plain line: the on-device Coach's when it
+    /// has written one for this week, else the rule-based line unless a highlight already says it.
+    private func paperHighlightLines(_ digest: WeeklyDigest) -> [String] {
+        let lines = paperReviewLines(digest)
+        let takeaway = paperInsight(digest, reviewLines: lines).text
+        guard !takeaway.isEmpty, !lines.contains(takeaway) else { return lines }
+        return lines + [takeaway]
     }
 
     /// The on-device Coach's takeaway for the displayed week when it has written one, else a deterministic
