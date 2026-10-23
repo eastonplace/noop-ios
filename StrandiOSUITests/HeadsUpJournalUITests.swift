@@ -209,13 +209,11 @@ final class HeadsUpJournalUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
-    /// The name is right aligned. Tap its trailing edge to place the caret after the text, then verify each edit.
+    /// Select the whole value with the iOS-supported keyboard shortcut; edge taps do not reliably place the caret.
     private func replaceText(in field: XCUIElement, with replacement: String, app: XCUIApplication) throws {
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
-        let current = field.value as? String ?? ""
-        if !current.isEmpty {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
-        }
+        field.tap()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(XCUIKeyboardKey.delete.rawValue)
         // XCTest can expose the placeholder as the value of an empty field.
         try waitFor(field, predicate: "value == '' OR value == nil OR value == placeholderValue", in: app)
         field.typeText(replacement)
