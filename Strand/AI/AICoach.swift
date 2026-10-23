@@ -569,39 +569,19 @@ final class AICoachEngine: ObservableObject {
     }
 
     /// A SUMMARY-ONLY block of the new on-device signals, the user's strongest n-of-1 correlations
-    /// (lag-aware EffectRanker) and a one-line roll-up of their Lab Book markers. Plain sentences, never
+    /// (the shared InsightsReport) and a one-line roll-up of their Lab Book markers. Plain sentences, never
     /// raw readings: this rides the same text channel as the metrics summary, so the no-raw-egress posture
     /// holds. Gated by the caller on the second opt-in; returns "" when there's nothing worth adding.
     func onDeviceSignalsBlock() async -> String {
         var lines: [String] = []
 
-        // 1. Strongest behaviour→outcome associations (EffectRanker over the journal × Charge).
-        let entries = await repo.journalEntries()
-        var byBehaviour: [String: Set<String>] = [:]
-        var controls: [String: Set<String>] = [:]
-        for e in entries {
-            if e.answeredYes {
-                byBehaviour[e.question, default: []].insert(e.day)
-            } else {
-                controls[e.question, default: []].insert(e.day)
-            }
-        }
-        if !byBehaviour.isEmpty {
-            let outcomeByDay = Dictionary(
-                repo.canonicalDays.compactMap { d in d.recovery.map { (d.day, $0) } },
-                uniquingKeysWith: { _, last in last })
-            let ranked = EffectRanker.rank(
-                behaviors: byBehaviour,
-                controls: controls,
-                outcomeByDay: outcomeByDay,
-                outcome: "Charge"
-            )
-                .filter { $0.effect.significant }
-                .prefix(3)
-            if !ranked.isEmpty {
-                lines.append("STRONGEST PERSONAL PATTERNS (the user's own data — association, not cause):")
-                for r in ranked { lines.append("  • " + r.sentence()) }
-            }
+        // 1. Strongest personal patterns: the same InsightsReport Trends and the Insights page show
+        //    (automatic factors from the wearable plus Journal answers, family-corrected).
+        let report = await InsightsLoader.load(repo: repo)
+        let top = report.significant.prefix(3)
+        if !top.isEmpty {
+            lines.append("STRONGEST PERSONAL PATTERNS (the user's own data — association, not cause):")
+            for row in top { lines.append("  • " + Self.coachPatternLine(row)) }
         }
 
         // 2. Lab Book markers roll-up (count + latest of a few, never the full history).
@@ -625,6 +605,14 @@ final class AICoachEngine: ObservableObject {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    /// One pattern line for the coach prompt: the plain sentence plus its with/without averages
+    /// and day counts, so the model can quote real numbers.
+    static func coachPatternLine(_ row: InsightRow) -> String {
+        let e = row.effect.effect
+        return "\(row.sentence) (\(row.withLabel) \(row.outcome.format(e.meanWith)) vs \(row.withoutLabel) "
+            + "\(row.outcome.format(e.meanWithout)), \(row.countsText), \(row.source.label.lowercased()))"
     }
 
     /// Dispatch to the user's chosen provider client.
