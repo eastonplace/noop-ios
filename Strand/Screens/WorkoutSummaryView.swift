@@ -37,6 +37,11 @@ struct WorkoutSummaryView: View {
     @State private var loaded: Loaded?
     @State private var usualStored: Double?
     @State private var showsDetails = false
+    @State private var reloadRevision = 0
+    private struct LoadIdentity: Equatable {
+        let refreshSequence: Int
+        let reloadRevision: Int
+    }
     /// How far the page has scrolled under the header, as the opacity of the fade below it (0 at rest, so the top figure is never
     /// dimmed; 1 once it has scrolled a little), and the position the content rests at, which it is measured against.
     @State private var topFadeOpacity: CGFloat = 0
@@ -102,11 +107,13 @@ struct WorkoutSummaryView: View {
         }
         // The row is read again whenever the store changes (a rescore after the save can change the strain, the energy and the
         // heart rate), and when Details closes, so what this page says is never behind what Details just showed.
-        .task(id: repo.refreshSeq) { await load() }
+        .task(id: LoadIdentity(refreshSequence: repo.refreshSeq, reloadRevision: reloadRevision)) { await load() }
     }
 
     private func reload() {
-        Task { await load() }
+        // Reuse the view's task so a later refresh or dismissal cancels the previous read.
+        // An independent Task here can otherwise outlive the screen and replace a newer result.
+        reloadRevision &+= 1
     }
 
     // MARK: Header

@@ -2,7 +2,7 @@
   "reviewed_at_utc": "2026-10-23T14:30:19.339630+00:00",
   "base_commit": "a7ade2598d439d33cd20816d69ccc991b29322fc",
   "branch": "audit/noop-2-release-hardening-20261023",
-  "scope": "Changed production/test Swift, privacy manifests, project/release metadata, reviewed QA callback harness, workout benchmark and calendar reproduction script. Current supplementary documentation hashes are recorded in documentation_followup; earlier metadata hashes remain dated historical evidence.",
+  "scope": "Changed production/test Swift, privacy manifests, project/release metadata, reviewed QA callback harness, workout benchmark and calendar reproduction script. Earlier file and documentation hashes remain dated evidence. The integration_followup.reviewed_file_overrides entries supersede matching earlier file hashes for the current-main reconciliation.",
   "unresolved_confirmed_findings": 1,
   "independent_findings_resolved": [
     "R1 per-attempt Coach request admission",
@@ -294,7 +294,7 @@
     "native_validation_status": "unchanged; no native result inferred or added by metadata review",
     "unresolved_confirmed_findings": 0
   },
-  "qualification_status": "blocked pending corrected final-head native/UI gates, resolution and qualification of inherited P1 F16, and the combined candidate release gates",
+  "qualification_status": "NO-GO for release: current-main integration needs fresh exact-head native/UI/package and aggregate-gate qualification; inherited P1 F16, complete-batch integration and physical-device gates remain unresolved.",
   "native_fixture_followup": {
     "reviewed_at_utc": "2026-10-23T15:16:20.543091+00:00",
     "reviewed_since_commit": "26e150d2bbd1fcdf14a65de06e834e8b0841d5da",
@@ -402,5 +402,179 @@
       "F16 / DL-05"
     ],
     "qualification_limits": "Corrected BLE fixture native execution remains pending. Calendar evidence is extracted-helper execution, synthetic SQLite contracts and inspected production call paths, not native end-to-end migration qualification. External dependency research and native package execution were not independently repeated in this documentation follow-up."
+  },
+  "integration_followup": {
+    "reviewed_at_utc": "2026-10-23T18:16:05.173013+00:00",
+    "reviewed_worktree_based_on_commit": "529adf2f652dcb1b98822665c6c4e895b27f5d32",
+    "integrated_main_commit": "b7ebe85b2a7f5c0d25f2ef5a04b9d8dce8815679",
+    "integrated_pr78_head": "b2e1c0d54e5aad6b993c4117e0ac60b3c161fd2b",
+    "earlier_pr78_overlap_review_head": "859b7f48b1d5de164bf9e018260b737eb79fbf2d",
+    "reviewed_state": "staged integration, not yet committed; no future commit identity or CI result inferred",
+    "reviewed_file_overrides": [
+      {
+        "path": "Strand/Data/WhoopImporter.swift",
+        "bytes": 16176,
+        "sha256": "ad2da60e9d3c12b34e5ce913f7607b143c8c4bbf539a2b9c2c98d7a968067d96",
+        "previous_reviewed_sha256": "2ca199b6467cf6c65ba58e84e46935e2507ec4f8c62226e91ced974c1dbb24c0",
+        "changed_from_previous_review": true
+      },
+      {
+        "path": "Strand/System/AppChangelog.swift",
+        "bytes": 247247,
+        "sha256": "fa29f1cedca76ba8f21d2d5459a7750c0741f52a37873bf83454ac8f77aa2462",
+        "previous_reviewed_sha256": "e002fe877654f06b5914aff2c22bef7e9629c525aaf86265412bc9d9d0a098ce",
+        "changed_from_previous_review": true
+      },
+      {
+        "path": "CHANGELOG.md",
+        "bytes": 279210,
+        "sha256": "4f773dd6c2a87e918d9c99372caa23dca86ffc4db0707bde797447206ff2a8c7",
+        "previous_reviewed_sha256": "003e2fc119138398a17520099f12df8d8ac129caa072302dd3c92157076f75b9",
+        "changed_from_previous_review": true
+      },
+      {
+        "path": "project.yml",
+        "bytes": 8881,
+        "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6",
+        "previous_reviewed_sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6",
+        "changed_from_previous_review": false
+      }
+    ],
+    "historical_file_and_documentation_hashes_preserved": true,
+    "incoming_main_paths_checked": 47,
+    "incoming_paths_byte_identical_to_main": 43,
+    "incoming_paths_intentionally_different_from_main": [
+      "Strand/Data/WhoopImporter.swift",
+      "Strand/System/AppChangelog.swift",
+      "CHANGELOG.md",
+      "project.yml"
+    ],
+    "final_pr78_tree_equals_new_main_tree": true,
+    "prior_reviewed_entries": 45,
+    "prior_entries_unchanged": 42,
+    "prior_entries_changed": [
+      "CHANGELOG.md",
+      "Strand/Data/WhoopImporter.swift",
+      "Strand/System/AppChangelog.swift"
+    ],
+    "latest_pr78_six_file_delta_read_in_full": true,
+    "latest_pr78_delta_reviewed_files": [
+      {
+        "path": "CHANGELOG.md",
+        "bytes": 279210,
+        "sha256": "4f773dd6c2a87e918d9c99372caa23dca86ffc4db0707bde797447206ff2a8c7"
+      },
+      {
+        "path": "Packages/ReceiptLiftFeature/Sources/ReceiptLiftFeature/LiveReceiptView.swift",
+        "bytes": 9073,
+        "sha256": "0cc02858ea48a21b3c4e13933e3f4a545d11b72884069dab2d54adf6c8f64820"
+      },
+      {
+        "path": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepInterpolationRegressionTests.swift",
+        "bytes": 3295,
+        "sha256": "9d261e4e5db646119f2e08d4bf3fc807c9e03efc08f9cd1dd627ac7c80fccd07"
+      },
+      {
+        "path": "StrandiOSTests/ReceiptLift/LiftReceiptLogicTests.swift",
+        "bytes": 7791,
+        "sha256": "6395520f834de7c331713f7387596fe4f4703a8a40a7383aea448b129e4e96dd"
+      },
+      {
+        "path": "StrandiOSUITests/LiftRoutineSelectionTests.swift",
+        "bytes": 8152,
+        "sha256": "710b645294846e5e1ee6dc98b035e15b01751d5178056c35f1a16f2ebced3132"
+      },
+      {
+        "path": "docs/reviews/2026-10-23-deep-review.md",
+        "bytes": 9393,
+        "sha256": "005189b3ab2a006279853b520c3ddb4c4a952a7e8c3398dfd92d819efdc4f36d"
+      }
+    ],
+    "importer_difference_from_main": "Only roundedImportedHeartRate forwards to the shared exact integer converter with the same nearest/away-from-zero rounding. All strain, metric-series, stress and workout guards remain.",
+    "review_boundaries": [
+      "All three conflict resolutions and cumulative CHANGELOG",
+      "Latest six-file PR78 delta including production receipt label and native/UI regression changes",
+      "Incoming production diffs for numeric/time parsing, analytics, packet bounds, PPG coverage and source ownership interactions",
+      "HealthKit one-shot cancellation, anchored-read and deletion admission",
+      "Oura shared framing, partial-byte cursor admission and teardown epochs",
+      "Coach Brief epoch recovery/clearing versus weekly cache ownership",
+      "Lift history-cache invalidation versus workout projection; summary task lifetime and route authentication"
+    ],
+    "independent_diff_check": {
+      "staged": "passed",
+      "unstaged": "passed"
+    },
+    "root_reported_checks": {
+      "source_audits": "20/20 passed",
+      "resolved_swift_parse": "2/2 passed",
+      "coach_literal_preservation": "32 files passed"
+    },
+    "data_specialist_report": "No combined importer or sleep/data conflict; 14 critical sleep/undo/DST/Apple numeric implementation and test files retain 529 bytes. Existing real CSV-to-store and direct/parser numeric regressions cover the helper forwarding.",
+    "release_metadata": {
+      "marketing_version": "2.0.0",
+      "build": 250,
+      "main_build": 249,
+      "tentative_last_pr": 79,
+      "status": "staging",
+      "phone_installs": "hold",
+      "release_publication": "hold",
+      "pr77_incorporated": false
+    },
+    "historical_ci": {
+      "head_commit": "529adf2f652dcb1b98822665c6c4e895b27f5d32",
+      "tree": "b7365556df1ec6ad8cfdb2fd7dee957c76b6395a",
+      "tested_merge": "3679f704708a8b1a45d3791954b58e2ed610973f",
+      "base": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+      "packages": {
+        "workflow_run": 39977563656,
+        "attempt": 1,
+        "jobs_passed": 9,
+        "tests_passed": 3693,
+        "tests_skipped": 1,
+        "tests_failed": 0
+      },
+      "native": {
+        "workflow_run": 39977563756,
+        "attempt": 1,
+        "xctest_total": 3323,
+        "xctest_passed": 3319,
+        "xctest_skipped": 4,
+        "xctest_failed": 0,
+        "swift_testing_passed": 300,
+        "swift_testing_suites": 41,
+        "swift_testing_known_issues": 3,
+        "target_cases_passed_once": 73,
+        "original_timer_and_two_controls_passed_once": true,
+        "selected_ui_passed_once": 21,
+        "selected_ui_failed": 0,
+        "selected_ui_skipped": 0,
+        "discovered_ui_inventory": 42,
+        "repeated_xctest_starts_or_completions": 0,
+        "test_retry_flags_observed": false,
+        "complete_native_ui_log_sha256": "64ad2d0775c31168777827c45ec5381298ad0bcd0405b825016e2d7fdbfc2699",
+        "aggregate_workflow_result": "failure",
+        "failed_gate_job": 120529594647,
+        "gate_failure": "GitHub package API HTTP 502 for /repos/eastonplace/noop-ios/actions/runs/39977563656/attempts/1/jobs"
+      },
+      "independently_reviewed_complete_logs": true,
+      "qualifies_integrated_candidate": false
+    },
+    "obsolete_retry": {
+      "workflow_run": 39977563756,
+      "attempt": 2,
+      "root_job_rerun": "change-plan and dependents",
+      "retained_plan_uses_original_base_head_merge": true,
+      "source_audit_carried_forward_not_fresh_execution": true,
+      "monitoring_stopped_after_main_advanced": true,
+      "completed_case_level_or_aggregate_success_claimed": false,
+      "qualifies_integrated_candidate": false
+    },
+    "combined_native_ui_package_execution": "pending; earlier test results do not qualify these integrated bytes",
+    "unresolved_confirmed_integration_findings": 0,
+    "unresolved_introduced_patch_findings": 0,
+    "known_unresolved_release_findings": [
+      "F16 / DL-05, inherited P1"
+    ],
+    "limits": "Integration-focused source review, not a new complete PR78 subsystem audit. No new native/package tests, physical device operation or migration qualification performed by this reviewer. PR79 remains draft/unmerged and release/install holds remain."
   }
 }

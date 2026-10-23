@@ -10,6 +10,18 @@ enum WhoopImporter {
     /// importer's column->store mapping changes so a shared report's parser version is unambiguous.
     static let importerVersion = 2
 
+    /// Keep the CSV's rounding convention, but reject values that cannot become a store integer.
+    static func roundedImportedHeartRate(_ value: Double?) -> Int? {
+        ImportNumericSafety.integer(value, rounding: .toNearestOrAwayFromZero)
+    }
+
+    /// Validate WHOOP's documented 0...21 scale at the write boundary. Parsed CSV values remain
+    /// verbatim for round trips; invalid strain must not become infinite or out-of-range NOOP Effort.
+    static func importedEffort(_ strain: Double?) -> Double? {
+        guard let strain, strain.isFinite, (0...21).contains(strain) else { return nil }
+        return WhoopExportImporter.effortFromImportedDayStrain(strain)
+    }
+
     @discardableResult
     static func importExport(url: URL, into store: WhoopStore, deviceId: String,
                              trace: (@Sendable ([String]) -> Void)? = nil) async throws -> ImportSummary {
@@ -29,11 +41,11 @@ enum WhoopImporter {
                 remMin: c.remDurationMin,
                 lightMin: c.lightSleepDurationMin,
                 disturbances: nil,
-                restingHr: ImportNumericSafety.integer(c.restingHeartRate, rounding: .toNearestOrAwayFromZero),
+                restingHr: roundedImportedHeartRate(c.restingHeartRate),
                 avgHrv: c.hrvMs,
                 recovery: c.recoveryScore,
                 // WHOOP Day Strain (0–21) → NOOP's 0–100 Effort axis at the store boundary.
-                strain: WhoopExportImporter.effortFromImportedDayStrain(c.dayStrain),
+                strain: importedEffort(c.dayStrain),
                 exerciseCount: nil,
                 spo2Pct: c.bloodOxygenPct,
                 skinTempDevC: c.skinTempCelsius,   // NOTE: Whoop export gives absolute °C, not a baseline deviation
@@ -78,8 +90,8 @@ enum WhoopImporter {
         for c in result.cycles {
             guard let day = cycleDay(wake: c.wakeOnset, end: c.cycleEnd, start: c.cycleStart,
                                      tzOffsetMin: c.tzOffsetMin) else { continue }
-            add(day, "recovery", c.recoveryScore);        add(day, "strain", WhoopExportImporter.effortFromImportedDayStrain(c.dayStrain))
-            add(day, "rhr", c.restingHeartRate);          add(day, "hrv", c.hrvMs)
+            add(day, "recovery", c.recoveryScore);        add(day, "strain", importedEffort(c.dayStrain))
+            add(day, "rhr", roundedImportedHeartRate(c.restingHeartRate) == nil ? nil : c.restingHeartRate);          add(day, "hrv", c.hrvMs)
             add(day, "spo2", c.bloodOxygenPct);           add(day, "skin_temp", c.skinTempCelsius)
             add(day, "resp_rate", c.respiratoryRate);     add(day, "energy_kcal", c.energyKcal)
             add(day, "avg_hr", c.avgHeartRate);           add(day, "max_hr", c.maxHeartRate)
@@ -106,10 +118,15 @@ enum WhoopImporter {
             let v = a.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(a.count)
             return (m, max(v.squareRoot(), 0.0001))
         }
-        let (rm, rs) = meanStd(result.cycles.compactMap(\.restingHeartRate))
+        let validRestingHeartRates = result.cycles.compactMap { cycle -> Double? in
+            guard roundedImportedHeartRate(cycle.restingHeartRate) != nil else { return nil }
+            return cycle.restingHeartRate
+        }
+        let (rm, rs) = meanStd(validRestingHeartRates)
         let (hm, hs) = meanStd(result.cycles.compactMap(\.hrvMs))
         for c in result.cycles {
-            guard let rhr = c.restingHeartRate, let hrv = c.hrvMs,
+            guard let rhr = c.restingHeartRate, roundedImportedHeartRate(rhr) != nil,
+                  let hrv = c.hrvMs,
                   let day = cycleDay(wake: c.wakeOnset, end: c.cycleEnd, start: c.cycleStart,
                                      tzOffsetMin: c.tzOffsetMin) else { continue }
             let z = 0.6 * ((rhr - rm) / rs) - 0.6 * ((hrv - hm) / hs)
@@ -180,9 +197,9 @@ enum WhoopImporter {
             return WorkoutRow(startTs: Int(s.timeIntervalSince1970), endTs: Int(e.timeIntervalSince1970),
                               sport: w.activityName ?? "Workout", source: "whoop",
                               durationS: e.timeIntervalSince(s), energyKcal: w.energyKcal,
-                              avgHr: ImportNumericSafety.integer(w.avgHeartRate, rounding: .toNearestOrAwayFromZero),
-                              maxHr: ImportNumericSafety.integer(w.maxHeartRate, rounding: .toNearestOrAwayFromZero),
-                              strain: WhoopExportImporter.effortFromImportedDayStrain(w.activityStrain), distanceM: w.distanceMeters,
+                              avgHr: roundedImportedHeartRate(w.avgHeartRate),
+                              maxHr: roundedImportedHeartRate(w.maxHeartRate),
+                              strain: importedEffort(w.activityStrain), distanceM: w.distanceMeters,
                               zonesJSON: zjson, notes: nil)
         }
         let workoutsWritten = try await store.upsertWorkouts(workouts, deviceId: deviceId)

@@ -191,4 +191,51 @@ final class FramingTests: XCTestCase {
         let recs = r.feed([0x00, 0x01] + valid)   // 00 01 = len 1 (< 4)
         XCTAssertTrue(recs.allSatisfy { $0.type != 0x00 }, "must never emit a type-0 garbage record")
     }
+    func testShortOuterResponseDoesNotCorruptFollowingEvent() {
+        let r = OuraReassembler()
+        let recs = r.feed(bytes("2f022e00" + "7b060200010003ca"))
+        XCTAssertEqual(recs, [OuraRecord(type: 0x7B, ringTimestamp: 0x0001_0002, payload: [0x03, 0xCA])])
+        XCTAssertEqual(r.bufferedByteCount, 0)
+    }
+
+    func testMixedOuterResponseAndSplitRecordPreservesTrailingBytes() {
+        let r = OuraReassembler()
+        XCTAssertTrue(r.feed(bytes("2f022e00" + "7b06020001")).isEmpty)
+        let recs = r.feed(bytes("0003ca"))
+        XCTAssertEqual(recs, [OuraRecord(type: 0x7B, ringTimestamp: 0x0001_0002, payload: [0x03, 0xCA])])
+        XCTAssertEqual(r.bufferedByteCount, 0)
+    }
+
+    func testSharedFrameReassemblyPreservesFragmentedControlResponsesInWireOrder() {
+        let r = OuraReassembler()
+        XCTAssertTrue(r.feedFrames(bytes("2f022e")).isEmpty)
+        let frames = r.feedFrames(bytes("00" + "1108ff00785634120000" + "7b060200010003ca"))
+        XCTAssertEqual(frames.map(\.op), [0x2F, 0x11, 0x7B])
+        XCTAssertEqual(frames[0].body, [0x2E, 0x00])
+        XCTAssertEqual(OuraFraming.parseGetEventsResponse(frames[1].body)?.cursor, 0x1234_5678)
+        XCTAssertEqual(r.bufferedByteCount, 0)
+    }
+
+    func testSharedFrameReassemblyRetainsPartialEventAfterCompleteSecureResponse() {
+        let r = OuraReassembler()
+        let first = r.feedFrames(bytes("2f022e00" + "7b06020001"))
+        XCTAssertEqual(first, [OuraOuterFrame(op: 0x2F, body: [0x2E, 0x00])])
+        XCTAssertEqual(r.bufferedByteCount, 5)
+        XCTAssertEqual(r.feedFrames(bytes("0003ca")), [
+            OuraOuterFrame(op: 0x7B, body: [0x02, 0x00, 0x01, 0x00, 0x03, 0xCA])
+        ])
+        XCTAssertEqual(r.bufferedByteCount, 0)
+    }
+
+    func testModeAndManufacturingOuterFramesCannotCorruptFollowingEvent() {
+        for opcode: UInt8 in [0x31, 0x32, 0x37, 0x38, 0x39, 0x3A] {
+            let r = OuraReassembler()
+            let records = r.feed([opcode, 0x01, 0x00] + bytes("7b060200010003ca"))
+            XCTAssertEqual(records, [
+                OuraRecord(type: 0x7B, ringTimestamp: 0x0001_0002, payload: [0x03, 0xCA])
+            ], "opcode \(opcode)")
+            XCTAssertEqual(r.bufferedByteCount, 0, "opcode \(opcode)")
+        }
+    }
+
 }

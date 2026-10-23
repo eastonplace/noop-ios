@@ -31,6 +31,9 @@ struct ExportWorkoutRouteIntent: AppIntent {
     static let description = IntentDescription(
         "Get the most recent saved route with timestamped GPS points as a GPX or FIT file. Only measured portions are exported. FIT includes GPS distance, without heart-rate or calorie summaries.")
     static let openAppWhenRun = false
+    // The returned file contains precise locations and timestamps. Require authentication
+    // on this device before Shortcuts or Siri can read it while NOOP is backgrounded.
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalDeviceAuthentication
 
     @Parameter(title: "Format", default: .gpx)
     var format: RouteExportFormatChoice

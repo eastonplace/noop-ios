@@ -208,7 +208,7 @@ struct LiftSessionSummaryView: View {
 
   private var liftedSection: some View {
     let records = LiftStore.prDetectionEnabled
-      ? Set(LiftProgressMath.historicalPersonalRecords(sessions: store.sessions).recordsBySetID.keys) : []
+      ? Set(store.historicalPersonalRecords().recordsBySetID.keys) : []
     let lifts = LiftSummaryLifts.make(
       session: session, exercises: Dictionary(uniqueKeysWithValues: store.exercises.map { ($0.id, $0) }),
       recordSetIDs: records)

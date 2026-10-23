@@ -85,14 +85,14 @@ extension WhoopStore {
                     WHERE deviceId = ? AND ts >= ? AND ts <= ? AND bpm BETWEEN ? AND ?
                     UNION ALL
                     SELECT 1 FROM ppgHrSample p
-                    WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
+                    WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ? AND CAST(ROUND(p.bpm) AS INTEGER) BETWEEN ? AND ?
                       AND NOT EXISTS (
                         SELECT 1 FROM hrSample h
                         WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
                     LIMIT ?
                 )
                 """, arguments: [deviceId, from, to, bpmRange.lowerBound, bpmRange.upperBound,
-                                 deviceId, from, to, cap]) ?? 0
+                                 deviceId, from, to, bpmRange.lowerBound, bpmRange.upperBound, cap]) ?? 0
         }
     }
 
