@@ -171,6 +171,15 @@ public final class ReceiptLiftCoordinator: ObservableObject {
         try await store.applyReviewedRoutineChange(validate: validate, transform: transform)
     }
 
+    /// The host keeps file-format dependencies and source ownership outside the UI package.
+    public func configureRoutineImport(
+        parse: @escaping ReceiptLiftRoutineImportParser,
+        validate: @escaping @MainActor () throws -> Void
+    ) {
+        store.routineImportParser = parse
+        store.validateRoutineImport = validate
+    }
+
     public func applicationDidEnterBackground() {
         guard backgroundSaveTask == nil else { return }
         // iOS kills the app if the task is still open when this handler returns, so end it inline rather than

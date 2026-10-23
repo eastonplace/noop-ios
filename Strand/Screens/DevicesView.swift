@@ -292,7 +292,7 @@ private struct DevicesContent: View {
             Image(systemName: "info.circle")
                 .foregroundStyle(StrandPalette.textTertiary)
                 .accessibilityHidden(true)
-            Text("WHOOP is NOOP's primary, fully-supported band. Other heart-rate straps are an early, in-development addition: they stream live heart rate and HRV, but not WHOOP's deeper sleep and recovery data.")
+            Text(verbatim: "WHOOP 4.0 · WHOOP 5.0 · WHOOP MG")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -326,7 +326,7 @@ private struct DevicesContent: View {
         // #78: actually RELEASE the BLE link, not just archive the registry row — otherwise NOOP keeps
         // re-grabbing the strap (reconnect timer + targeted-connect pin + iOS state restoration), holding
         // it connected so it can never enter pairing mode to be re-paired.
-        model.ble.forgetDevice(device.peripheralId)
+        model.ble.forgetDevice(device.peripheralId, isActiveDevice: wasActive)
         model.archiveDevice(device.id)
         removeTarget = nil
         if wasActive {

@@ -63,6 +63,57 @@ final class WorkoutLiveProjectionAccumulatorTests: XCTestCase {
         assertParity([HRSample(ts: 100, bpm: 140)])
     }
 
+    func testCurrentSecondReplacementMatchesCanonicalReplayBeforeAndAfterNextInterval() {
+        let zones = HRZones.zones(maxHR: 190, source: "profile")
+        var live = WorkoutLiveProjectionAccumulator(
+            samples: [HRSample(ts: 1_000, bpm: 100)],
+            profile: profile, hrmax: 190, restingHR: nil, zoneSet: zones)
+        let corrected = HRSample(ts: 1_000, bpm: 220)
+        XCTAssertTrue(live.replaceCurrentSecond(with: corrected))
+        let single = WorkoutLiveProjectionAccumulator(samples: [corrected],
+            profile: profile, hrmax: 190, restingHR: nil, zoneSet: zones).snapshot()
+        XCTAssertEqual(live.snapshot(), single)
+
+        let next = HRSample(ts: 1_150, bpm: 100)
+        XCTAssertTrue(live.append(next))
+        let replay = WorkoutLiveProjectionAccumulator(samples: [corrected, next],
+            profile: profile, hrmax: 190, restingHR: nil, zoneSet: zones).snapshot()
+        XCTAssertEqual(live.caloriesKcal, replay.caloriesKcal, accuracy: 0.000_000_1)
+        XCTAssertEqual(live.snapshot().sampleCount, 2)
+        XCTAssertEqual(live.snapshot().zoneSeconds, replay.zoneSeconds)
+        XCTAssertEqual(live.snapshot().hrTrace, [220, 100])
+    }
+
+    func testCurrentSecondReplacementRejectsEmptyAndOtherSecondsWithoutMutation() {
+        let zones = HRZones.zones(maxHR: 190, source: "profile")
+        var live = WorkoutLiveProjectionAccumulator(
+            profile: profile, hrmax: 190, restingHR: nil, zoneSet: zones)
+        XCTAssertFalse(live.replaceCurrentSecond(with: HRSample(ts: 100, bpm: 150)))
+        XCTAssertTrue(live.append(HRSample(ts: 100, bpm: 120)))
+        let before = live.snapshot()
+        XCTAssertFalse(live.replaceCurrentSecond(with: HRSample(ts: 99, bpm: 150)))
+        XCTAssertFalse(live.replaceCurrentSecond(with: HRSample(ts: 101, bpm: 150)))
+        XCTAssertEqual(live.snapshot(), before)
+    }
+
+    func testCurrentSecondReplacementAfterPauseKeepsTheGapUncredited() {
+        let zones = HRZones.zones(maxHR: 190, source: "profile")
+        var live = WorkoutLiveProjectionAccumulator(
+            samples: [HRSample(ts: 1_000, bpm: 100)],
+            profile: profile, hrmax: 190, restingHR: nil, zoneSet: zones)
+        XCTAssertTrue(live.appendAfterPause(HRSample(ts: 2_000, bpm: 100)))
+        XCTAssertTrue(live.replaceCurrentSecond(with: HRSample(ts: 2_000, bpm: 220)))
+        XCTAssertTrue(live.append(HRSample(ts: 2_010, bpm: 120)))
+        var replay = WorkoutLiveProjectionAccumulator(
+            samples: [HRSample(ts: 1_000, bpm: 100)],
+            profile: profile, hrmax: 190, restingHR: nil, zoneSet: zones)
+        XCTAssertTrue(replay.appendAfterPause(HRSample(ts: 2_000, bpm: 220)))
+        XCTAssertTrue(replay.append(HRSample(ts: 2_010, bpm: 120)))
+        XCTAssertEqual(live.caloriesKcal, replay.caloriesKcal, accuracy: 0.000_000_1)
+        XCTAssertEqual(live.snapshot().zoneSeconds, replay.snapshot().zoneSeconds)
+        XCTAssertEqual(live.snapshot().sampleCount, 3)
+    }
+
     private func assertParity(
         _ samples: [HRSample],
         file: StaticString = #filePath,

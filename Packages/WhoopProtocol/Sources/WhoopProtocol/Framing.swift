@@ -237,6 +237,12 @@ public func puffinCommandFrame(cmd: UInt8, seq: UInt8, payload: [UInt8] = [0x00]
 /// Accumulate BLE notification fragments into complete frames.
 /// A complete frame is `length + 4` bytes where length = u16 LE at buf[1..3].
 /// Mirrors framing.py Reassembler.
+/// Ordered transport evidence. Losing bytes cannot be hidden by returning only surviving frames.
+public enum ReassemblyEvent: Equatable, Sendable {
+    case frame([UInt8])
+    case discardedBytes(Int)
+}
+
 public final class Reassembler {
     // Backed by a flat byte buffer plus a read cursor rather than draining off the front. The earlier
     // form called buf.removeFirst(n), which shifts the whole tail down on every completed frame, so
@@ -275,17 +281,38 @@ public final class Reassembler {
     }
 
     public func feed(_ fragment: [UInt8]) -> [[UInt8]] {
+        feedEvents(fragment).compactMap { event in
+            if case .frame(let frame) = event { return frame }
+            return nil
+        }
+    }
+
+    /// Loss appears at its original position, including between START and END in one notification.
+    /// Consumers that make completeness decisions must use this route rather than `feed`.
+    public func feedEvents(_ fragment: [UInt8]) -> [ReassemblyEvent] {
         buf.append(contentsOf: fragment)
-        var out: [[UInt8]] = []
+        var out: [ReassemblyEvent] = []
+        func recordLoss(_ count: Int) {
+            guard count > 0 else { return }
+            if case .discardedBytes(let previous)? = out.last {
+                out[out.count - 1] = .discardedBytes(previous + count)
+            } else {
+                out.append(.discardedBytes(count))
+            }
+        }
         scan: while true {
             guard let sof = indexOfSOF() else {
                 // No SOF left in the window: nothing here is salvageable, so drop it all.
+                recordLoss(buf.count - head)
                 buf.removeAll(keepingCapacity: true)
                 head = 0
                 break
             }
             // Skip any leading bytes ahead of the SOF instead of physically removing them.
-            if sof > head { head = sof }
+            if sof > head {
+                recordLoss(sof - head)
+                head = sof
+            }
             let avail = buf.count - head
             // BLE-1: the declared length is only trusted once the header checksum that protects it
             // verifies. A stray 0xAA inside a payload (or a fragment from another characteristic) would
@@ -298,6 +325,7 @@ public final class Reassembler {
                 if avail < 4 { break scan }
                 guard crc8(buf, head + 1, head + 3) == buf[head + 3] else {
                     headerChecksumDrops += 1
+                    recordLoss(1)
                     head += 1
                     continue scan
                 }
@@ -309,6 +337,7 @@ public final class Reassembler {
                 let gotCRC = UInt16(buf[head + 6]) | (UInt16(buf[head + 7]) << 8)
                 guard wantCRC == gotCRC else {
                     headerChecksumDrops += 1
+                    recordLoss(1)
                     head += 1
                     continue scan
                 }
@@ -318,13 +347,14 @@ public final class Reassembler {
                 // Impossibly large declared length → this 0xAA is garbage. Drop it and resync to the
                 // next SOF instead of stalling the live stream until a reconnect.
                 oversizedLengthDrops += 1
+                recordLoss(1)
                 head += 1
                 continue scan
             }
             if avail < total {
                 break scan
             }
-            out.append(Array(buf[head..<(head + total)]))
+            out.append(.frame(Array(buf[head..<(head + total)])))
             head += total
         }
         compact()
@@ -385,6 +415,14 @@ public final class ReassemblerSet<Key: Hashable> {
         let created = Reassembler(family: family)
         reassemblers[key] = created
         return created.feed(fragment)
+    }
+
+    /// Keep each characteristic's fragment window independent while preserving loss/frame order.
+    public func feedEvents(_ fragment: [UInt8], from key: Key) -> [ReassemblyEvent] {
+        if let existing = reassemblers[key] { return existing.feedEvents(fragment) }
+        let created = Reassembler(family: family)
+        reassemblers[key] = created
+        return created.feedEvents(fragment)
     }
 
     /// Drop every partial frame (a new connection, a disconnect, or a family switch).

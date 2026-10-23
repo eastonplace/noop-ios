@@ -80,7 +80,7 @@ struct LiftRootView: View {
           if let routine = previewRoutine {
             RoutinePreviewView(
               routine: routine,
-              onBegin: { beginPreviewedRoutine(routine) },
+              onBegin: { selected, review in beginPreviewedRoutine(selected, progression: review) },
               onCancel: { previewRoutine = nil }
             )
             .environmentObject(store)
@@ -195,22 +195,19 @@ struct LiftRootView: View {
     previewRoutine = routine
   }
 
-  private func beginPreviewedRoutine(_ routine: LiftRoutine) {
+  private func beginPreviewedRoutine(_ routine: LiftRoutine, progression: LiftProgressionReview?) -> Bool {
     guard previewRoutine?.id == routine.id,
-          !isWorkoutPresented,
-          store.activeSession == nil
-    else { return }
+          !isWorkoutPresented
+    else { return false }
+    guard store.startRoutine(routine, progression: progression) else { return false }
     previewRoutine = nil
-    store.startRoutine(routine)
-    isWorkoutPresented = store.activeSession != nil
+    isWorkoutPresented = true
+    return true
   }
 
-  /// "Start <routine>" on the home: the same start as the preview's Begin, without the page in between.
+  /// Every saved-routine start opens the same plan and progression review before creating a session.
   private func startRoutineNow(_ routine: LiftRoutine) {
-    guard !isWorkoutPresented, store.activeSession == nil else { return }
-    previewRoutine = nil
-    store.startRoutine(routine)
-    isWorkoutPresented = store.activeSession != nil
+    presentPreview(routine)
   }
 
   private func startOpenLift() {

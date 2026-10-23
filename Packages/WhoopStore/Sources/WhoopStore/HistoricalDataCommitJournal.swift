@@ -907,7 +907,8 @@ extension WhoopStore {
             let insertedRows = try WhoopStore.insertDecodedStreams(
                 streams,
                 deviceId: deviceId,
-                in: db
+                in: db,
+                analysisObservation: analysisInputObservation
             )
             if let packedRawBatch, existingRawBatchMatches == nil {
                 try WhoopStore.enqueueRawBatch(

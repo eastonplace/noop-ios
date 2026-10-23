@@ -75,6 +75,19 @@ public struct WorkoutLiveProjectionAccumulator {
         return true
     }
 
+    /// Replace the canonical tail without adding a reading or a gap. The tail contributes one
+    /// representative second until the next append gives it an interval, so both that second and
+    /// the rate used by the next append must follow the corrected BPM.
+    @discardableResult
+    public mutating func replaceCurrentSecond(with sample: HRSample) -> Bool {
+        guard let previous = lastSample, sample.ts == previous.ts else { return false }
+        totalCalories -= calorieContribution(previous, duration: 1)
+        totalCalories += calorieContribution(sample, duration: 1)
+        lastSample = sample
+        if !trace.isEmpty { trace[trace.count - 1] = sample.bpm }
+        return true
+    }
+
     /// Append the first reading after a pause. The previous reading keeps the one second it already stands for
     /// and no gap is credited between the two, so a pause is never counted as time at the last reading's rate.
     @discardableResult

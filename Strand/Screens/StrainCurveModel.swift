@@ -190,9 +190,14 @@ enum StrainBatchCycle {
               habitualMidsleepSec: habitualMidsleepSec)
     }
 
+    /// Store range reads include their end; the batch's physiological cycle is half-open.
+    static func stepRows(_ rows: [StepSample], from: Int, to: Int) -> [StepSample] {
+        rows.filter { $0.ts >= from && $0.ts < to }
+    }
+
     /// The cycle's step total, scaled by the wearer's counter ticks per step as the batch scales it; nil without any.
-    static func steps(_ rows: [StepSample], ticksPerStep: Double) -> Int? {
-        guard let ticks = StepsCounter.stepsInWindow(rows) else { return nil }
+    static func steps(_ rows: [StepSample], ticksPerStep: Double, sleepSessions: [SleepSession] = []) -> Int? {
+        guard let ticks = SleepAwareStepCounter.stepsInWindow(rows, sleepSessions: sleepSessions) else { return nil }
         let scaled = Int((Double(ticks) / max(ticksPerStep, 0.5)).rounded())
         return scaled > 0 ? scaled : nil
     }

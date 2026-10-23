@@ -176,6 +176,29 @@ final class RecoveryScorerTests: XCTestCase {
         XCTAssertNil(RecoveryScorer.restingHR([], start: 0, end: 1000))
     }
 
+    func testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology() {
+        let invalid = [0, 29, 241].enumerated().map {
+            HRSample(ts: 1_000 + $0.offset, bpm: $0.element)
+        }
+        XCTAssertNil(RecoveryScorer.restingHR(invalid, start: 1_000, end: 1_600),
+                     "an off-wrist or malformed stream has no resting HR, including the sparse-bin fallback")
+    }
+
+    func testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins() {
+        let valid = (0..<150).map { HRSample(ts: 1_000 + $0 * 2, bpm: 60) }
+        let offWrist = (0..<150).map { HRSample(ts: 1_001 + $0 * 2, bpm: 0) }
+        let mixed = Array((valid + offWrist).reversed())
+        XCTAssertEqual(RecoveryScorer.restingHR(mixed, start: 1_000, end: 1_300), 60,
+                       "zero readings must not lower a valid 60 bpm bin to a plausible-looking 30 bpm")
+    }
+
+    func testRestingHRPreservesTheSharedPlausibilityBoundaries() {
+        for bpm in [HRValidity.bpmRange.lowerBound, HRValidity.bpmRange.upperBound] {
+            XCTAssertEqual(RecoveryScorer.restingHR([HRSample(ts: 1_000, bpm: bpm)],
+                                                  start: 1_000, end: 1_300), bpm)
+        }
+    }
+
     // MARK: - #686: artifact hardening of the resting-HR floor
     //
     // AN-06: these run through `SleepStager.sessionRestingHR`, the entry the shipped DailyMetric.restingHr

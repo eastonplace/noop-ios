@@ -3,8 +3,8 @@ import Foundation
 import CryptoKit
 
 /// App-private, backup-excluded files. There is no iCloud container, network client, or shared BYOK store.
-struct LocalCoachPersistence {
-    struct State: Codable {
+struct LocalCoachPersistence: Sendable {
+    struct State: Codable, Sendable {
         var version = 1
         var sourceID: String
         var conversations: [LocalCoachConversation] = []
@@ -120,6 +120,74 @@ struct LocalCoachPersistence {
         #endif
         var savedURL = url
         try savedURL.setResourceValues(flags)
+    }
+}
+
+/// All production Codable and protected file IO runs on this serial actor. Its methods have no
+/// suspension points, so a read cannot overtake an atomic save already admitted to the actor.
+actor LocalCoachPersistenceIO {
+    let store: LocalCoachPersistence
+    init(_ store: LocalCoachPersistence) { self.store = store }
+    func loadPreferences() -> Result<LocalCoachPreferences, Error> { Result { try store.loadPreferences() } }
+    func load(sourceID: String) -> Result<LocalCoachPersistence.State, Error> {
+        Result {
+            var state = try store.load(sourceID: sourceID)
+            state.conversations.sort { $0.updatedAt > $1.updatedAt }
+            return state
+        }
+    }
+    func save(_ state: LocalCoachPersistence.State) -> Result<Void, Error> { Result { try store.save(state) } }
+    func savePreferences(_ preferences: LocalCoachPreferences) -> Result<Void, Error> {
+        Result { try store.savePreferences(preferences) }
+    }
+}
+
+/// The UI submits value snapshots synchronously, in mutation order. At most one state and one settings
+/// snapshot wait behind the in-flight batch. Replacement is safe because every snapshot contains the
+/// complete current state, including deletions. A source change awaits flush before hydrating the next
+/// source; no delayed timer or canceled response owns an older write.
+@MainActor
+final class LocalCoachPersistenceWriter {
+    let io: LocalCoachPersistenceIO
+    private var pendingState: LocalCoachPersistence.State?
+    private var pendingPreferences: LocalCoachPreferences?
+    private var task: Task<Void, Never>?
+    var reportError: ((String, String?) -> Void)?
+
+    init(_ store: LocalCoachPersistence) { io = LocalCoachPersistenceIO(store) }
+
+    func save(_ state: LocalCoachPersistence.State) {
+        assert(pendingState == nil || pendingState?.sourceID == state.sourceID)
+        pendingState = state
+        drain()
+    }
+
+    func savePreferences(_ preferences: LocalCoachPreferences) {
+        pendingPreferences = preferences
+        drain()
+    }
+
+    func flush() async {
+        while let active = task { await active.value }
+    }
+
+    private func drain() {
+        guard task == nil else { return }
+        task = Task {
+            while pendingState != nil || pendingPreferences != nil {
+                let state = pendingState
+                let preferences = pendingPreferences
+                pendingState = nil
+                pendingPreferences = nil
+                if let preferences, case .failure(let error) = await io.savePreferences(preferences) {
+                    reportError?(LocalCoachErrorPrefix.settingsNotSaved + error.localizedDescription, nil)
+                }
+                if let state, case .failure(let error) = await io.save(state) {
+                    reportError?(LocalCoachErrorPrefix.changesNotSaved + error.localizedDescription, state.sourceID)
+                }
+            }
+            task = nil
+        }
     }
 }
 #endif

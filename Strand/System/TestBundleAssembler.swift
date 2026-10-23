@@ -81,7 +81,7 @@ enum TestBundleAssembler {
     @MainActor
     static func assemble(profile: TestDomain, live: LiveState,
                          storage: TestBundleMeta.Storage? = nil,
-                         strapModel: String? = nil) -> [FileExport.BundleEntry] {
+                         strapModel: String? = nil) async throws -> [FileExport.BundleEntry] {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         #if os(iOS)
         let platform = "iOS"
@@ -94,7 +94,7 @@ enum TestBundleAssembler {
         //    mode. Built from the strap-range snapshot BLEManager banked (LiveState.strapRange). Appended to
         //    the report body BEFORE the completeness scan so its `dayOwner`-sibling token is part of the text
         //    the guard reads. No-op when no range was ever seen this session (no strap reply yet).
-        let baseReport = live.exportableLogText()
+        let baseReport = await live.exportableLogTextFlushing()
         let universalLine = universalClockDriftLine(range: live.strapRange)
         let reportText = universalLine.map { baseReport + "\n[universal] " + $0 } ?? baseReport
 
@@ -116,28 +116,29 @@ enum TestBundleAssembler {
             ? DisplayScreenshot.capturePNG().map { FileExport.BundleEntry(name: DisplayScreenshot.bundleName, data: $0) }
             : nil
 
-        // 1c. raw-capture.jsonl: the on-device raw frame capture (when enabled in Settings -> Experimental),
-        //     read from disk by URL. It is TEXT (JSON lines) where embedded console strings can carry a
-        //     serial, so it IS run through the redactEntries pass below (the #1 reason the whole-bundle scrub
-        //     exists, 5.3). Attached only when the file exists; a non-capturing install ships no raw entry.
-        let rawCapture: FileExport.BundleEntry? = live.puffinCaptureURL
-            .flatMap { fileEntry(at: $0, name: "raw-capture.jsonl") }
+        // Capture all UI-owned metadata before the IO hop; only immutable values cross to the writer.
+        let rawURL = live.puffinCaptureURL
+        let crashURL = crashLogURL()
+        let active = activeDomains()
+        let started = TestCentre.startedAt(profile).map { ISO8601DateFormatter().string(from: $0) }
+        let answers = TestCentre.answers(profile)
+        let provenance = buildProvenance()
 
-        // 1d. last-crash.txt: the most recent crash report, when one is present on disk. It is TEXT, so it
-        //     ALSO rides the redactEntries pass. There is no crash producer wired yet, so this is normally
-        //     absent; the lookup is a no-op then. Pluggable via `crashLogURL` so a future crash handler need
-        //     only drop a file at the known path for it to start attaching, fully redacted, automatically.
-        let crash: FileExport.BundleEntry? = crashLogURL()
-            .flatMap { fileEntry(at: $0, name: "last-crash.txt") }
-
-        // 2. Redact the TEXT files (report.txt, raw-capture.jsonl, last-crash.txt), then cap. The screenshot
-        //    is included in the cap input (NOT the redact input) so its bytes COUNT against the 20 MB cap:
-        //    capEntries budgets raw-capture as capBytes - (everything else), so a large/retina PNG shrinks
-        //    the raw-capture tail rather than breaching the cap. Only raw-capture is trimmed; report.txt and
-        //    last-crash are bounded and the PNG is kept whole.
-        let textEntries = [reportEntry] + (rawCapture.map { [$0] } ?? []) + (crash.map { [$0] } ?? [])
-        let redacted = redactEntries(textEntries)
-        let (capped, truncated) = capEntries(redacted + (shot.map { [$0] } ?? []))
+        let report = await FileExport.sanitizedEntries([reportEntry])[0]
+        let crash: FileExport.BundleEntry?
+        if let crashURL, let value = try await FileExport.sanitizedCaptureTail(at: crashURL, maximumBytes: nil) {
+            crash = .init(name: "last-crash.txt", data: value.data)
+        } else { crash = nil }
+        // Preserve the old post-redaction cap exactly: keep all non-raw entries, then retain only the
+        // most recent raw bytes that fit. The complete raw capture is never materialized in memory.
+        let nonRawBytes = report.data.count + (crash?.data.count ?? 0) + (shot?.data.count ?? 0)
+        let budget = max(0, 20 * 1_024 * 1_024 - nonRawBytes)
+        let raw: (data: Data, truncated: Bool)?
+        if let rawURL { raw = try await FileExport.sanitizedCaptureTail(at: rawURL, maximumBytes: budget) }
+        else { raw = nil }
+        let truncated = raw?.truncated ?? false
+        let rawEntry = raw.map { FileExport.BundleEntry(name: "raw-capture.jsonl", data: $0.data) }
+        let capped = [report] + (rawEntry.map { [$0] } ?? []) + (crash.map { [$0] } ?? []) + (shot.map { [$0] } ?? [])
         var entries = capped
 
         // 2b. REPORT-COMPLETENESS GUARD (#812, generalised): for each domain ACTIVE during this capture,
@@ -149,7 +150,6 @@ enum TestBundleAssembler {
         //     and the shipped text can never diverge.
         let redactedReport = capped.first { $0.name == "report.txt" }
             .flatMap { String(data: $0.data, encoding: .utf8) } ?? reportText
-        let active = activeDomains()
         let checks = CaptureCompleteness.evaluate(activeDomains: active, reportText: redactedReport)
         let section = CaptureCompleteness.reportSection(checks)
         if !section.isEmpty {
@@ -169,7 +169,6 @@ enum TestBundleAssembler {
         //    "db_bytes: 0" even on a multi-GB library and maintainers triaged blind); a nil probe falls
         //    back to the zeroed block - zeros mean "unreadable", we still never fabricate. The
         //    capture_check field carries the same OK/INCOMPLETE verdicts as the report section.
-        let started = TestCentre.startedAt(profile).map { ISO8601DateFormatter().string(from: $0) }
         let meta = TestBundleMeta(
             schema: 1,
             appVersion: version,
@@ -179,8 +178,8 @@ enum TestBundleAssembler {
             source: ["Live Bluetooth"],
             testProfile: profile.id,
             profileStartedAt: started,
-            questionnaire: TestCentre.answers(profile),
-            build: buildProvenance(),
+            questionnaire: answers,
+            build: provenance,
             storage: storage ?? TestBundleMeta.Storage(dbBytes: 0, rows: [:], rawCaptureBytes: 0),
             redaction: redactionVersion,
             truncated: truncated,

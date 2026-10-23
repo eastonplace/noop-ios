@@ -50,7 +50,7 @@ enum GarminExportParser {
                     guard let key = WearableJSON.str(d, "calendarDate") ?? WearableJSON.str(d, "calendar_date") else { continue }
                     var row = day(key)
                     row.restingHr = WearableJSON.posInt(d, "restingHeartRate") ?? WearableJSON.posInt(d, "restingHeartRateInBeatsPerMinute") ?? row.restingHr
-                    row.steps = WearableJSON.posInt(d, "totalSteps") ?? WearableJSON.posInt(d, "steps") ?? row.steps
+                    row.steps = stepCount(d, "totalSteps") ?? stepCount(d, "steps") ?? row.steps
                     row.distanceM = WearableJSON.posDbl(d, "totalDistanceMeters") ?? WearableJSON.posDbl(d, "totalDistanceInMeters") ?? row.distanceM
                     row.activeKcal = WearableJSON.posDbl(d, "activeKilocalories") ?? WearableJSON.posDbl(d, "activeCalories") ?? row.activeKcal
                     row.avgStress = WearableJSON.posInt(d, "averageStressLevel") ?? WearableJSON.posInt(d, "avgStressLevel") ?? row.avgStress
@@ -62,6 +62,14 @@ enum GarminExportParser {
     }
 
     // MARK: - Helpers
+
+    /// A step count may be an observed zero. Validate the raw scalar before integer truncation:
+    /// negative fractions and positive fractions below one must not become fabricated zero readings.
+    private static func stepCount(_ record: [String: Any], _ key: String) -> Int? {
+        guard let raw = WearableJSON.dbl(record, key), raw >= 0,
+              let count = WearableJSON.int(record, key), count > 0 || raw == 0 else { return nil }
+        return count
+    }
 
     /// Flatten a Garmin file into an array of record dicts, accepting a bare array, a single object, or
     /// a `{ key: [ ... ] }` wrapper (the GDPR files vary by category).

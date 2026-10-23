@@ -49,6 +49,8 @@ struct LiftRoutineExercisePlan: Identifiable, Codable, Equatable, Hashable, Send
   var rest: String
   var targetEffort: String
   var notes: String
+  /// A reviewed load for this session's plan snapshot. Nil is omitted, keeping existing saved plans byte-identical.
+  var targetWeightPounds: Double? = nil
 
   var prescription: String {
     "\(sets)x\(reps)"

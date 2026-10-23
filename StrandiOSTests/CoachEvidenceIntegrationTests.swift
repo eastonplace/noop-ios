@@ -88,6 +88,16 @@ final class CoachEvidenceIntegrationTests: XCTestCase {
         XCTAssertEqual(engine.messages.last?.text, CoachEvidencePolicy.rangeExplanation)
     }
 
+    func testJournalAssociationPromptReadsNinetyDaysInsteadOfBeingRefused() async {
+        let data = EvidenceData(), driver = EvidenceDriver()
+        let engine = makeEngine(data: data, driver: driver)
+        await engine.send(CoachEvidencePolicy.journalPatternsPrompt)
+        XCTAssertEqual(data.reads, ["journal_associations"])
+        XCTAssertEqual(data.requestedDays, [90])
+        XCTAssertNotEqual(engine.messages.last?.text, CoachEvidencePolicy.rangeExplanation)
+        XCTAssertEqual(driver.generations, 1)
+    }
+
     func testRetryDoesNotWriteAPlan() async {
         let data = EvidenceData(), driver = EvidenceDriver()
         let engine = makeEngine(data: data, driver: driver)
@@ -126,13 +136,16 @@ private final class EvidenceData: LocalCoachDataAccess {
     var reads: [String] = []
     var writes = 0
     var afterRead: (() -> Void)?
+    var requestedDays: [Int] = []
     var toolDescriptors: [LocalCoachToolDescriptor] {
         [.init(id: "workout_history", title: "Workouts", description: "Read synthetic workout records", symbol: "figure.run"),
+         .init(id: "journal_associations", title: "Journal", description: "Read synthetic journal records", symbol: "book.closed"),
          .init(id: "current_day", title: "Current day", description: "Read synthetic daily records", symbol: "sun.horizon")]
     }
     func snapshot() async throws -> LocalCoachSnapshot { .empty }
     func query(_ name: String, query: String, days: Int) async throws -> LocalCoachToolResult {
         reads.append(name)
+        requestedDays.append(days)
         let evidence = LocalCoachEvidence(id: "fixture", title: "Synthetic record", detail: "Fixture only", source: "synthetic", date: nil)
         let card = LocalCoachCard.stats(.init(title: "Synthetic test", day: "2026-10-01", isStale: true,
                                               items: [.init(label: "Sessions", value: "1")]))

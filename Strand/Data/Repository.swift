@@ -269,10 +269,13 @@ final class Repository: ObservableObject {
     /// data load on this so they reload when fresh strap data lands , `today?.day` alone is a stable
     /// date string within a day and would freeze e.g. the Today HR trend until the date rolls over.
     @Published var refreshSeq = 0
-    /// Zone minutes per finished workout window and max heart rate, so Trends and the Training load page re-scan no HR.
-    /// Only workouts that carry heart rate are kept: one with none yet is read again, in case a sync filled it in.
-    private var workoutZoneMemo: [WorkoutZoneKey: [Double]] = [:]
-    private struct WorkoutZoneKey: Hashable { let start: Int, end: Int, hrMax: Int }
+    /// Bounded Load focus reuse; keys include committed raw input, source ownership and pauses.
+    var workoutZoneMemo: [WorkoutFocusZoneKey: [Double]] = [:]
+    var workoutFocusDismissedSpans: [String] { dismissedDetectedSpans }
+    #if DEBUG
+    var workoutFocusAfterRawReadForTesting: (@MainActor () async -> Void)?
+    var workoutFocusRawReadCountForTesting = 0
+    #endif
     /// One resolved first-paint snapshot. It carries each key metric's provenance and freshness evidence,
     /// so a full cache refresh can never replace a visible value with nil during its handoff.
     @Published var todayHealthSnapshot: TodayHealthSnapshot?
@@ -865,7 +868,7 @@ final class Repository: ObservableObject {
     /// Drop workout rows that share a (startTs, endTs, sport, source) key, the same session recorded under
     /// both union device ids, keeping the first (active strap). Distinct sessions are preserved; the
     /// downstream `dedupCrossSource` still collapses strap-vs-Apple twins by time.
-    nonisolated private static func dedupWorkoutsByNaturalKey(_ rows: [WorkoutRow]) -> [WorkoutRow] {
+    nonisolated static func dedupWorkoutsByNaturalKey(_ rows: [WorkoutRow]) -> [WorkoutRow] {
         var seen = Set<String>()
         var out: [WorkoutRow] = []
         for r in rows {
@@ -2341,6 +2344,8 @@ final class Repository: ObservableObject {
     /// ORG-10: bumped by every journal write so screen caches can key on user-data changes that don't move
     /// `refreshSeq`. Not @Published: nothing re-renders on it.
     private(set) var dataVersion = 0
+    /// A narrowly scoped publication for Journal/Mood readers. Live sensor changes do not move it.
+    @Published private(set) var journalRevision = 0
 
     /// #833/v7.7.2 (Apple Health per-source freeze): macOS cold-mounts the NavigationSplitView detail on every
     /// sidebar switch (RootView keys it with `.id`), tearing down AppleHealthView's `@State` so its `load()`
@@ -3043,6 +3048,21 @@ final class Repository: ObservableObject {
             lists.append((try? await store.hrSamples(deviceId: id, from: from, to: to, limit: limit)) ?? [])
         }
         return await Self.unionByTimestamp(lists, ts: { $0.ts })
+    }
+
+    /// A session-owned read: both the store and source priority are fixed before any suspension.
+    /// Callers that outlive active-source selection must not resolve mutable repository IDs mid-query.
+    nonisolated static func hrSamples(
+        store: WhoopStore, sourceIds: [String], from: Int, to: Int, limit: Int = 8000
+    ) async -> [HRSample] {
+        if sourceIds.count == 1, let source = sourceIds.first {
+            return (try? await store.hrSamples(deviceId: source, from: from, to: to, limit: limit)) ?? []
+        }
+        var lists: [[HRSample]] = []
+        for source in sourceIds {
+            lists.append((try? await store.hrSamples(deviceId: source, from: from, to: to, limit: limit)) ?? [])
+        }
+        return await unionByTimestamp(lists, ts: { $0.ts })
     }
 
     /// The first list wins a shared second; ascending. A day of readings from two ids is up to 400,000 rows, so the
@@ -4558,10 +4578,11 @@ final class Repository: ObservableObject {
 
     /// ORG-10: a journal write doesn't move `refreshSeq`, so the Insights same-seq cache restored the old
     /// answers when the classic journal reopened. Drop it and bump the data version.
-    private func journalDidChange() {
+    func journalDidChange() {
         Task { @MainActor in await NotificationCoordinator.shared.reconcileSchedules() }
         insightsCache = nil
         dataVersion &+= 1
+        journalRevision &+= 1
     }
 
     /// Write one native NUMERIC answer (#322): stores the value AND answeredYes=true, so the existing
@@ -5253,40 +5274,6 @@ final class Repository: ObservableObject {
         let zoneSet = HRZones.zones(maxHR: Double(maxHR), source: hrMaxOverride > 0 ? "manual" : "tanaka")
         let minutes = HRZones.timeInZone(samples, zoneSet: zoneSet).seconds.map { $0 / 60.0 }
         return minutes.contains(where: { $0 > 0 }) ? minutes : nil
-    }
-
-    /// The workouts in a window with their zone minutes, for Load focus: workouts only, never all-day heart rate. The HR
-    /// reads and binning run off the main actor (see `workoutZoneMinutes`) and are remembered per workout.
-    func workoutLoadFocus(from: Int, to: Int, age: Int) async -> [LoadFocus.Workout] {
-        let rows = await workoutRows(from: from, to: to, reconcileHR: false)
-        let override = ProfileStore.storedHrMaxOverride()
-        let hrMax = ProfileStore.hrMax(age: age > 0 ? age : 30, override: override)
-        var result: [LoadFocus.Workout] = []
-        for row in rows {
-            let key = WorkoutZoneKey(start: row.startTs, end: row.endTs, hrMax: hrMax)
-            var minutes = workoutZoneMemo[key]
-            if minutes == nil {
-                minutes = await workoutZoneMinutes(from: row.startTs, to: row.endTs, age: age, hrMaxOverride: override)
-                workoutZoneMemo[key] = minutes
-            }
-            result.append(.init(start: Date(timeIntervalSince1970: TimeInterval(row.startTs)), zoneMinutes: minutes))
-        }
-        return result
-    }
-
-    /// Load focus for the four weeks ending on a Trends anchor day, in that day's source time zone.
-    func loadFocus(anchorDay: String, timeZoneIdentifier: String) async -> LoadFocus.Result {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: timeZoneIdentifier) ?? .autoupdatingCurrent
-        let parts = anchorDay.split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 3,
-              let day = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])),
-              let end = calendar.date(byAdding: .day, value: 1, to: day),
-              let start = calendar.date(byAdding: .day, value: -LoadFocus.windowDays, to: end)
-        else { return .insufficient(workoutsWithHR: 0) }
-        let workouts = await workoutLoadFocus(from: Int(start.timeIntervalSince1970), to: Int(end.timeIntervalSince1970),
-                                              age: ProfileStore.storedAge())
-        return LoadFocus.evaluate(workouts: workouts, through: end, calendar: calendar)
     }
 
     /// Apple Health daily aggregates (steps/energy/vo2/hr).

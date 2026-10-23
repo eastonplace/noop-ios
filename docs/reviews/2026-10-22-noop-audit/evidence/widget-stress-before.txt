@@ -1,0 +1,72 @@
+$ /tmp/noop-swift-toolchain/usr/bin/swift run --build-system native --package-path /tmp/noop-widget-stress-package --scratch-path /tmp/noop-widget-stress-build --cache-path /tmp/noop-swift-cache --config-path /tmp/noop-swift-config --security-path /tmp/noop-swift-security WidgetStressHarness /workspace/scratch/a25c9a323562/review-work/widget-stress-harness/fixture.sqlite
+dense midnight then waking HR/RR: FAIL hr=20000, rr=20000, noon_rmssd=nil
+25-hour civil day and equal RR at last second: FAIL hr=20000, first=Optional(1793505600), last=Optional(1793525599), rr=2
+verified source order, dedupe, measured-first fallback: PASS hr=[72, 73], rr=[810]
+WHOOP 5 keeps one whole-day transport choice: PASS rr=1, source=Optional(WhoopProtocol.RRSource.whoop5Historical)
+widget stress checks: 2 failed
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-4BDBE066E3DC7C8B.txt
+[3/44] Emitting module WhoopProtocol
+[4/48] Compiling WhoopProtocol RealtimeArmPolicy.swift
+[5/48] Compiling WhoopProtocol ReconnectPolicy.swift
+[6/48] Compiling WhoopProtocol WhoopCommand.swift
+[7/48] Compiling WhoopProtocol LiveSessionHaptics.swift
+[8/48] Compiling WhoopProtocol PostHooks.swift
+[9/48] Compiling WhoopProtocol Framing.swift
+[10/48] Compiling WhoopProtocol HapticClock.swift
+[11/48] Compiling WhoopProtocol HapticPayloads.swift
+[12/48] Compiling WhoopProtocol HistoricalMeta.swift
+[13/48] Compiling WhoopProtocol HistoricalStreams.swift
+[14/48] Compiling WhoopProtocol PpgHr.swift
+[15/48] Compiling WhoopProtocol PuffinCapture.swift
+[16/48] Compiling WhoopProtocol Schema.swift
+[17/48] Compiling WhoopProtocol SleepSessionWindow.swift
+[18/48] Compiling WhoopProtocol Whoop5Config.swift
+[19/48] Compiling WhoopProtocol Whoop5RawImu.swift
+[20/48] Compiling WhoopProtocol Whoop5RawOptical.swift
+[21/48] Compiling WhoopProtocol Whoop5V18SpO2Candidate.swift
+[22/48] Compiling WhoopProtocol BadClockDiagnostics.swift
+[23/48] Compiling WhoopProtocol DataRange.swift
+[24/48] Compiling WhoopProtocol DeviceFamily.swift
+[25/48] Compiling WhoopProtocol FTMSDecode.swift
+[26/48] Compiling WhoopProtocol FitnessSensorDecode.swift
+[27/48] Compiling WhoopProtocol StrapClockRecoveryPlanner.swift
+[28/48] Compiling WhoopProtocol Streams.swift
+[29/48] Compiling WhoopProtocol Values.swift
+[30/48] Compiling WhoopProtocol VersionCheck.swift
+[31/48] Compiling WhoopProtocol Interpreter.swift
+[32/48] Compiling WhoopProtocol BackfillDrainOwnership.swift
+[33/48] Compiling WhoopProtocol BackfillPolicy.swift
+[34/48] Compiling WhoopProtocol BatchedRetryingSink.swift
+[35/48] Compiling WhoopProtocol ConnectionIntentPolicy.swift
+[36/48] Compiling WhoopProtocol ContinuousHrvSchedule.swift
+[37/48] Compiling WhoopProtocol FlushScheduler.swift
+[38/48] Compiling WhoopProtocol HistoricalBurstPolicies.swift
+[39/48] Compiling WhoopProtocol LinkDetectors.swift
+[40/48] Compiling WhoopProtocol RawHistoryArchive.swift
+[41/48] Compiling WhoopProtocol WhoopDecoderSchema.swift
+[42/48] Compiling WhoopProtocol WhoopGattServiceFamily.swift
+[43/48] Compiling WhoopProtocol WhoopProtocol.swift
+[44/48] Compiling WhoopProtocol resource_bundle_accessor.swift
+[45/49] Wrapping AST for WhoopProtocol for debugging
+[47/59] Compiling WidgetStressHarness HRValidity.swift
+[48/60] Compiling WidgetStressHarness WhoopStore.swift
+[49/60] Compiling WidgetStressHarness Widget.swift
+[50/60] Compiling WidgetStressHarness Runner.swift
+[51/60] Compiling WidgetStressHarness RRReadPolicy.swift
+[52/60] Compiling WidgetStressHarness HRVAnalyzer.swift
+[53/60] Compiling WidgetStressHarness DaytimeStress.swift
+[54/60] Emitting module WidgetStressHarness
+[55/60] Compiling WidgetStressHarness CivilDay.swift
+[56/60] Compiling WidgetStressHarness Adapter.swift
+[57/60] Compiling WidgetStressHarness AnalyticsMemo.swift
+[58/61] Wrapping AST for WidgetStressHarness for debugging
+[59/61] Write Objects.LinkFileList
+[60/61] Linking WidgetStressHarness
+Build of product 'WidgetStressHarness' complete! (5.49s)
+warning: safeExec: signal(32, SIG_DFL) failed: Invalid argument
+warning: safeExec: signal(33, SIG_DFL) failed: Invalid argument
+
+exit: 1

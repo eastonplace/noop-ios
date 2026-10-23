@@ -1,0 +1,36 @@
+[0/1] Planning build
+Building for debugging...
+[0/11] Write sources
+[1/11] Write swift-version-4BDBE066E3DC7C8B.txt
+[3/11] Compiling StrandAnalyticsTests GoldenBoundaryDiagnosisTests.swift
+[4/11] Emitting module StrandAnalyticsTests
+[5/12] /tmp/noop-golden-base-build/x86_64-unknown-linux-gnu/debug/NoopGoldenProofPackageDiscoveredTests.derived/all-discovered-tests.swift
+[6/13] Write sources
+[7/13] Wrapping AST for StrandAnalyticsTests for debugging
+[9/16] Compiling NoopGoldenProofPackageDiscoveredTests StrandAnalyticsTests.swift
+[10/16] Emitting module NoopGoldenProofPackageDiscoveredTests
+[11/16] Compiling NoopGoldenProofPackageDiscoveredTests all-discovered-tests.swift
+[12/17] /tmp/noop-golden-base-build/x86_64-unknown-linux-gnu/debug/NoopGoldenProofPackageTests.derived/runner.swift
+[13/18] Write sources
+[14/18] Wrapping AST for NoopGoldenProofPackageDiscoveredTests for debugging
+[16/20] Compiling NoopGoldenProofPackageTests runner.swift
+[17/20] Emitting module NoopGoldenProofPackageTests
+[18/20] Write Objects.LinkFileList
+[19/20] Linking NoopGoldenProofPackageTests.xctest
+Build complete! (1.74s)
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+Test Suite 'Selected tests' started at 2026-10-21 23:56:00.994
+Test Suite 'GoldenBoundaryDiagnosisTests' started at 2026-10-21 23:56:00.995
+Test Case 'GoldenBoundaryDiagnosisTests.testMessyGoldenCaloriesUseExactlyTheValidInputKernel' started at 2026-10-21 23:56:00.995
+DIAG|counts raw=1565 valid=1560 invalid=[-7, 400, 241, 29, 0]
+DIAG|kernel raw=675.6279982345424 [40851d0623f03a71] valid=674.8726775993182 [408516fb3e64a830]
+DIAG|rescore raw=Scored(avgHr: 138, maxHr: 400, strain: Optional(28.652806669850904), kcal: Optional(675.6279982345424)) valid=Scored(avgHr: 138, maxHr: 175, strain: Optional(28.652806669850904), kcal: Optional(674.8726775993182))
+/workspace/scratch/a25c9a323562/review-work/golden-proof/base/Tests/StrandAnalyticsTests/GoldenBoundaryDiagnosisTests.swift:23: error: GoldenBoundaryDiagnosisTests.testMessyGoldenCaloriesUseExactlyTheValidInputKernel : XCTAssertEqual failed: ("Scored(avgHr: 138, maxHr: 400, strain: Optional(28.652806669850904), kcal: Optional(675.6279982345424))") is not equal to ("Scored(avgHr: 138, maxHr: 175, strain: Optional(28.652806669850904), kcal: Optional(674.8726775993182))") - Every public workout metric must be invariant to these five invalid readings
+/workspace/scratch/a25c9a323562/review-work/golden-proof/base/Tests/StrandAnalyticsTests/GoldenBoundaryDiagnosisTests.swift:25: error: GoldenBoundaryDiagnosisTests.testMessyGoldenCaloriesUseExactlyTheValidInputKernel : XCTAssertEqual failed: ("Optional(4649154102539860593)") is not equal to ("Optional(4649147458669291568)") - 
+Test Case 'GoldenBoundaryDiagnosisTests.testMessyGoldenCaloriesUseExactlyTheValidInputKernel' failed (0.008 seconds)
+Test Suite 'GoldenBoundaryDiagnosisTests' failed at 2026-10-21 23:56:01.003
+	 Executed 1 test, with 2 failures (0 unexpected) in 0.008 (0.008) seconds
+Test Suite 'Selected tests' failed at 2026-10-21 23:56:01.003
+	 Executed 1 test, with 2 failures (0 unexpected) in 0.008 (0.008) seconds
+Note: Some test targets reported failures:
+  - NoopGoldenProofPackageTests (XCTest)

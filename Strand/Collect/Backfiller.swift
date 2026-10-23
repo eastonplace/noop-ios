@@ -185,9 +185,9 @@ final class Backfiller {
     private var sessionProtocolMetadata = Data()
     /// Whether a START has been received and we're accumulating a chunk.
     private var chunkOpen = false
-    /// Set when BLEManager dropped a CRC-invalid inbound frame (WHOOP 5/MG) while a chunk was open. That frame
-    /// may have been a record, so the chunk is incomplete: the next HISTORY_END must fail the chunk without
-    /// commit or ACK so the strap re-sends it. Cleared at every chunk/session boundary.
+    /// Latches ordered framing loss or a dropped invalid envelope in the admitted pass. A later START
+    /// cannot recover the missing evidence. The next END fails without commit or trim ACK; begin()
+    /// establishes a clean retry using the existing failure/backoff budget.
     private var sawInvalidInboundFrame = false
     /// Strap family for the current offload, set at begin(). Drives family-aware frame parsing (WHOOP 5/MG
     /// records sit at +4 offsets vs WHOOP 4.0) and the end_data slice the ack needs. Captured at begin()
@@ -492,6 +492,18 @@ final class Backfiller {
         await ingest(frame, admittedBy: Optional(admission))
     }
 
+    /// The BLE queue carries loss and frames with the same session token and secure admission.
+    /// A stale loss marker must not invalidate a newer session any more than a stale END may ACK it.
+    func ingest(_ event: ReassemblyEvent, admittedBy admission: Whoop5HistoricalSessionAdmission? = nil) async {
+        guard ownsRoute(admission) else { return }
+        switch event {
+        case .frame(let frame):
+            await ingest(frame, admittedBy: admission)
+        case .discardedBytes(let count):
+            if count > 0 { noteInvalidInboundFrame() }
+        }
+    }
+
     private func ingest(
         _ frame: [UInt8],
         admittedBy admission: Whoop5HistoricalSessionAdmission?
@@ -508,10 +520,15 @@ final class Backfiller {
             isBackfilling = true
             chunk.removeAll(keepingCapacity: true)
             chunkOpen = true
-            sawInvalidInboundFrame = false
+            // Only begin() can establish a new admitted pass. A surviving START cannot restore
+            // completeness after bytes were lost in this pass, including before this START.
         case .end(let unix, let trim):
             await finishChunk(unix: unix, trim: trim, endFrame: frame, admission: admission)
         case .complete:
+            guard !sawInvalidInboundFrame else {
+                fail(.integrity(trim: UInt32.max))
+                return
+            }
             isBackfilling = false
             chunk.removeAll(keepingCapacity: true)
             chunkOpen = false

@@ -173,41 +173,41 @@ public enum AppleHealthAggregator {
 
     // MARK: - Sleep daily aggregation
 
-    /// Collapse sleep-stage intervals into per-night totals keyed by the **wake
-    /// day** — the local civil day of each interval's `end`. Minutes are summed
-    /// per stage; `asleep = core + deep + rem` (+ any legacy "asleep
-    /// unspecified" intervals, which Apple emitted before staged sleep).
+    /// Non-overlapping episode totals keyed by the whole episode's final local wake day.
+    /// XML and live HealthKit both use `AppleSleepEpisodeReducer`; raw intervals stay unchanged.
     public static func sleepDaily(
         _ intervals: [SleepStageInterval]
     ) -> [String: (asleep: Double, deep: Double, rem: Double, core: Double, awake: Double, inBed: Double)] {
-        struct Night {
-            var deep = 0.0, rem = 0.0, core = 0.0, unspecified = 0.0, awake = 0.0, inBed = 0.0
-        }
-        var byDay: [String: Night] = [:]
+        sleepReduction(intervals).totals
+    }
 
-        for iv in intervals {
-            let minutes = max(0, iv.end.timeIntervalSince(iv.start)) / 60.0
-            // Wake day = local day of the interval end.
-            let day = localDay(iv.end, tzOffsetMin: iv.tzOffsetMin)
-            var n = byDay[day] ?? Night()
-            switch iv.stage {
-            case .asleepDeep:        n.deep += minutes
-            case .asleepREM:         n.rem += minutes
-            case .asleepCore:        n.core += minutes
-            case .asleepUnspecified: n.unspecified += minutes
-            case .awake:             n.awake += minutes
-            case .inBed:             n.inBed += minutes
-            case .unknown:           break
-            }
-            byDay[day] = n
-        }
+    private typealias SleepTotals = (asleep: Double, deep: Double, rem: Double, core: Double, awake: Double, inBed: Double)
 
-        var out: [String: (asleep: Double, deep: Double, rem: Double, core: Double, awake: Double, inBed: Double)] = [:]
-        for (day, n) in byDay {
-            let asleep = n.core + n.deep + n.rem + n.unspecified
-            out[day] = (asleep: asleep, deep: n.deep, rem: n.rem, core: n.core, awake: n.awake, inBed: n.inBed)
+    private static func sleepReduction(_ intervals: [SleepStageInterval])
+        -> (totals: [String: SleepTotals], observedAsleepDays: Set<String>,
+            observedAwakeDays: Set<String>, observedInBedDays: Set<String>) {
+        var output: [String: SleepTotals] = [:]
+        var observedAsleepDays: Set<String> = []
+        var observedAwakeDays: Set<String> = []
+        var observedInBedDays: Set<String> = []
+        for episode in AppleSleepEpisodeReducer.reduce(intervals) {
+            if episode.hasAsleepEvidence { observedAsleepDays.insert(episode.wakeDay) }
+            if episode.hasAwakeEvidence { observedAwakeDays.insert(episode.wakeDay) }
+            if episode.inBed > 0 { observedInBedDays.insert(episode.wakeDay) }
+            let prior = output[episode.wakeDay] ?? (0, 0, 0, 0, 0, 0)
+            output[episode.wakeDay] = (prior.asleep + episode.asleep, prior.deep + episode.deep,
+                                       prior.rem + episode.rem, prior.core + episode.core,
+                                       prior.awake + episode.awake, prior.inBed + episode.inBed)
         }
-        return out
+        // Preserve the legacy zero-valued unknown-stage day without letting unknown evidence
+        // connect, extend, or choose the wake timezone of a real sleep episode.
+        for interval in intervals where interval.stage == .unknown {
+            let duration = interval.end.timeIntervalSince(interval.start)
+            guard duration.isFinite, duration > 0, duration <= 24 * 60 * 60 else { continue }
+            let day = localDay(interval.end, tzOffsetMin: interval.tzOffsetMin)
+            if output[day] == nil { output[day] = (0, 0, 0, 0, 0, 0) }
+        }
+        return (output, observedAsleepDays, observedAwakeDays, observedInBedDays)
     }
 
     // MARK: - Full merge
@@ -224,7 +224,8 @@ public enum AppleHealthAggregator {
         let sampleDaily = result.sampleDailies.isEmpty
             ? daily(samples: result.samples)
             : result.sampleDailies
-        let sleep = sleepDaily(result.sleepIntervals)
+        let sleepResult = sleepReduction(result.sleepIntervals)
+        let sleep = sleepResult.totals
 
         var byDay: [String: AppleDailyAggregate] = [:]
         for d in sampleDaily { byDay[d.day] = d }
@@ -236,6 +237,7 @@ public enum AppleHealthAggregator {
         let merged: [AppleDailyAggregate] = days.map { day in
             let base = byDay[day]
             let s = sleep[day]
+            let observedAsleep = sleepResult.observedAsleepDays.contains(day)
             return AppleDailyAggregate(
                 day: day,
                 restingHr: base?.restingHr,
@@ -253,12 +255,12 @@ public enum AppleHealthAggregator {
                 bodyFatPct: base?.bodyFatPct,
                 leanMassKg: base?.leanMassKg,
                 bmi: base?.bmi,
-                asleepMin: s?.asleep,
-                deepMin: s?.deep,
-                remMin: s?.rem,
-                coreMin: s?.core,
-                awakeMin: s?.awake,
-                inBedMin: s?.inBed
+                asleepMin: observedAsleep ? s?.asleep : nil,
+                deepMin: observedAsleep ? s?.deep : nil,
+                remMin: observedAsleep ? s?.rem : nil,
+                coreMin: observedAsleep ? s?.core : nil,
+                awakeMin: sleepResult.observedAwakeDays.contains(day) ? s?.awake : nil,
+                inBedMin: sleepResult.observedInBedDays.contains(day) ? s?.inBed : nil
             )
         }
         return merged.sorted { $0.day < $1.day }

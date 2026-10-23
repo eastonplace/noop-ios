@@ -490,7 +490,8 @@ final class IntelligenceEngine: ObservableObject {
     /// or skipping an unchanged-HR tick. v2 (AN-02): days bucket by their civil interval and own offset.
     /// v3 (AN-05): Effort's cycle runs from the day's main-night onset to the next day's cycle start.
     /// v4 (D3b): the daily calorie total fills resting energy for the hours without valid heart rate.
-    nonisolated static let analyzeScanVersion = "cache-v5"
+    /// v5: R-R quality and nightly physiology. v6: classified, rate-checked, sleep-aware step totals.
+    nonisolated static let analyzeScanVersion = "cache-v6"
 
     /// F2: each scored night's raw skin-temperature mean (°C), persisted under the computed id so the skin
     /// baseline folds the whole history, as HRV / resting HR / respiration do from the computed rows.
@@ -541,20 +542,21 @@ final class IntelligenceEngine: ObservableObject {
     nonisolated static let rawLoopMinHrRows = 200
 
     /// One civil day of the WHOOP 4.0 steps estimate's motion volume, with what it was computed from. A later pass
-    /// reuses `motion` only while the day's resolved owner, read window and gravity fingerprint (row count and newest
-    /// timestamp, answered from the index) are all unchanged, so an insert, a delete, a timestamp heal or an owner
-    /// change re-reads the day and a cached day can never differ from a fresh read.
+    /// reuses `motion` only while the resolved owner, window, indexed count/newest timestamp and complete committed
+    /// motion witness are unchanged. The witness covers same-key repairs, physical changes and foreign writers.
     struct StepMotionCacheEntry: Sendable, Equatable {
         let owner: String
         let from: Int
         let to: Int
         let rowCount: Int
         let maxTs: Int
+        let inputWitness: String
         let motion: Double
 
-        func matches(owner: String, from: Int, to: Int, fingerprint: (count: Int, maxTs: Int)) -> Bool {
+        func matches(owner: String, from: Int, to: Int, fingerprint: (count: Int, maxTs: Int), inputWitness: String) -> Bool {
             self.owner == owner && self.from == from && self.to == to
                 && rowCount == fingerprint.count && maxTs == fingerprint.maxTs
+                && self.inputWitness == inputWitness
         }
     }
 
@@ -606,12 +608,13 @@ final class IntelligenceEngine: ObservableObject {
     }
 
     /// One civil day's motion volume for the steps estimate, answered from `cached` when the day's owner, read
-    /// window and gravity fingerprint are unchanged, else read from the owner's gravity stream. The fingerprint is
-    /// read BEFORE the rows, so a row that lands in between only makes the next pass's fingerprint differ (a re-read),
-    /// never a stale hit. A failed gravity read is not cached: it counts as an empty day, as it always did.
+    /// window and complete motion witness are unchanged, else read the owner's gravity stream. The pass captures
+    /// its witness before input reads, so mid-pass mutations cannot be acknowledged by a later cache publication.
+    /// A failed witness/gravity read is not cached and retains the existing empty-day behavior.
     nonisolated static func stepMotion(
         for civilDay: CivilDayWindow, now: Int, cached: StepMotionCacheEntry?, store: WhoopStore,
-        devices: [PairedDevice], activeId: String, registry: DeviceRegistryStore, fallbackDeviceId: String
+        devices: [PairedDevice], activeId: String, registry: DeviceRegistryStore, fallbackDeviceId: String,
+        inputWitness: AnalysisInputWitness?
     ) async throws -> (motion: Double, entry: StepMotionCacheEntry?, hit: Bool) {
         let dayEnd = civilDay.nextStart - 1
         let owner = await resolveDayOwner(
@@ -619,21 +622,23 @@ final class IntelligenceEngine: ObservableObject {
             devices: devices, activeId: activeId, registry: registry, fallbackDeviceId: fallbackDeviceId,
             completedDay: civilDay.nextStart <= now ? civilDay : nil)
         let fingerprint = try? await store.gravityFingerprint(deviceId: owner, from: civilDay.start, to: dayEnd)
-        if let fingerprint, let hit = cached,
-           hit.matches(owner: owner, from: civilDay.start, to: dayEnd, fingerprint: fingerprint) {
+        let motionWitness = inputWitness?.motionSignature(deviceId: owner, from: civilDay.start, to: dayEnd)
+        if let fingerprint, let motionWitness, let hit = cached,
+           hit.matches(owner: owner, from: civilDay.start, to: dayEnd, fingerprint: fingerprint, inputWitness: motionWitness) {
             return (hit.motion, hit, true)
         }
         let grav = try? await store.gravitySamples(deviceId: owner, from: civilDay.start, to: dayEnd, limit: 200_000)
         try CooperativeAnalysisCancellation.checkpoint()
         let motion = StepsEstimateEngine.dayMotionIntensity(grav ?? [])
-        guard let fingerprint, grav != nil else { return (motion, nil, false) }
+        guard let fingerprint, let motionWitness, grav != nil else { return (motion, nil, false) }
         return (motion, StepMotionCacheEntry(
             owner: owner, from: civilDay.start, to: dayEnd,
-            rowCount: fingerprint.count, maxTs: fingerprint.maxTs, motion: motion), false)
+            rowCount: fingerprint.count, maxTs: fingerprint.maxTs, inputWitness: motionWitness, motion: motion), false)
     }
 
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
+    private var lastCompletedAnalysisWitness: String?
     private var analyzeRecentCacheTestingSeams: AnalyzeRecentCacheTestingSeams?
 
     func setAnalyzeRecentCacheTestingSeamsForTesting(_ seams: AnalyzeRecentCacheTestingSeams?) {
@@ -745,6 +750,9 @@ final class IntelligenceEngine: ObservableObject {
     /// Test seam: runs on the main actor right after the daily-row reconcile commits, before the rest of the
     /// persistence phase. A test cancels the pass from here to prove what a mid-write cancel leaves behind.
     var afterDailyReconcileForTesting: (() -> Void)?
+    /// Deterministic input-mutation/cancellation boundaries for real-engine witness tests.
+    /// Production leaves this nil. The callback runs outside the store transaction.
+    var analysisOutputBoundaryForTesting: ((String) async -> Void)?
 
     /// Only the engine `AppModel` owns applies Strength Strain and runs its one-time backfill. A transient engine
     /// (exact-day analysis) and the tests keep the default `false`, so they can never write a combined value.
@@ -894,9 +902,11 @@ final class IntelligenceEngine: ObservableObject {
     // v4: revisit source-backed days after the WHOOP R-R read/quality policy, nightly physiology, and
     // optional-baseline eligibility changes. Advance both UserDefaults identities and both durable passes
     // together: a completed v3 pass or its cursor must not suppress corrected historical rows or settlement.
-    static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v4.done"
-    static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v4.offset"
-    static let effortRescoreDurableProgressKey = "effort-rescore-v4"
+    // v5: rederive steps and their Strain V2 contribution using the shared activity/rate/sleep filter.
+    // New identities restart only derived history; raw samples, edited sleep and logged lifts are retained.
+    static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v5.done"
+    static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v5.offset"
+    static let effortRescoreDurableProgressKey = "effort-rescore-v5"
     static let effortRescoreChunkDays = 30
     private enum EffortRescoreMigrationError: Error { case chunkDidNotComplete }
 
@@ -1037,7 +1047,7 @@ final class IntelligenceEngine: ObservableObject {
     /// chunks, with the same cursor, chunking and safety net, scores every Charge against the rescored history,
     /// the result a from-scratch oldest-first run gives. It starts only once this generation's main pass is complete,
     /// so an app kill during that pass cannot start settlement early.
-    static let effortRescoreSettleDurableProgressKey = "effort-rescore-v4-settle"
+    static let effortRescoreSettleDurableProgressKey = "effort-rescore-v5-settle"
 
     private func runEffortRescoreSettleIfNeeded(store: WhoopStore, historyDays: Int, reference: Date,
                                                 calendar: Calendar, shouldPause: () -> Bool) async {
@@ -1280,32 +1290,27 @@ final class IntelligenceEngine: ObservableObject {
               let respCfg = Baselines.metricCfg["resp"],
               let skinCfg = Baselines.metricCfg["skin_temp"] else { return false }
 
-        // #836 (idle-tick gate): re-scoring a 21-day window re-reads ~21×54 h of raw HR and re-runs
-        // analyzeDay over it. After a big Apple Health import (a reporter's: 2.1 M rows, ~190 k HR/day) that
-        // is multi-second, memory-heavy work, and the 15-minute steady-state tick (AppModel) repeats it
-        // every tick even when NOTHING new landed — the ongoing lag/crash in #836. A cheap whole-history HR
-        // fingerprint (count+maxTs, indexed, no rows materialized) lets a NON-forced caller short-circuit
-        // when the raw stream is byte-for-byte unchanged since the last successful run. All-or-nothing: it
-        // never produces a PARTIAL pass, so the window-wide reconciliation (stale-day eviction, detected-
-        // workout delete) is untouched and no computed history is dropped. Every real update path (sync
-        // backfill, import, sleep/workout edit, baseline recalibrate, timestamp heal) calls with the default
-        // `force: true` and always rescores, so a skipped tick can never hide new data.
-        // DL-02 (N2-7): the witness covers only the backstop window, for every owner whose raw stream can be
-        // scored (the canonical id, the registry's active strap and every paired device). The old one counted
-        // every HR row ever stored on every pass, forced or not, and was keyed to the canonical id, so rows a
-        // re-paired strap wrote under its own id never moved it and the backstop always skipped. It is read
-        // at the start of a pass (so data landing mid-pass still moves the next tick) and only by passes
-        // that use it: a non-forced tick, or a pass over the current window that refreshes it.
+        // D6: capture committed table/physical/store inputs before ANY analysis reads. Keep this START
+        // identity through successful publication: an input landing mid-pass must wake the next pass.
+        // A failed witness read disables reuse. Exact-source work never consumes or refreshes RAM caches.
         let referenceNow = analysisReference ?? Date()
         let now = Int(referenceNow.timeIntervalSince1970)
-        let wmKey: String
-        if !force || (startOffset == 0 && sourceContext == nil) {
-            wmKey = await analyzeWatermark(store: store, reference: referenceNow, calendar: analysisCalendar)
+        let inputWitness: AnalysisInputWitness?
+        if sourceContext == nil { inputWitness = try? await store.analysisInputWitness() }
+        else { inputWitness = nil }
+        let outputWrites = AnalysisOutputWriteLedger()
+        let wmConfiguration: String
+        if sourceContext == nil, inputWitness != nil, !force || startOffset == 0 {
+            wmConfiguration = analyzeWatermarkConfiguration(
+                reference: referenceNow, calendar: analysisCalendar,
+                maxDays: maxDays, startOffset: startOffset, refreshRepository: refreshRepository,
+                keepUnproducedHistory: keepUnproducedHistory)
         } else {
-            wmKey = ""
+            wmConfiguration = ""
         }
+        let wmKey = inputWitness.map { idleWitnessKey($0, configuration: wmConfiguration) } ?? ""
         if !force, !wmKey.isEmpty,
-           UserDefaults.standard.string(forKey: Self.analyzeWatermarkKey) == wmKey {
+           lastCompletedAnalysisWitness == wmKey {
             performanceChangedRows = 0
             return false
         }
@@ -1560,6 +1565,7 @@ final class IntelligenceEngine: ObservableObject {
         let cacheSnapshot: [String: CachedDayScan] = sourceContext == nil
             && dayScanCacheConfigSignature == cacheConfigSignature ? dayScanCache : [:]
         let cacheTestingSeams = analyzeRecentCacheTestingSeams
+        let scanInputTables = Self.dayScanInputTables
         let scanPass: DayScanPass
         do {
             scanPass = try await CooperativeAnalysisCancellation.runDetached {
@@ -1599,8 +1605,10 @@ final class IntelligenceEngine: ObservableObject {
                 // midnight when it has no main night. Only today, the newest day of a current pass, has no
                 // scanned successor and keeps running to its last reading (F5: a partial window scans one
                 // lookahead day).
+                let newerScan = newerCivilDay.flatMap { newer in
+                    out.last.flatMap { $0.day == newer.day ? $0 : nil }
+                }
                 let nextCycleBoundary: Int? = newerCivilDay.map { newer in
-                    let newerScan = out.last.flatMap { $0.day == newer.day ? $0 : nil }
                     return AnalyticsEngine.CycleEnd.next(
                         cycleStart: newerScan?.result?.cycleStart,
                         nextDayInterval: newer.start..<newer.nextStart)
@@ -1624,6 +1632,10 @@ final class IntelligenceEngine: ObservableObject {
                                                        completedDay: civilDay.nextStart <= now ? civilDay : nil)
                 }
                 let dayInterval = civilDay.start..<civilDay.nextStart
+                // Reuse the completed successor night for late-evening steps; never restage it or
+                // attribute its recovery to today. Another strap's scan cannot supply this owner's mask.
+                let stepSleepSessions = newerScan?.readOwner == owner
+                    ? (newerScan?.result?.sleepSessions ?? []) : []
                 let dayOffset = clockOffsetByDay[day] ?? tzOffset
                 let dayEditedRows = Self.editedRowsForOwnerDay(
                     editedRows,
@@ -1669,6 +1681,12 @@ final class IntelligenceEngine: ObservableObject {
                     && ownerDevice?.brand.caseInsensitiveCompare("WHOOP") == .orderedSame
                 var dayCacheKey: String?
                 if sourceContext == nil, isWhoop4 {
+                    // The cache may decline a capped night slice and read the complete calendar day;
+                    // Effort can additionally read beyond the night end through the successor onset.
+                    // Include the entire inclusive union even when one shortcut happens to answer it.
+                    let rawReadEnd = max(max(to, civilDay.nextStart - 1), cycleTail?.upperBound ?? to)
+                    let scanInputWitness = inputWitness?.dayScanSignature(
+                        tables: scanInputTables, from: from, to: rawReadEnd)
                     cacheEligible += 1
                     try CooperativeAnalysisCancellation.checkpoint()
                     let fingerprint: (count: Int, maxTs: Int)
@@ -1702,11 +1720,13 @@ final class IntelligenceEngine: ObservableObject {
                         persistedSleepFingerprint: persistedSleepFingerprint,
                         cycleFingerprint: cycleFingerprint,
                         rrFingerprint: rrFingerprint ?? "",
+                        stepSleepFingerprint: SleepAwareStepCounter.sleepContextFingerprint(stepSleepSessions),
+                        inputWitness: scanInputWitness ?? "",
                         hrvWindowDetail: dayStart == currentCivilDayStart,
                         calorieFillEnd: dayInterval.upperBound > now ? now : nil)   // D3b: today fills to now
                     // An unreadable R-R witness cannot authorize reuse or seed a cache entry.
-                    dayCacheKey = rrFingerprint == nil ? nil : key
-                    if rrFingerprint != nil, let cached = cacheSnapshot[day], cached.key == key {
+                    dayCacheKey = rrFingerprint == nil || scanInputWitness == nil ? nil : key
+                    if rrFingerprint != nil, scanInputWitness != nil, let cached = cacheSnapshot[day], cached.key == key {
                         // A hit replaces pass 1 only. The cached scan still enters the normal main-actor fold
                         // and all pass-2/persistence/reconciliation work below.
                         try CooperativeAnalysisCancellation.checkpoint()
@@ -1876,9 +1896,10 @@ final class IntelligenceEngine: ObservableObject {
                             deviceId: owner, from: cycleTail.lowerBound, to: cycleTail.upperBound, limit: 200_000)
                         let tailSteps = try await store.stepSamples(
                             deviceId: owner, from: cycleTail.lowerBound, to: cycleTail.upperBound, limit: 200_000)
-                        cycleEnd = .init(end: nextCycleBoundary, tailHr: tailHr, tailSteps: tailSteps)
+                        cycleEnd = .init(end: nextCycleBoundary, tailHr: tailHr, tailSteps: tailSteps,
+                                         stepSleepSessions: stepSleepSessions)
                     } else {
-                        cycleEnd = .init(end: nextCycleBoundary)
+                        cycleEnd = .init(end: nextCycleBoundary, stepSleepSessions: stepSleepSessions)
                     }
                 } else {
                     cycleEnd = nil
@@ -1971,7 +1992,8 @@ final class IntelligenceEngine: ObservableObject {
                     stepsTrace = StepsEstimateEngine.rawCounterTrace(
                         daySteps: daySteps, dayKey: day, tzOffsetSeconds: dayOffset,
                         dayInterval: dayInterval,
-                        ticksPerStep: up.stepTicksPerStep)
+                        ticksPerStep: up.stepTicksPerStep,
+                        sleepSessions: res.sleepSessions + stepSleepSessions)
                 }
                 // ── RHR floor-vs-mean diagnostic (#691) ────────────────────────────────────────────────
                 // Make the recurring "NOOP's resting HR reads LOWER than my sleeping-HR app" reports
@@ -2520,15 +2542,6 @@ final class IntelligenceEngine: ObservableObject {
             let v2 = scoredSleepV2[daily.day]
             let recoverySleepQuality = sleepV2Mode == .on ? v2?.performance?.recoveryInput : legacySleepQuality
             let dayBaselines = baselines(asOf: daily.day)
-            let recovery = recomputeRecovery(daily, dayBaselines, sleepQuality: recoverySleepQuality)
-            // Charge term-breakdown trace (Group G): only when the Recovery test mode is on. Emits which
-            // term moved Charge and which was nil and forced the renorm, tagged `.recovery`. The trace's
-            // score is RecoveryScorer.recovery verbatim, so the `recovery` written above is unchanged.
-            if recoveryTraceActive {
-                for line in recoveryTraceLines(daily, dayBaselines, sleepQuality: recoverySleepQuality) {
-                    diagnosticSink?(line, .recovery)
-                }
-            }
             var skinDev = recomputeSkinTempDev(night.nightlySkin, dayBaselines.skinTemp)
             // F2: a completed day whose as-of skin baseline isn't usable here (its earlier nights predate the
             // persisted nightly means) keeps its stored deviation instead of losing it. Review round 3 (F): so
@@ -2540,13 +2553,25 @@ final class IntelligenceEngine: ObservableObject {
                (skinDev == nil && dayBaselines.skinTemp == nil) || !skinHistoryReachesBeforeWindow {
                 skinDev = storedSkinDev
             }
+            // Pass 1 has no skin baseline. Score and explain this night with the final deviation
+            // selected above, including the completed-day preservation rule, then persist that value.
+            let recoveryDaily = daily.with(recovery: daily.recovery, skinTempDevC: skinDev)
+            let recovery = recomputeRecovery(recoveryDaily, dayBaselines, sleepQuality: recoverySleepQuality)
+            // Charge term-breakdown trace (Group G): only when the Recovery test mode is on. Emits which
+            // term moved Charge and which was nil and forced the renorm, tagged `.recovery`. The trace's
+            // score is RecoveryScorer.recovery verbatim, so the `recovery` written above is unchanged.
+            if recoveryTraceActive {
+                for line in recoveryTraceLines(recoveryDaily, dayBaselines, sleepQuality: recoverySleepQuality) {
+                    diagnosticSink?(line, .recovery)
+                }
+            }
             let source = DaySource.classify(day: daily.day, importedWhoopDays: importedWhoopDays,
                                             appleHealthDays: appleHealthDays)
             // SHARED CONTRACT enrichment: the ordered Charge driver list + the relative skin-temp marker,
             // built from the SAME inputs `recomputeRecovery` reads so the rows can never disagree with the
             // headline. Both are empty/nil pre-baseline (cold-start), matching the score's own null-honesty.
-            let drivers = recomputeChargeDrivers(daily, dayBaselines, sleepQuality: recoverySleepQuality)
-            let skinRel = RecoveryScorer.skinTempRelative(deviationC: skinDev)
+            let drivers = recomputeChargeDrivers(recoveryDaily, dayBaselines, sleepQuality: recoverySleepQuality)
+            let skinRel = RecoveryScorer.skinTempRelative(deviationC: recoveryDaily.skinTempDevC)
             // Honest per-day Charge confidence (A3): the strap night reads `.solid`/`.building`/`.calibrating`
             // off the HRV baseline state rather than a blanket `.solid`, so a thin/provisional baseline shows
             // EST. not REL. Pure presentation upstream of the UI; the score itself is unchanged.
@@ -2601,7 +2626,7 @@ final class IntelligenceEngine: ObservableObject {
                     hrRows: owned?.hrRows ?? 0, importedWhoop: importedWhoopDays.contains(daily.day),
                     importedApple: appleHealthDays.contains(daily.day)), .universal)
             }
-            dailies.append(daily.with(recovery: recovery, skinTempDevC: skinDev))
+            dailies.append(recoveryDaily.with(recovery: recovery, skinTempDevC: recoveryDaily.skinTempDevC))
             if let scored = v2 {
                 sleepV2Points.append(contentsOf: Self.sleepV2MetricPoints(scored))
                 let scoreLog = scored.performance.map { String(format: "%.1f", $0.score) } ?? "nil"
@@ -2965,6 +2990,16 @@ final class IntelligenceEngine: ObservableObject {
         // no later pass rewrites those days until the same chunk replays. The write phase is short next to the scan.
         // Ordinary passes keep stopping at every checkpoint.
         let writesStopOnCancel = !keepUnproducedHistory
+        // Only an existing row's calorie total is terminal output. New/changed physiology, stages,
+        // provenance and skin-baseline series remain START inputs and require a settling pass.
+        let retainedDailyDays = Set(reconciledDailies.map(\.day))
+            .union(protectedDailyDays).union(historyKeepDays)
+        let caloriesOnly = reconciledDailies.allSatisfy { row in
+            storedComputedByDay[row.day].map { Self.sameIdleDailyInputs($0, row) } ?? false
+        } && storedComputedByDay.values.allSatisfy { row in
+            row.day < oldestDay || row.day > newestDay || retainedDailyDays.contains(row.day)
+        }
+        await analysisOutputBoundaryForTesting?("beforeDaily")
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += try await store.reconcileDailyMetrics(
@@ -2972,8 +3007,10 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId,
                 from: oldestDay,
                 to: newestDay,
-                protectedDays: protectedDailyDays.union(historyKeepDays)
+                protectedDays: protectedDailyDays.union(historyKeepDays),
+                outputWrites: caloriesOnly ? outputWrites : nil
             )
+            await analysisOutputBoundaryForTesting?("afterDaily")
             // Review round 4 (4): the provenance marker covers exactly the rows reconciled above.
             let rowSourcePoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
                 guard row.day >= oldestDay, row.day <= newestDay else { return nil }
@@ -3001,8 +3038,10 @@ final class IntelligenceEngine: ObservableObject {
                 keys: [Self.calorieFillEndMetricKey],
                 from: oldestDay,
                 to: newestDay,
-                protectedDays: historyKeepDays
+                protectedDays: historyKeepDays,
+                outputWrites: outputWrites
             )
+            await analysisOutputBoundaryForTesting?("afterFill")
             // Review round 4 (5): and how much of the day the strap covered.
             let wornPoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
                 guard row.activeKcalEst != nil, civilDayByKey[row.day] != nil,
@@ -3292,7 +3331,7 @@ final class IntelligenceEngine: ObservableObject {
                     let day = try await Self.stepMotion(
                         for: civilDay, now: now, cached: motionCacheIn[civilDay.day], store: store,
                         devices: regDevices, activeId: regActiveId, registry: registry,
-                        fallbackDeviceId: stepsFallbackId)
+                        fallbackDeviceId: stepsFallbackId, inputWitness: inputWitness)
                     if let entry = day.entry { motionCache[civilDay.day] = entry }
                     if day.hit { cacheHits += 1 }
                     if day.motion > 0 { motion[civilDay.day] = day.motion }
@@ -3401,7 +3440,7 @@ final class IntelligenceEngine: ObservableObject {
                         let day = try await Self.stepMotion(
                             for: civilDay, now: now, cached: motionCacheIn[civilDay.day], store: store,
                             devices: regDevices, activeId: regActiveId, registry: registry,
-                            fallbackDeviceId: stepsFallbackId)
+                            fallbackDeviceId: stepsFallbackId, inputWitness: inputWitness)
                         if let entry = day.entry { motionCache[civilDay.day] = entry }
                         if day.hit { cacheHits += 1 }
                         if day.motion > 0 { motion[civilDay.day] = day.motion }
@@ -3680,9 +3719,8 @@ final class IntelligenceEngine: ObservableObject {
         }
         performanceChangedRows = persistedMutationCount
 
-        // #836: record the raw-HR fingerprint this run scored against, so a later NON-forced tick can
-        // short-circuit while it's unchanged. Written ONLY here at the end of a completed run (never on an
-        // early guard-return), so an interrupted/failed run can't advance the watermark past unscored data.
+        // Publish START inputs plus exact contiguous terminal-output commit receipts. Unowned table
+        // mutations leave revision gaps, and physiology/fallback/session writes still require settlement.
         guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
         if sourceContext == nil {
             // Pruning happens only here, after the complete pass: `nextCache` contains exactly the eligible
@@ -3692,50 +3730,91 @@ final class IntelligenceEngine: ObservableObject {
         }
         diagnosticSink?("analyzeRecent dayCache reused=\(scanPass.reused)/\(scanPass.eligible) "
             + "size=\(sourceContext == nil ? dayScanCache.count : 0)", nil)
-        if !wmKey.isEmpty { UserDefaults.standard.set(wmKey, forKey: Self.analyzeWatermarkKey) }
+        if !wmKey.isEmpty, let inputWitness {
+            lastCompletedAnalysisWitness = idleWitnessKey(
+                inputWitness.acknowledgingOwnOutputs(outputWrites), configuration: wmConfiguration)
+        }
         // No `await` follows, so the backfill task this spawns runs after `computing` resets.
         if isPrimary && sourceContext == nil { kickStrengthStrainBackfillIfNeeded() }
         analysisCompletionSerial += 1
         return true
     }
 
-    /// UserDefaults key for the #836 idle-tick gate: the `(count:maxTs)` HR fingerprint the last completed
-    /// `analyzeRecent` scored against. A non-forced tick whose current fingerprint equals this skips the
-    /// 21-day rescore; cleared implicitly by any HR insert/delete (the fingerprint moves), so it self-heals.
-    private static let analyzeWatermarkKey = "noop.analyzeWatermark"
     /// The window the 15-minute backstop's watermark covers. The tick itself scores today only: the serialized
     /// `analyzeRecent(force:)` shorthand passes `maxDays: 1`.
     static let backstopWindowDays = 21
 
-    /// The backstop window's HR and R-R change witnesses per candidate owner over the
-    /// read window the tick scores, plus the scan version and the hour. Empty when a read
-    /// fails, so the gate never skips on an unreadable store.
-    /// Review round 3 (D): today's calorie total fills resting energy up to now (D3b), so it must rise while the
-    /// strap is off-wrist and no heart rate arrives. The hour term lets the first tick of each hour run; the
-    /// tick's pass is today only (`analyzeRecent(force:)` passes `maxDays: 1`), plus yesterday once if its
-    /// total was filled only part of the way (review round 4, 2).
-    private func analyzeWatermark(store: WhoopStore, reference: Date, calendar: Calendar) async -> String {
-        let days = Self.civilDayWindows(reference: reference, startOffset: 0,
-                                        count: Self.backstopWindowDays, calendar: calendar)
-        guard let oldest = days.last else { return "" }
-        let from = oldest.start - 30 * 3_600
-        let to = Int(reference.timeIntervalSince1970)
-        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
-        var owners: Set<String> = [deviceId]
-        if let active = try? registry.activeDeviceId() { owners.insert(active) }
-        for device in (try? registry.all()) ?? [] { owners.insert(device.id) }
-        var parts: [String] = []
-        for owner in owners.sorted() {
-            guard let fingerprint = try? await store.hrFingerprint(deviceId: owner, from: from, to: to) else {
-                return ""
-            }
-            guard let rr = try? await store.rrScoringFingerprint(deviceId: owner, from: from, to: to) else {
-                return ""
-            }
-            parts.append("\(owner)=\(fingerprint.count):\(fingerprint.maxTs):rr\(rr.utf8.count):\(rr)")
-        }
-        return parts.joined(separator: "|") + "|\(Self.analyzeScanVersion)"
-            + "|h\(Int(reference.timeIntervalSince1970) / Self.todayFillTickSeconds)"
+    private static let dayScanInputTables = [
+        "hrSample", "rrInterval", "respSample", "gravitySample", "stepSample", "skinTempSample",
+        "spo2Sample", "event", "sleepStateSample", "ppgHrSample",
+        // Computed legacy band-state fallback is a real input when the raw sleep-state stream is absent.
+        "sleepSession", "device", "pairedDevice"
+        // dayOwnership is read again for each day before lookup. The complete effective input is the
+        // resolved owner in that day's key; a changed successor onset also changes cycleFingerprint.
+    ]
+
+    private static let wholePassInputTables = dayScanInputTables + [
+        // The idle gate does not resolve individual owners, so any override mutation must wake it.
+        "dayOwnership", "dailyMetric", "metricSeries", "workout", "appleDaily",
+        "liftStrain", "liftStrainTarget", "liftStrainControl", "liftStrainJob", "sleepRecoveryDailyOverride"
+    ]
+
+    /// RAM-only idle identity. Database revisions cover every source and all fold/fallback/control rows;
+    /// explicit profile, preferences, presentation source, request and clock inputs cover non-SQL changes.
+    /// The hour retains the existing idle calorie-fill cadence. Forced passes still score the exact time.
+    private func analyzeWatermarkConfiguration(
+        reference: Date, calendar: Calendar,
+        maxDays: Int, startOffset: Int, refreshRepository: Bool, keepUnproducedHistory: Bool
+    ) -> String {
+        func bits(_ value: Double) -> String { String(value.bitPattern) }
+        func framed(_ value: String) -> String { "\(value.utf8.count):\(value)" }
+        func strings(_ values: [String]) -> String { values.map(framed).joined() }
+        let defaults = UserDefaults.standard
+        guard let today = Self.civilDayWindows(reference: reference, startOffset: 0, count: 1, calendar: calendar).first
+        else { return "" }
+        let traces = TestDomain.allCases.map { "\($0.id)=\(TestCentre.active($0))" }
+        let dismissed = defaults.stringArray(forKey: Repository.dismissedSleepDefaultsKey) ?? []
+        let pauses = defaults.data(forKey: WorkoutPauseStore.defaultsKey)?.base64EncodedString() ?? ""
+        var parts = [
+            Self.analyzeScanVersion,
+            StrandAnalytics.version, String(StrainScorerV2.version),
+            deviceId, repo.deviceId, repo.notificationSourceContext, String(repo.loaded),
+            strings(repo.importedReadIds), strings(repo.computedReadIds),
+            String(maxDays), String(startOffset), String(refreshRepository), String(keepUnproducedHistory),
+            String(describing: calendar.identifier), calendar.locale?.identifier ?? "",
+            calendar.timeZone.identifier, String(calendar.timeZone.secondsFromGMT(for: reference)),
+            String(calendar.firstWeekday), String(calendar.minimumDaysInFirstWeek),
+            today.day, String(today.start), String(today.nextStart),
+            String(Int(reference.timeIntervalSince1970) / Self.todayFillTickSeconds),
+            bits(profile.dateOfBirth.timeIntervalSince1970), String(profile.age), profile.sex,
+            bits(profile.weightKg), bits(profile.heightCm), bits(profile.waistCm),
+            String(profile.hrMaxOverride), String(profile.hrMax), bits(profile.stepTicksPerStep),
+            bits(profile.stepsManualCoefficient), bits(profile.stepsCalibrationCoefficient),
+            String(profile.stepsCalibrationSampleDays), bits(profile.stepsCalibrationConfidence),
+            String(profile.stepsCalibrationManual),
+            bits(Baselines.hrvBaselineEpoch()), bits(Baselines.recoveryBaselineEpoch()),
+            defaults.string(forKey: UnitPrefs.hrvWindowKey) ?? "",
+            String(PuffinExperiment.experimentalSleepV2Enabled), String(PuffinExperiment.motionAwareWakeEnabled),
+            String(PuffinExperiment.autoDetectWorkoutsEnabled), SleepPerformanceV2Prefs.mode.rawValue,
+            String(defaults.bool(forKey: PreSleepHeartRateFeedback.enabledKey)), strings(traces),
+            strings(dismissed), pauses
+        ]
+        #if DEBUG
+        parts.append(String(AppleDemoSeeder.requested))
+        #endif
+        return strings(parts)
+    }
+
+    private func idleWitnessKey(_ witness: AnalysisInputWitness, configuration: String) -> String {
+        guard !configuration.isEmpty else { return "" }
+        return witness.signature(tables: Self.wholePassInputTables) + ":" + configuration
+    }
+
+    /// The calorie total is not a scoring/baseline input. Every other daily field remains an input;
+    /// this conservative projection permits hourly fill acknowledgment only after physiology settles.
+    private nonisolated static func sameIdleDailyInputs(_ a: DailyMetric, _ b: DailyMetric) -> Bool {
+        a.activeKcalEst != nil && b.activeKcalEst != nil
+            && a.replacing(activeKcalEst: .some(nil)) == b.replacing(activeKcalEst: .some(nil))
     }
 
     /// How often an idle backstop tick re-scores today's calorie fill (review round 3, D).

@@ -604,12 +604,25 @@ extension WidgetSnapshot {
         return resolved.storedValue
     }
 
+    /// Measured HR and its PPG fallback share one timestamp per source, so the number of seconds
+    /// in this civil day is a complete HR row bound, including a daylight-saving repeat hour.
+    static func stressInputBounds(
+        start: TimeInterval,
+        endExclusive: TimeInterval
+    ) throws -> (from: Int, to: Int, hrLimit: Int) {
+        guard let from = Int(exactly: start), let end = Int(exactly: endExclusive) else {
+            throw CivilDayError.unrepresentableDate
+        }
+        let (seconds, overflow) = end.subtractingReportingOverflow(from)
+        guard !overflow, seconds > 0 else { throw CivilDayError.unrepresentableDate }
+        return (from, end - 1, seconds)
+    }
+
     static func verifiedStressInput(
         store: WhoopStore,
         sourceIds: [String],
         anchorDay: CivilDay,
-        timeZoneIdentifier: String,
-        limit: Int = 20_000
+        timeZoneIdentifier: String
     ) async throws -> (hr: [HRSample], rr: [RRInterval], timeZoneOffsetSeconds: Int) {
         guard let zone = TimeZone(identifier: timeZoneIdentifier) else {
             throw CivilDayError.unrepresentableDate
@@ -621,9 +634,9 @@ extension WidgetSnapshot {
         guard let endDate = calendar.date(byAdding: .day, value: 1, to: startDate) else {
             throw CivilDayError.unrepresentableDate
         }
-        let start = Int(startDate.timeIntervalSince1970)
-        let end = Int(endDate.timeIntervalSince1970) - 1
-        let boundedLimit = min(20_000, max(1, limit))
+        let bounds = try stressInputBounds(
+            start: startDate.timeIntervalSince1970,
+            endExclusive: endDate.timeIntervalSince1970)
 
         var hrByTimestamp: [Int: HRSample] = [:]
         var rrByTimestamp: [Int: [RRInterval]] = [:]
@@ -634,17 +647,20 @@ extension WidgetSnapshot {
             try Task.checkCancellation()
             for sample in try await store.hrSamples(
                 deviceId: sourceId,
-                from: start,
-                to: end,
-                limit: boundedLimit
+                from: bounds.from,
+                to: bounds.to,
+                limit: bounds.hrLimit
             ) where hrByTimestamp[sample.ts] == nil {
                 hrByTimestamp[sample.ts] = sample
             }
+            // RR can contain several distinct or equal beats in one second, so no one-row-per-second
+            // cap is valid. Keep the complete civil-day window and its existing transport selection:
+            // narrowing it into pages would change WHOOP 5's whole-window source choice.
             let sourceRR = try await store.rrIntervals(
                 deviceId: sourceId,
-                from: start,
-                to: end,
-                limit: boundedLimit
+                from: bounds.from,
+                to: bounds.to,
+                limit: Int.max
             )
             for group in Dictionary(grouping: sourceRR, by: \.ts)
                 where rrByTimestamp[group.key] == nil {
@@ -671,7 +687,7 @@ extension WidgetSnapshot {
         let hr = input.hr
         guard hr.count >= DaytimeStress.minHourHRSamples else { return (nil, nil) }
 
-        // DaytimeStress fingerprints and then buckets as many as 200k HR + 200k R-R rows. `publish` is
+        // DaytimeStress fingerprints and then buckets dense full-day HR and R-R rows. `publish` is
         // MainActor-isolated because it reads app state and writes WidgetKit, but the pure numeric scan does
         // not belong on the UI executor. Return only the tiny widget projection to the main actor.
         return await Task.detached(priority: .utility) {

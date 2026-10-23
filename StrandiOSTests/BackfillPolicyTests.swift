@@ -844,11 +844,7 @@ final class BackfillPolicyTests: XCTestCase {
         await gate.release()
         await acknowledgment.value
 
-        for _ in 0..<200 {
-            let counts = await recorder.counts()
-            if counts.reopenedStore == 1 { break }
-            try await Task.sleep(nanoseconds: 2_000_000)
-        }
+        await manager.waitForHistoricalMaterializationForTesting()
         let counts = await recorder.counts()
         XCTAssertEqual(counts.oldStore, 0, "the resumed old ACK must not start a closed-store worker")
         XCTAssertEqual(counts.reopenedStore, 1, "the reopened store must own exactly one worker")

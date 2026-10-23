@@ -5338,6 +5338,94 @@
           }
         }
       }
+    },
+    "Coach": {
+      "comment": "Coach Brief Home Screen widget.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach"
+          }
+        }
+      }
+    },
+    "Morning brief": {
+      "comment": "Coach Brief Home Screen widget.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Morning brief"
+          }
+        }
+      }
+    },
+    "Evening brief": {
+      "comment": "Coach Brief Home Screen widget.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evening brief"
+          }
+        }
+      }
+    },
+    "Generated": {
+      "comment": "Coach Brief Home Screen widget.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generated"
+          }
+        }
+      }
+    },
+    "Unavailable": {
+      "comment": "Coach Brief Home Screen widget.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable"
+          }
+        }
+      }
+    },
+    "Your daily brief": {
+      "comment": "Coach Brief Home Screen widget.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your daily brief"
+          }
+        }
+      }
+    },
+    "Open Coach for today’s brief.": {
+      "comment": "Coach Brief Home Screen widget.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Coach for today’s brief."
+          }
+        }
+      }
+    },
+    "%lldh %lldm": {
+      "comment": "Coach Brief Home Screen widget.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh %lldm"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

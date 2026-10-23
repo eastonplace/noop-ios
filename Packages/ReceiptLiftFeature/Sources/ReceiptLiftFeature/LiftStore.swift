@@ -165,6 +165,11 @@ final class LiftStore: ObservableObject {
   private var databaseTask: Task<Void, Error>?
   private var databaseInvalidated = false
   private var applyingReviewedRoutines = false
+  var routineImportParser: ReceiptLiftRoutineImportParser?
+  var validateRoutineImport: (@MainActor () throws -> Void)?
+  private var routineImportCommitInFlight = false
+  private var routineImportDeferredSave = false
+  private let progressionStoreID = UUID()
   private var finishDate: Date?
   private let persistence: LiftPersistenceIO
   private let saveDebounceInterval: TimeInterval
@@ -382,13 +387,48 @@ final class LiftStore: ObservableObject {
     await loadTask?.value
   }
 
-  func startRoutine(_ routine: LiftRoutine?) {
-    guard canStartSession(), !databaseInvalidated else { status = "Finish your current NOOP workout before starting Lift."; return }
+  func progressionReview(for routine: LiftRoutine, now: Date = Date()) -> LiftProgressionReview {
+    LiftProgressionReview.make(
+      storeID: progressionStoreID, routine: routine, exercises: exercises,
+      sessions: sessions, unit: weightUnit, now: now
+    )
+  }
+
+  func progressionReviewIsCurrent(_ review: LiftProgressionReview, now: Date = Date()) -> Bool {
+    guard didFinishLoad, !databaseInvalidated,
+          let routine = routines.first(where: { $0.id == review.routine.id }) else { return false }
+    return review.isCurrent(comparedWith: progressionReview(for: routine, now: now))
+  }
+
+  @discardableResult
+  func startRoutine(
+    _ routine: LiftRoutine?,
+    progression review: LiftProgressionReview? = nil,
+    now: Date = Date()
+  ) -> Bool {
+    guard didFinishLoad, !databaseInvalidated else {
+      status = "The workout store changed. Reopen Lift before starting."
+      return false
+    }
+    guard activeSession == nil, !isFinishing, !applyingReviewedRoutines, canStartSession() else {
+      status = "Finish your current NOOP workout before starting Lift."
+      return false
+    }
+    if let routine, routines.first(where: { $0.id == routine.id }) != routine {
+      status = "This routine changed. Review the current plan before starting."
+      return false
+    }
+    if let review {
+      guard review.routine == routine, review.hasTargets, progressionReviewIsCurrent(review, now: now) else {
+        status = "These suggestions changed or expired. Refresh and review them before applying."
+        return false
+      }
+    }
     activeSession = LiftSession(
       id: UUID(),
       routineID: routine?.id,
       title: routine?.name ?? "Open Lift",
-      startedAt: Date(),
+      startedAt: now,
       endedAt: nil,
       sets: []
     )
@@ -399,10 +439,21 @@ final class LiftStore: ObservableObject {
     activePlanOverrides = (routine?.exercisePlans ?? []).reduce(into: [:]) { snapshot, plan in
       snapshot[plan.exerciseID] = plan
     }
+    if let review {
+      for row in review.rows {
+        guard let target = row.decision.target,
+              var plan = activePlanOverrides[row.exerciseID] else { continue }
+        plan.targetWeightPounds = target.weightPounds
+        plan.sets = String(target.sets)
+        plan.reps = target.repsText
+        activePlanOverrides[row.exerciseID] = plan
+      }
+    }
     activeSupersetGroups = [:]
     status = "Started \(activeSession?.title ?? "lift")"
     save()
     syncLiveActivity()
+    return true
   }
 
   @discardableResult
@@ -715,6 +766,9 @@ final class LiftStore: ObservableObject {
     else { return }
 
     var ids = activeExerciseIDsOverride ?? activeExercises.map(\.id)
+    // An exercise already in the queue owns its prescription, completion and superset. Selecting
+    // it in the swap picker must not merge two exercises by overwriting that existing state.
+    guard !ids.contains(newExerciseID) else { return }
     if let oldIndex = ids.firstIndex(of: oldExerciseID) {
       if let duplicateIndex = ids.firstIndex(of: newExerciseID), duplicateIndex != oldIndex {
         ids.remove(at: oldIndex)
@@ -829,11 +883,27 @@ final class LiftStore: ObservableObject {
   }
 
   func suggestedWeight(for exerciseID: UUID) -> Double {
-    sets(for: exerciseID, includeActive: true).first?.weight ?? defaultWeight(for: exerciseID)
+    if let set = latestActiveWorkingSet(for: exerciseID) { return set.weight }
+    if let target = activePlan(for: exerciseID)?.targetWeightPounds,
+       target.isFinite, target >= 0 { return target }
+    return latestCompletedWorkingSet(for: exerciseID)?.weight ?? defaultWeight(for: exerciseID)
   }
 
   func suggestedReps(for exerciseID: UUID) -> Int {
-    sets(for: exerciseID, includeActive: true).first?.reps ?? 8
+    if let set = latestActiveWorkingSet(for: exerciseID) { return set.reps }
+    if let plan = activePlan(for: exerciseID), plan.targetWeightPounds != nil,
+       let reps = LiftProgressionEngine.prescribedReps(plan.reps) { return reps }
+    return latestCompletedWorkingSet(for: exerciseID)?.reps ?? 8
+  }
+
+  private func latestActiveWorkingSet(for exerciseID: UUID) -> LiftSet? {
+    activeSession?.sets.last { $0.exerciseID == exerciseID && !$0.isWarmup }
+  }
+
+  private func latestCompletedWorkingSet(for exerciseID: UUID) -> LiftSet? {
+    sessions.filter { $0.endedAt != nil }.flatMap(\.sets)
+      .filter { $0.exerciseID == exerciseID && !$0.isWarmup }
+      .max { $0.completedAt < $1.completedAt }
   }
 
   func previousBestEstimatedOneRepMax(for exerciseID: UUID) -> Double {
@@ -1445,18 +1515,79 @@ final class LiftStore: ObservableObject {
     }
   }
 
+  func prepareRoutineImport(_ draft: ReceiptLiftRoutineImportDraft) throws -> LiftRoutineImportPreview {
+    guard didFinishLoad, !databaseInvalidated else { throw LiftRoutineImportError.unavailable }
+    return try LiftRoutineImportBuilder.prepare(draft, routines: routines, exercises: exercises)
+  }
+
+  /// Commits the reviewed additions as one complete envelope through the host's existing atomic
+  /// transaction. Memory changes only after success; an error leaves every existing routine intact.
+  func importReviewedRoutines(_ preview: LiftRoutineImportPreview, allowNewExercises: Bool) async throws {
+    guard !applyingReviewedRoutines else { throw LiftRoutineImportError.busy }
+    applyingReviewedRoutines = true
+    defer { applyingReviewedRoutines = false }
+    await loadAndWait()
+    await waitForPendingSave()
+    try Task.checkCancellation()
+    guard didFinishLoad, let database, !databaseInvalidated, let validateRoutineImport else {
+      throw LiftRoutineImportError.unavailable
+    }
+    guard activeSession == nil, !isFinishing, canStartSession() else { throw LiftRoutineImportError.activeWorkout }
+    guard allowNewExercises || preview.newExercises.isEmpty else { throw LiftRoutineImportError.needsCustomExerciseConsent }
+    try validateRoutineImport()
+    try LiftRoutineImportBuilder.validate(preview, routines: routines, exercises: exercises)
+    var proposed = persistenceEnvelope()
+    proposed.userExercises.append(contentsOf: preview.newExercises)
+    proposed.routines.append(contentsOf: preview.routines)
+
+    // A background flush or unrelated edit while the transaction awaits must not enqueue an older
+    // envelope over this import. Coalesce it into the next full snapshot after the result is known.
+    routineImportCommitInFlight = true
+    defer {
+      routineImportCommitInFlight = false
+      if routineImportDeferredSave {
+        routineImportDeferredSave = false
+        flushPendingSave()
+      }
+    }
+    saveGeneration += 1
+    let generation = saveGeneration
+    let envelope = proposed
+    let task = Task { try await database.save(envelope, generation: generation) }
+    databaseTask = task
+    do { try await task.value }
+    catch {
+      databaseTask = nil
+      status = "Couldn’t import routines. Your preview is ready to retry."
+      throw error
+    }
+    guard !databaseInvalidated else { throw CancellationError() }
+    userExercises.append(contentsOf: preview.newExercises)
+    rebuildRuntimeExercises()
+    routines.append(contentsOf: preview.routines)
+    databaseSaveError = nil
+    status = preview.routines.count == 1 ? "Imported 1 routine" : "Imported \(preview.routines.count) routines"
+    NotificationCenter.default.post(name: Notification.Name("noop.notificationPlansDidChange"), object: nil)
+  }
+
   func applicationDidEnterBackground() {
     guard !isFinishing, didFinishLoad else { return }
     flushPendingSave()
   }
 
   func waitForPendingSave() async {
-    if let databaseTask { _ = try? await databaseTask.value; return }
+    if database != nil {
+      if let databaseTask { _ = try? await databaseTask.value }
+      return
+    }
     await persistence.waitUntilCommitted(saveGeneration)
   }
 
   func waitForScheduledWrites() async {
-    if let databaseTask { _ = try? await databaseTask.value; return }
+    if database != nil {
+      if let databaseTask { _ = try? await databaseTask.value }
+      return
+    }
     await persistence.waitForScheduledWrites()
   }
 
@@ -1470,6 +1601,7 @@ final class LiftStore: ObservableObject {
 
   private func scheduleDatabaseSave(debounce: Bool) {
     guard let database, !databaseInvalidated else { return }
+    if routineImportCommitInFlight { routineImportDeferredSave = true; return }
     saveGeneration += 1
     let generation = saveGeneration
     let envelope = persistenceEnvelope()

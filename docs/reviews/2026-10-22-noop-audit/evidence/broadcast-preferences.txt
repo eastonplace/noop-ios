@@ -1,0 +1,1 @@
+PASS 12 production preference checks: absent/defaults ignored, both Booleans preserved, malformed types ignored

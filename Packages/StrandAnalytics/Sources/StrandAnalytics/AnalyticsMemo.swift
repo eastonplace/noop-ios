@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // AnalyticsMemo.swift — a tiny, bounded, thread-safe compute cache for the array-heavy analytics
 // entry points (v7.0.2 perf hardening, iOS/macOS twin of the Android A1 pass).
@@ -82,6 +83,23 @@ struct StreamFingerprint: Hashable {
     let firstTs: Int
     let lastTs: Int
     let checksum: UInt64
+
+    /// Gravity features consume vector differences, so each axis must participate independently.
+    /// Summing the axes aliases different orientations (and quantizing can erase small real motion),
+    /// allowing an earlier still stream's cached sleep result to win over changed motion data.
+    static func gravity(_ samples: [GravitySample]) -> StreamFingerprint {
+        guard let first = samples.first, let last = samples.last else {
+            return StreamFingerprint(count: 0, firstTs: 0, lastTs: 0, checksum: 0)
+        }
+        var sum: UInt64 = 1469598103934665603
+        for sample in samples {
+            sum = (sum ^ UInt64(bitPattern: Int64(sample.ts))) &* 1099511628211
+            sum = (sum ^ sample.x.bitPattern) &* 1099511628211
+            sum = (sum ^ sample.y.bitPattern) &* 1099511628211
+            sum = (sum ^ sample.z.bitPattern) &* 1099511628211
+        }
+        return StreamFingerprint(count: samples.count, firstTs: first.ts, lastTs: last.ts, checksum: sum)
+    }
 
     /// Build from any sample sequence given a `ts` accessor and a `quant` accessor that maps a sample to an
     /// integer carrying its value (e.g. bpm, or a scaled gravity component). Folds EVERY sample — O(n), the

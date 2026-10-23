@@ -84,13 +84,15 @@ enum ScheduledDebugExport {
     /// `live.puffinCaptureURL`) so a scheduled drop carries the same matched pair the one-tap "Export raw +
     /// log" does. Returns the written log file URL or nil if the body couldn't be written.
     @discardableResult
-    static func runNow(captureURL: URL? = nil) -> URL? {
-        performExport(markDay: false, captureURL: captureURL)
+    static func runNow(captureURL: URL? = nil) async -> URL? {
+        await performExport(captureURL: captureURL)
     }
 
     // MARK: - Scheduling
 
     private static var macTimer: DispatchSourceTimer?
+    private static var dailyExport: Task<URL?, Never>?
+    private static var dailyExportID: UUID?
 
     /// (Re)arm the next occurrence. macOS uses a foreground `DispatchSourceTimer`; iOS submits a
     /// background-refresh request. Both target the next wall-clock occurrence of `timeMinutes`.
@@ -102,7 +104,7 @@ enum ScheduledDebugExport {
         timer.schedule(deadline: .now() + delay)
         timer.setEventHandler {
             guard isEnabled else { return }
-            _ = performExport(markDay: true)
+            catchUpIfDue()
             // Re-arm for the following day (the timer is one-shot so a clock change can't drift it).
             scheduleNext()
         }
@@ -115,6 +117,9 @@ enum ScheduledDebugExport {
 
     /// Cancel any armed schedule.
     private static func cancel() {
+        dailyExport?.cancel()
+        dailyExport = nil
+        dailyExportID = nil
         #if os(macOS)
         macTimer?.cancel()
         macTimer = nil
@@ -126,14 +131,33 @@ enum ScheduledDebugExport {
     /// If today's drop is due (we're at/after the chosen time and haven't written today), write it once.
     /// Covers macOS launches where the time passed while the app wasn't open, and the iOS foreground path.
     private static func catchUpIfDue() {
-        guard isEnabled else { return }
+        _ = startDueExport()
+    }
+
+    /// Repeated activation and a concurrent BG wake share one owned daily job. The reservation is
+    /// synchronous; the completed-day marker follows successful IO rather than scheduling the work.
+    private static func startDueExport() -> Task<URL?, Never>? {
+        guard isEnabled else { return nil }
+        if let dailyExport { return dailyExport }
         let now = Date()
         let cal = Calendar.current
         let comps = cal.dateComponents([.hour, .minute], from: now)
         let nowMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-        guard nowMinutes >= timeMinutes else { return }      // not yet time today
-        guard UserDefaults.standard.string(forKey: K.lastRun) != dayKey(now) else { return } // already ran today
-        _ = performExport(markDay: true)
+        guard nowMinutes >= timeMinutes else { return nil }      // not yet time today
+        let day = dayKey(now)
+        guard UserDefaults.standard.string(forKey: K.lastRun) != day else { return nil }
+        let id = UUID()
+        let operation = Task { @MainActor in
+            let result = await performExport()
+            if result != nil, !Task.isCancelled { UserDefaults.standard.set(day, forKey: K.lastRun) }
+            // A disabled/re-enabled schedule may already own a newer job. Its reservation survives
+            // this cancelled job's delayed completion.
+            if dailyExportID == id { dailyExport = nil; dailyExportID = nil }
+            return result
+        }
+        dailyExport = operation
+        dailyExportID = id
+        return operation
     }
 
     /// Seconds from now until the next wall-clock occurrence of `minuteOfDay` (today if still ahead, else
@@ -154,34 +178,19 @@ enum ScheduledDebugExport {
     /// Write the durable strap-log tail to `Documents/noop-strap-log-<yyMMdd-HHmm>.txt`, and (when the
     /// caller supplies one) copy the raw 5/MG capture beside it. Reuses the already-shipped writers (the
     /// durable tail from `LiveState`, the timestamped naming from `FileExport`) so a scheduled drop reads
-    /// the same as a manual share. `markDay` records today so the daily dedup/catch-up doesn't
-    /// double-write; the "Run now" button passes false so a manual tap always produces a file.
+    /// the same as a manual share. Only the daily job marks its completed day; manual taps always write.
     @discardableResult
-    private static func performExport(markDay: Bool, captureURL: URL? = nil) -> URL? {
+    private static func performExport(captureURL: URL? = nil) async -> URL? {
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             return nil
         }
         let stamp = FileExport.timestamp()
-        let logURL = docs.appendingPathComponent("noop-strap-log-\(stamp).txt")
+        let header = DebugDataDiagnostics.strapStateLines()
         do {
-            try LiveState.scheduledExportText(extraHeaderLines: DebugDataDiagnostics.strapStateLines())
-                .write(to: logURL, atomically: true, encoding: .utf8)
+            return try await FileExport.saveScheduledExport(to: docs, stamp: stamp, extraHeaderLines: header, captureURL: captureURL)
         } catch {
             return nil
         }
-        // Best-effort: copy the supplied raw 5/MG capture alongside, so a "Run now" drop carries the same
-        // matched pair the one-tap "Export raw + log" does. The background timer path passes nil (no live
-        // session), so it writes just the log — honest about what's available with no session open.
-        if let capture = captureURL, FileManager.default.fileExists(atPath: capture.path) {
-            let dest = docs.appendingPathComponent("noop-raw-capture-\(stamp).json")
-            if let safeData = try? FileExport.sanitizedCaptureData(at: capture) {
-                try? safeData.write(to: dest, options: .atomic)
-            }
-        }
-        if markDay {
-            UserDefaults.standard.set(dayKey(Date()), forKey: K.lastRun)
-        }
-        return logURL
     }
 
     /// yyyy-MM-dd local-day key for the once-per-day dedup. POSIX locale so the key is stable everywhere.
@@ -202,10 +211,20 @@ enum ScheduledDebugExport {
     static func register() {
         // `.main`, not nil: this enum is @MainActor, so the closure traps if iOS invokes it on a worker queue.
         BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskIdentifier, using: .main) { task in
-            // Write the drop, then immediately request the next one (BGAppRefresh is single-shot).
-            if isEnabled { catchUpIfDue() }
-            submitBackgroundRequest()
-            task.setTaskCompleted(success: true)
+            let operation = Task { @MainActor in
+                var success = true
+                if let export = startDueExport() {
+                    let result = await withTaskCancellationHandler {
+                        await export.value
+                    } onCancel: { export.cancel() }
+                    success = result != nil
+                }
+                if isEnabled { submitBackgroundRequest() }
+                task.setTaskCompleted(success: success && !Task.isCancelled)
+            }
+            // Expiration cancels the owned export; streaming checks between bounded reads. Completion
+            // follows the IO barrier, and a cancelled job cannot acknowledge the completed day.
+            task.expirationHandler = { operation.cancel() }
         }
     }
 

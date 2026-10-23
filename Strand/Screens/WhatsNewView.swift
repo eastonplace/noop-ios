@@ -146,6 +146,7 @@ struct WhatsNewView: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("whatsNew.feature.\(feature.title)")
     }
 
     /// One folded release: a row of version, title and date that opens to show what changed.

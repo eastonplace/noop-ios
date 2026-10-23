@@ -831,6 +831,10 @@ struct LiveWorkoutView: View {
     ) else { return }
 
     let completedTarget = wasIncompleteWorkingTarget && store.setProgress(for: exercise.id).isComplete
+    if outcome.set.isWarmup, store.activePlan(for: exercise.id)?.targetWeightPounds != nil {
+      draft.weight = format.unit.canonicalPounds(store.suggestedWeight(for: exercise.id))
+      draft.reps = store.suggestedReps(for: exercise.id)
+    }
     draft.isWarmup = false
     draft.rpe = LiftEffortValue.defaultRPE
     draft.effortRated = false

@@ -59,6 +59,28 @@ final class StepsEstimateEngineTraceTests: XCTestCase {
         XCTAssertTrue(lines.first { $0.hasPrefix("stepsRaw total ") }!.contains("scaledSteps=\(production!)"))
     }
 
+    func testTraceUsesTheSameRateAndActivityClassGates() {
+        let samples = [StepSample(ts: noonUtc, counter: 100, activityClass: 0),
+                       StepSample(ts: noonUtc + 1, counter: 127, activityClass: 1),
+                       StepSample(ts: noonUtc + 2, counter: 130, activityClass: 1),
+                       StepSample(ts: noonUtc + 3, counter: 132, activityClass: 0)]
+        let production = AnalyticsEngine.analyzeDay(day: dayUtc, steps: samples, profile: profile).daily.steps
+        XCTAssertEqual(production, 3)
+        let lines = StepsEstimateEngine.rawCounterTrace(
+            daySteps: samples, dayKey: dayUtc, tzOffsetSeconds: 0, ticksPerStep: 1)
+        XCTAssertTrue(lines.contains { $0.contains("rawTicks=3") && $0.contains("scaledSteps=3") })
+    }
+
+    func testTraceReportsSleepExclusionsAndMatchesTheScoredTotal() {
+        let samples = [step(0, 100), step(1, 102)]
+        let sleep = SleepSession(start: noonUtc, end: noonUtc + 100,
+                                 efficiency: 1, stages: [], restingHR: nil, avgHRV: nil)
+        let lines = StepsEstimateEngine.rawCounterTrace(
+            daySteps: samples, dayKey: dayUtc, tzOffsetSeconds: 0, ticksPerStep: 1, sleepSessions: [sleep])
+        XCTAssertTrue(lines.contains { $0.contains("retainedTicks=0 excludedTicks=2") })
+        XCTAssertTrue(lines.contains { $0.contains("rawTicks=0") && $0.contains("scaledSteps=none") })
+    }
+
     func testTicksPerStepScalingMatchesAnalyzeDay() {
         // A ticks-per-step of 2.0 halves the raw ticks; the trace must match analyzeDay's scaled value.
         let scaledProfile = UserProfile(stepTicksPerStep: 2.0)

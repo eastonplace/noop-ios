@@ -1,0 +1,158 @@
+[0/1] Planning build
+Building for debugging...
+[0/12] Write sources
+[2/12] Write swift-version-4BDBE066E3DC7C8B.txt
+[4/13] Compiling StrandAnalytics WorkoutLiveProjectionAccumulator.swift
+[5/13] Emitting module StrandAnalytics
+[6/14] Wrapping AST for StrandAnalytics for debugging
+[8/25] Compiling StrandAnalyticsTests SleepRecoveryValidityTests.swift
+[9/26] Compiling StrandAnalyticsTests StrainScorerV2Tests.swift
+[10/26] Compiling StrandAnalyticsTests HrvGapAwareTests.swift
+[11/26] Compiling StrandAnalyticsTests ManualWorkoutRescoreTests.swift
+[12/26] Compiling StrandAnalyticsTests SleepStagerV2Tests.swift
+[13/26] Emitting module StrandAnalyticsTests
+[14/26] Compiling StrandAnalyticsTests DaytimeStressTests.swift
+[15/26] Compiling StrandAnalyticsTests HRVAnalyzerTests.swift
+[16/26] Compiling StrandAnalyticsTests WorkoutPauseLedgerTests.swift
+[17/26] Compiling StrandAnalyticsTests SleepMemoInputTests.swift
+[18/26] Compiling StrandAnalyticsTests RecoveryScorerTests.swift
+[19/26] Compiling StrandAnalyticsTests SleepStagerTests.swift
+[20/27] /tmp/noop-metrics-build/x86_64-unknown-linux-gnu/debug/NoopMetricsHarnessPackageDiscoveredTests.derived/all-discovered-tests.swift
+[21/28] Write sources
+[22/28] Wrapping AST for StrandAnalyticsTests for debugging
+[24/31] Compiling NoopMetricsHarnessPackageDiscoveredTests StrandAnalyticsTests.swift
+[25/31] Compiling NoopMetricsHarnessPackageDiscoveredTests all-discovered-tests.swift
+[26/31] Emitting module NoopMetricsHarnessPackageDiscoveredTests
+[27/32] /tmp/noop-metrics-build/x86_64-unknown-linux-gnu/debug/NoopMetricsHarnessPackageTests.derived/runner.swift
+[28/33] Write sources
+[29/33] Wrapping AST for NoopMetricsHarnessPackageDiscoveredTests for debugging
+[31/35] Emitting module NoopMetricsHarnessPackageTests
+[32/35] Compiling NoopMetricsHarnessPackageTests runner.swift
+[33/35] Write Objects.LinkFileList
+[34/35] Linking NoopMetricsHarnessPackageTests.xctest
+Build complete! (3.25s)
+Test Suite 'Selected tests' started at 2026-10-21 23:11:25.168
+Test Suite 'DaytimeStressTests' started at 2026-10-21 23:11:25.169
+Test Case 'DaytimeStressTests.testEmptyWhenNoHR' started at 2026-10-21 23:11:25.169
+Test Case 'DaytimeStressTests.testEmptyWhenNoHR' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testFlatDayDoesNotFlagSustained' started at 2026-10-21 23:11:25.170
+Test Case 'DaytimeStressTests.testFlatDayDoesNotFlagSustained' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testHourBelowGateIsUnscored' started at 2026-10-21 23:11:25.171
+Test Case 'DaytimeStressTests.testHourBelowGateIsUnscored' passed (0.0 seconds)
+Test Case 'DaytimeStressTests.testInvalidReadingsDoNotChangeCoveredHourMean' started at 2026-10-21 23:11:25.172
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/DaytimeStressTests.swift:33: error: DaytimeStressTests.testInvalidReadingsDoNotChangeCoveredHourMean : XCTAssertEqual failed: ("Optional(30.0)") is not equal to ("Optional(60.0)") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/DaytimeStressTests.swift:34: error: DaytimeStressTests.testInvalidReadingsDoNotChangeCoveredHourMean : XCTAssertEqual failed: ("Result(hours: [StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(1.5), meanHR: Optional(30.0), rmssd: nil)], sustainedHigh: false, sustainedRun: 0, dayMean: Optional(1.5), peak: Optional(StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(1.5), meanHR: Optional(30.0), rmssd: nil)))") is not equal to ("Result(hours: [StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(1.5), meanHR: Optional(60.0), rmssd: nil)], sustainedHigh: false, sustainedRun: 0, dayMean: Optional(1.5), peak: Optional(StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(1.5), meanHR: Optional(60.0), rmssd: nil)))") - 
+Test Case 'DaytimeStressTests.testInvalidReadingsDoNotChangeCoveredHourMean' failed (0.001 seconds)
+Test Case 'DaytimeStressTests.testInvalidReadingsDoNotCompleteHourlyCoverage' started at 2026-10-21 23:11:25.172
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/DaytimeStressTests.swift:26: error: DaytimeStressTests.testInvalidReadingsDoNotCompleteHourlyCoverage : XCTAssertTrue failed - 
+Test Case 'DaytimeStressTests.testInvalidReadingsDoNotCompleteHourlyCoverage' failed (0.0 seconds)
+Test Case 'DaytimeStressTests.testNonWakingHoursAreExcluded' started at 2026-10-21 23:11:25.173
+Test Case 'DaytimeStressTests.testNonWakingHoursAreExcluded' passed (0.0 seconds)
+Test Case 'DaytimeStressTests.testOffWristHoursDoNotBecomeScoredStress' started at 2026-10-21 23:11:25.173
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/DaytimeStressTests.swift:19: error: DaytimeStressTests.testOffWristHoursDoNotBecomeScoredStress : XCTAssertEqual failed: ("Result(hours: [StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(0.8068242641099854), meanHR: Optional(0.0), rmssd: nil), StrandAnalytics.DaytimeStress.HourPoint(hour: 10, startTs: 36000, level: Optional(2.193175735890015), meanHR: Optional(255.0), rmssd: nil)], sustainedHigh: false, sustainedRun: 1, dayMean: Optional(1.5), peak: Optional(StrandAnalytics.DaytimeStress.HourPoint(hour: 10, startTs: 36000, level: Optional(2.193175735890015), meanHR: Optional(255.0), rmssd: nil)))") is not equal to ("Result(hours: [], sustainedHigh: false, sustainedRun: 0, dayMean: nil, peak: nil)") - invalid HR is not hourly coverage or a calm reference
+Test Case 'DaytimeStressTests.testOffWristHoursDoNotBecomeScoredStress' failed (0.0 seconds)
+Test Case 'DaytimeStressTests.testRMSSDLowersStressDirectionMatchesDailyScore' started at 2026-10-21 23:11:25.174
+Test Case 'DaytimeStressTests.testRMSSDLowersStressDirectionMatchesDailyScore' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testScoresMapOntoZeroToThree' started at 2026-10-21 23:11:25.174
+Test Case 'DaytimeStressTests.testScoresMapOntoZeroToThree' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testSleepHoursInTheWindowDoNotShiftTheWakingTimeline' started at 2026-10-21 23:11:25.175
+Test Case 'DaytimeStressTests.testSleepHoursInTheWindowDoNotShiftTheWakingTimeline' passed (0.003 seconds)
+Test Case 'DaytimeStressTests.testSustainedHighFlagsAfterThreeConsecutiveHighHours' started at 2026-10-21 23:11:25.178
+Test Case 'DaytimeStressTests.testSustainedHighFlagsAfterThreeConsecutiveHighHours' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testTimestampedRRUsesChronologicalSuccessiveDifferences' started at 2026-10-21 23:11:25.179
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/DaytimeStressTests.swift:45: error: DaytimeStressTests.testTimestampedRRUsesChronologicalSuccessiveDifferences : XCTAssertEqual failed: ("Result(hours: [StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(1.5), meanHR: Optional(60.0), rmssd: Optional(2.891574659831201))], sustainedHigh: false, sustainedRun: 0, dayMean: Optional(1.5), peak: Optional(StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(1.5), meanHR: Optional(60.0), rmssd: Optional(2.891574659831201))))") is not equal to ("Result(hours: [StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(1.5), meanHR: Optional(60.0), rmssd: Optional(50.0))], sustainedHigh: false, sustainedRun: 0, dayMean: Optional(1.5), peak: Optional(StrandAnalytics.DaytimeStress.HourPoint(hour: 9, startTs: 32400, level: Optional(1.5), meanHR: Optional(60.0), rmssd: Optional(50.0))))") - arrival order must not replace time order in successive-beat HRV
+Test Case 'DaytimeStressTests.testTimestampedRRUsesChronologicalSuccessiveDifferences' failed (0.003 seconds)
+Test Case 'DaytimeStressTests.testTimezoneOffsetShiftsWakingWindow' started at 2026-10-21 23:11:25.182
+Test Case 'DaytimeStressTests.testTimezoneOffsetShiftsWakingWindow' passed (0.0 seconds)
+Test Suite 'DaytimeStressTests' failed at 2026-10-21 23:11:25.182
+	 Executed 13 tests, with 5 failures (0 unexpected) in 0.013 (0.013) seconds
+Test Suite 'ManualWorkoutRescoreTests' started at 2026-10-21 23:11:25.182
+Test Case 'ManualWorkoutRescoreTests.testAvgHrIsTrueMeanOfVariedTrace' started at 2026-10-21 23:11:25.182
+Test Case 'ManualWorkoutRescoreTests.testAvgHrIsTrueMeanOfVariedTrace' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate' started at 2026-10-21 23:11:25.183
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/ManualWorkoutRescoreTests.swift:27: error: ManualWorkoutRescoreTests.testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate : XCTAssertEqual failed: ("Optional(StrandAnalytics.ManualWorkoutRescore.Scored(avgHr: 70, maxHr: 255, strain: Optional(25.75713636920936), kcal: Optional(234.44309844380516)))") is not equal to ("Optional(StrandAnalytics.ManualWorkoutRescore.Scored(avgHr: 140, maxHr: 140, strain: Optional(25.75713636920936), kcal: Optional(424.2060609862886)))") - average, peak, calories and strain must all exclude the same invalid HR rows
+Test Case 'ManualWorkoutRescoreTests.testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate' failed (0.005 seconds)
+Test Case 'ManualWorkoutRescoreTests.testImprovesIsStrictAndMonotonic' started at 2026-10-21 23:11:25.188
+Test Case 'ManualWorkoutRescoreTests.testImprovesIsStrictAndMonotonic' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testInvalidReadingsDoNotCreateARescorableWorkout' started at 2026-10-21 23:11:25.188
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/ManualWorkoutRescoreTests.swift:11: error: ManualWorkoutRescoreTests.testInvalidReadingsDoNotCreateARescorableWorkout : XCTAssertNil failed: "Scored(avgHr: 128, maxHr: 255, strain: nil, kcal: Optional(0.3024957924478614))" - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/ManualWorkoutRescoreTests.swift:13: error: ManualWorkoutRescoreTests.testInvalidReadingsDoNotCreateARescorableWorkout : XCTAssertNil failed: "Scored(avgHr: 132, maxHr: 255, strain: nil, kcal: Optional(0.47932199544339993))" - the minimum two-reading gate must count usable physiology
+Test Case 'ManualWorkoutRescoreTests.testInvalidReadingsDoNotCreateARescorableWorkout' failed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testLooksUnderScoredGate' started at 2026-10-21 23:11:25.188
+Test Case 'ManualWorkoutRescoreTests.testLooksUnderScoredGate' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testScoresDenseWindow' started at 2026-10-21 23:11:25.188
+Test Case 'ManualWorkoutRescoreTests.testScoresDenseWindow' passed (0.002 seconds)
+Test Case 'ManualWorkoutRescoreTests.testStrainOnlyImprovementFillsMergedRow' started at 2026-10-21 23:11:25.190
+Test Case 'ManualWorkoutRescoreTests.testStrainOnlyImprovementFillsMergedRow' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testTooFewSamplesReturnsNil' started at 2026-10-21 23:11:25.190
+Test Case 'ManualWorkoutRescoreTests.testTooFewSamplesReturnsNil' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testUnderScoredWorkoutGetsRescoredFromDenseWindow' started at 2026-10-21 23:11:25.190
+Test Case 'ManualWorkoutRescoreTests.testUnderScoredWorkoutGetsRescoredFromDenseWindow' passed (0.002 seconds)
+Test Suite 'ManualWorkoutRescoreTests' failed at 2026-10-21 23:11:25.192
+	 Executed 9 tests, with 3 failures (0 unexpected) in 0.01 (0.01) seconds
+Test Suite 'RecoveryScorerTests' started at 2026-10-21 23:11:25.192
+Test Case 'RecoveryScorerTests.testBandThresholds' started at 2026-10-21 23:11:25.192
+Test Case 'RecoveryScorerTests.testBandThresholds' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testColdStartReturnsNil' started at 2026-10-21 23:11:25.192
+Test Case 'RecoveryScorerTests.testColdStartReturnsNil' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryAtBaselineNearPopulationMean' started at 2026-10-21 23:11:25.192
+Test Case 'RecoveryScorerTests.testRecoveryAtBaselineNearPopulationMean' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryClampedToRange' started at 2026-10-21 23:11:25.193
+Test Case 'RecoveryScorerTests.testRecoveryClampedToRange' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryHigherWhenHRVAboveAndRHRBelow' started at 2026-10-21 23:11:25.193
+Test Case 'RecoveryScorerTests.testRecoveryHigherWhenHRVAboveAndRHRBelow' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRespAboveBaselineLowersAndBelowRaisesRecovery' started at 2026-10-21 23:11:25.193
+Test Case 'RecoveryScorerTests.testRespAboveBaselineLowersAndBelowRaisesRecovery' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRespTermDropAndRenormalize' started at 2026-10-21 23:11:25.193
+Test Case 'RecoveryScorerTests.testRespTermDropAndRenormalize' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology' started at 2026-10-21 23:11:25.193
+Test Case 'RecoveryScorerTests.testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins' started at 2026-10-21 23:11:25.193
+Test Case 'RecoveryScorerTests.testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRFallsBackWhenNoBinQualifies' started at 2026-10-21 23:11:25.194
+Test Case 'RecoveryScorerTests.testRestingHRFallsBackWhenNoBinQualifies' passed (0.1 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRKeepsGenuineLowFloor' started at 2026-10-21 23:11:25.294
+Test Case 'RecoveryScorerTests.testRestingHRKeepsGenuineLowFloor' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRLowestRollingMean' started at 2026-10-21 23:11:25.295
+Test Case 'RecoveryScorerTests.testRestingHRLowestRollingMean' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRNilWhenNoSamples' started at 2026-10-21 23:11:25.295
+Test Case 'RecoveryScorerTests.testRestingHRNilWhenNoSamples' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRPreservesTheSharedPlausibilityBoundaries' started at 2026-10-21 23:11:25.295
+Test Case 'RecoveryScorerTests.testRestingHRPreservesTheSharedPlausibilityBoundaries' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSingleSampleArtifactBin' started warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+at 2026-10-21 23:11:25.296
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSingleSampleArtifactBin' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSubPhysiologicalDropoutBin' started at 2026-10-21 23:11:25.296
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSubPhysiologicalDropoutBin' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testSkinTempDeviationLowersChargeSymmetrically' started at 2026-10-21 23:11:25.296
+Test Case 'RecoveryScorerTests.testSkinTempDeviationLowersChargeSymmetrically' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testSkinTempNilLeavesScoreIdenticalToBefore' started at 2026-10-21 23:11:25.296
+Test Case 'RecoveryScorerTests.testSkinTempNilLeavesScoreIdenticalToBefore' passed (0.0 seconds)
+Test Suite 'RecoveryScorerTests' passed at 2026-10-21 23:11:25.296
+	 Executed 18 tests, with 0 failures (0 unexpected) in 0.104 (0.104) seconds
+Test Suite 'SleepMemoInputTests' started at 2026-10-21 23:11:25.296
+Test Case 'SleepMemoInputTests.testDetectionCacheDoesNotAliasDifferentGravityAxesWithTheSameSum' started at 2026-10-21 23:11:25.296
+Test Case 'SleepMemoInputTests.testDetectionCacheDoesNotAliasDifferentGravityAxesWithTheSameSum' passed (0.039 seconds)
+Test Case 'SleepMemoInputTests.testV1StagingCacheDoesNotReplayStillStagesForEqualSumMotion' started at 2026-10-21 23:11:25.335
+Test Case 'SleepMemoInputTests.testV1StagingCacheDoesNotReplayStillStagesForEqualSumMotion' passed (0.03 seconds)
+Test Case 'SleepMemoInputTests.testV2ClipsUnorderedPaddedStreamsWithoutDiscardingTheNight' started at 2026-10-21 23:11:25.365
+Test Case 'SleepMemoInputTests.testV2ClipsUnorderedPaddedStreamsWithoutDiscardingTheNight' passed (0.031 seconds)
+Test Case 'SleepMemoInputTests.testV2StagingCacheDoesNotReplayStillStagesForEqualSumMotion' started at 2026-10-21 23:11:25.396
+Test Case 'SleepMemoInputTests.testV2StagingCacheDoesNotReplayStillStagesForEqualSumMotion' passed (0.056 seconds)
+Test Suite 'SleepMemoInputTests' passed at 2026-10-21 23:11:25.451
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.155 (0.155) seconds
+Test Suite 'SleepRecoveryValidityTests' started at 2026-10-21 23:11:25.451
+Test Case 'SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep' started at 2026-10-21 23:11:25.451
+Test Case 'SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep' passed (0.002 seconds)
+Test Case 'SleepRecoveryValidityTests.testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage' started at 2026-10-21 23:11:25.454
+Test Case 'SleepRecoveryValidityTests.testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage' passed (0.004 seconds)
+Test Case 'SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep' started at 2026-10-21 23:11:25.458
+Test Case 'SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep' passed (0.005 seconds)
+Test Case 'SleepRecoveryValidityTests.testValidRROnlyRecoverySurvivesInvalidHeartRate' started at 2026-10-21 23:11:25.462
+Test Case 'SleepRecoveryValidityTests.testValidRROnlyRecoverySurvivesInvalidHeartRate' passed (0.004 seconds)
+Test Suite 'SleepRecoveryValidityTests' passed at 2026-10-21 23:11:25.467
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds
+Test Suite 'Selected tests' failed at 2026-10-21 23:11:25.467
+	 Executed 48 tests, with 8 failures (0 unexpected) in 0.297 (0.297) seconds
+Note: Some test targets reported failures:
+  - NoopMetricsHarnessPackageTests (XCTest)

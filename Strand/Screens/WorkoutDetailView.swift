@@ -3,6 +3,7 @@ import StrandDesign
 import StrandAnalytics
 import WhoopStore
 import Foundation
+import WorkoutRouteExport
 #if canImport(MapKit)
 import MapKit
 #endif
@@ -49,6 +50,12 @@ struct WorkoutDetailView: View {
     /// The GPS route captured for this session on-device (#524), if any. Decoded from `RouteStore` by the
     /// row's natural key. nil = no route was recorded (honest — the map only shows when points exist).
     @State private var routeSegments: [[RouteMath.LatLng]] = []
+    @State private var savedRoute: WorkoutRoute?
+    @State private var routeGPXFile: WorkoutRouteExportFile?
+    @State private var routeFITFile: WorkoutRouteExportFile?
+    @State private var routeExportError: String?
+    @State private var preparingRouteExports = false
+    @State private var routeExportRequestID: UUID?
     private var routePointCount: Int { routeSegments.reduce(0) { $0 + $1.count } }
     private var hasDrawableRoute: Bool { routeSegments.contains { $0.count >= 2 } }
     /// Board-v2 tabbed summary (spec 003 D6). Splits tab is pending a real per-split
@@ -169,10 +176,8 @@ struct WorkoutDetailView: View {
         // #524: the GPS route, if this session recorded one on-device. A cheap UserDefaults read keyed
         // by the row's natural key (startTs + sport); decoded to points only when ≥2 were captured so the
         // map only ever draws a real route.
-        let loadedRouteSegments: [[RouteMath.LatLng]] = {
-            guard let r = RouteStore.load(startTs: target.startTs, sport: target.sport) else { return [] }
-            return r.decodedSegments.filter { $0.count >= 2 }
-        }()
+        let loadedRoute = RouteStore.load(startTs: target.startTs, sport: target.sport)
+        let loadedRouteSegments = loadedRoute?.decodedSegments.filter { $0.count >= 2 } ?? []
 
         // HR curve over the exact session window — a finer bucket than the 24h chart so a short run
         // still reads as a curve, not a handful of points.
@@ -208,6 +213,7 @@ struct WorkoutDetailView: View {
 
         await MainActor.run {
             self.routeSegments = loadedRouteSegments
+            self.savedRoute = loadedRoute
             self.refreshedRow = target
             self.heartRate = series
             self.zoneTimeline = timeline
@@ -216,6 +222,7 @@ struct WorkoutDetailView: View {
             self.zonesFromImport = fromImport
             self.loaded = true
         }
+        await prepareRouteExports(route: loadedRoute, startTs: target.startTs, sport: target.sport)
         await loadLiftNote(for: target)
 
         // "Compared to your usual" is secondary context. Load it AFTER the useful detail is committed,
@@ -493,12 +500,109 @@ struct WorkoutDetailView: View {
                         .stroke(StrandPalette.hairline, lineWidth: 1))
                     .accessibilityLabel(routeAccessibilityLabel)
                 FactStrip(facts: routeFacts)
-                Text("Your GPS route for this session, recorded and stored on your device. Nothing leaves your phone.")
+                Text("Your GPS route is stored on your device. It leaves the app only when you choose to share or export it.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                routeExportControls
             }
         }
+    }
+
+    @ViewBuilder private var routeExportControls: some View {
+        if let routeGPXFile {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                if let routeFITFile {
+                    Menu {
+                        ShareLink(item: routeGPXFile, preview: SharePreview(routeGPXFile.filename)) {
+                            Text("GPX (most apps)")
+                        }
+                        .accessibilityIdentifier("workout.route.export.gpx")
+                        ShareLink(item: routeFITFile, preview: SharePreview(routeFITFile.filename)) {
+                            Text("FIT (Garmin, Strava)")
+                        }
+                        .accessibilityIdentifier("workout.route.export.fit")
+                    } label: {
+                        routeShareLabel
+                    }
+                    .accessibilityIdentifier("workout.route.export")
+                } else {
+                    ShareLink(item: routeGPXFile, preview: SharePreview(routeGPXFile.filename)) {
+                        routeShareLabel
+                    }
+                    .accessibilityIdentifier("workout.route.export.gpx")
+                }
+                Text("Includes time and distance. Heart rate isn’t added.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if savedRoute?.hasUnmeasuredSegments == true {
+                    Text("Only portions with recorded timestamps are exported. Older portions remain visible on this map.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else if preparingRouteExports {
+            ProgressView("Preparing route files…")
+                .font(StrandFont.footnote)
+        } else if let savedRoute, !savedRoute.hasExportableMeasurements {
+            Text("This route can’t be exported because it was saved without timing data.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if let routeExportError {
+            Text(routeExportError)
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Plain text with a glyph, no capsule: the one control for sharing the route.
+    private var routeShareLabel: some View {
+        Label("Share route", systemImage: "square.and.arrow.up")
+            .font(StrandFont.subhead.weight(.semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+    }
+
+    @MainActor
+    private func prepareRouteExports(route: WorkoutRoute?, startTs: Int, sport: String) async {
+        let requestID = UUID()
+        routeExportRequestID = requestID
+        routeGPXFile = nil
+        routeFITFile = nil
+        routeExportError = nil
+        preparingRouteExports = false
+        guard let route, route.hasExportableMeasurements else { return }
+        preparingRouteExports = true
+        defer {
+            if routeExportRequestID == requestID { preparingRouteExports = false }
+        }
+        let worker = Task.detached(priority: .userInitiated) {
+            var gpx: WorkoutRouteExportFile?
+            var fit: WorkoutRouteExportFile?
+            var errorMessage: String?
+            do {
+                try Task.checkCancellation()
+                gpx = try WorkoutRouteExportService.file(format: .gpx, route: route, startTs: startTs, sport: sport)
+                try Task.checkCancellation()
+                fit = try WorkoutRouteExportService.file(format: .fit, route: route, startTs: startTs, sport: sport)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return (gpx, fit, errorMessage)
+        }
+        let prepared = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, routeExportRequestID == requestID else { return }
+        routeGPXFile = prepared.0
+        routeFITFile = prepared.1
+        routeExportError = prepared.2
     }
 
     private var routeFacts: [FactStrip.Fact] {

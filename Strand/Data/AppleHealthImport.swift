@@ -9,7 +9,7 @@ enum AppleHealthImport {
 
     /// The Apple Health mapping revision, stamped into the Import test-mode parser line. Bump when this
     /// importer's aggregate->store mapping changes.
-    static let importerVersion = 1
+    static let importerVersion = 2
 
     @discardableResult
     static func importExport(url: URL, into store: WhoopStore, deviceId: String,
@@ -34,7 +34,6 @@ enum AppleHealthImport {
         }
         // Capture the rows the store actually wrote (summed SQLite changes) for the Import test mode; the
         // return value already exists, so capturing it changes nothing about what is saved.
-        let appleWritten = try await store.upsertAppleDaily(appleRows, deviceId: deviceId)
 
         // Recovery-relevant subset into dailyMetric (recovery/strain are nil — Apple doesn't compute them).
         let dm = daily.map { d in
@@ -50,7 +49,12 @@ enum AppleHealthImport {
                         // pre-fix state) meant imported Apple steps never surfaced there.
                         steps: d.steps.map { Int($0) })
         }
-        let dmWritten = try await store.upsertDailyMetrics(dm, deviceId: deviceId)
+        // Explicit exports can be fragments. In-bed/awake-only data is not an observed slept zero;
+        // preserve absent sleep and other metric fields while updating values this import contains.
+        let written = try await store.mergeAppleHealthImportProjections(
+            appleDaily: appleRows, dailyMetrics: dm, deviceId: deviceId)
+        let appleWritten = written.appleWritten
+        let dmWritten = written.dailyWritten
 
         // Everything, generically, for the metric explorer.
         let points = AppleHealthAggregator.metricPoints(daily)

@@ -290,12 +290,16 @@ struct SleepView: View {
                         nightDetail(resolved, night: displayedNight.night).staggeredAppear(index: 5)
                         FlatSectionSeparator.sleep
                         // Tonight: the V2 need (its own leaf: own EnvironmentObject + async fetch, so it never
-                        // blocks this screen's memoized model on a store round trip; nothing extra when V2 is off,
-                        // an honest Calibrating line when V2 hasn't scored this exact night yet) over the 14-night
-                        // balance, which is the evidence for it.
+                        // blocks this screen's memoized model on a store round trip) over the 14-night balance.
+                        // The selected night's recorded total and provenance remain when V2 components are absent.
                         SleepNeedBreakdownSection(
                             wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
-                            trailing: sleepBalanceTrailing(resolved)
+                            trailing: sleepBalanceTrailing(resolved),
+                            fallback: SleepNeedFallbackPresentation.resolve(
+                                wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
+                                onDevice: { presentationNeeds[$0]?.totalMinutes },
+                                imported: { repo.importedSleep[$0]?.needMin }),
+                            fallbackIsLoading: needsLoading
                         ) {
                             sleepBalanceContent(resolved)
                         }
@@ -1902,12 +1906,13 @@ private struct SleepSyncingNote: View {
 /// day (the total as the hero value, its baseline / Effort / debt repayment / nap credit as chips), then the
 /// caller's `balance` content under it as the evidence. Owns its own `Repository` fetch (mirrors the
 /// `SleepMarkCard` / `SleepSyncingNote` leaf idiom above) so the async store round trip never blocks SleepView's
-/// own memoized model. The need part is absent while `SleepPerformanceV2Prefs` is off (legacy stays authoritative
-/// with no V2 UI at all); an honest Calibrating line when V2 is shadow/on but hasn't scored this exact night;
-/// the real components once it has. Never fabricates a component.
+/// own memoized model. A recorded exact-day total and its provenance remain visible while V2 is off or its
+/// components are absent. The V2 component UI and store read stay off in legacy mode. Never fabricates a component.
 private struct SleepNeedBreakdownSection<Balance: View>: View {
     let wakeDay: String
     let trailing: EyebrowTrailing
+    let fallback: SleepNeedFallbackPresentation?
+    let fallbackIsLoading: Bool
     @ViewBuilder let balance: () -> Balance
     @EnvironmentObject private var repo: Repository
     @State private var breakdown: SleepNeedBreakdown?
@@ -1917,17 +1922,31 @@ private struct SleepNeedBreakdownSection<Balance: View>: View {
     @State private var loadedDay: String?
 
     var body: some View {
-        let isVisible = SleepNeedBreakdownVisibility.isVisible(mode: SleepPerformanceV2Prefs.mode)
+        let mode = SleepPerformanceV2Prefs.mode
+        let isVisible = SleepNeedBreakdownVisibility.isVisible(mode: mode)
+        let showFallback = SleepNeedFallbackPresentation.shouldShow(mode: mode, breakdownDay: breakdown?.day, wakeDay: wakeDay)
         FlatSection("Tonight", systemImage: "moon.fill", tint: .sleep, trailing: trailing) {
-            if isVisible {
-                if let breakdown, breakdown.day == wakeDay {
-                    needBlock(breakdown)
-                } else if loadedDay == wakeDay {
-                    Text("NOOP hasn't computed this night's dynamic Sleep Need breakdown yet — it needs enough scored history first.")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if !showFallback, let breakdown {
+                needBlock(breakdown)
+            } else if let fallback, fallback.wakeDay == wakeDay {
+                HeroValue(value: SleepStageRowPresentation.durationText(fallback.minutes),
+                          caption: String(localized: "Sleep need"))
+                Text(fallback.source == .whoop ? String(localized: "Whoop") : String(localized: "On-device"))
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            } else if fallbackIsLoading {
+                Text("Loading sleep need…")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+            } else if isVisible, loadedDay == wakeDay {
+                Text("NOOP hasn't computed this night's dynamic Sleep Need breakdown yet — it needs enough scored history first.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !isVisible {
+                Text("Sleep need is unavailable for this night.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
             balance()
         }
@@ -1961,7 +1980,9 @@ private struct SleepNeedBreakdownSection<Balance: View>: View {
                 ForEach(lines) { line in
                     HStack(spacing: 4) {
                         Text(line.title).foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text(line.value).foregroundStyle(StrandPalette.textPrimary).fontWeight(.semibold)
+                            .fixedSize()
                     }
                     .font(StrandFont.micro)
                     .monospacedDigit()
