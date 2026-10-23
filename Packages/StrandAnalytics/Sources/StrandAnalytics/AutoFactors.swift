@@ -15,8 +15,8 @@ import Foundation
 //                       (at least 7 prior nights required).
 //  - sevenHours         7 h or more of sleep that night.
 //  - sleepDebt          the three nights BEFORE this one were, together, 2 h or more short of
-//                       need (SleepDebt ledger, 8 h default need). Prior nights only, so it never
-//                       restates this night's own sleep.
+//                       each exact night’s need (SleepDebt ledger, excluding repayment).
+//                       Prior nights only, so it never restates this night's own sleep.
 //  - lateWorkout        a workout ended within 3 h before sleep onset.
 //  - highStrain         the previous day's strain was in the top third of the user's own days.
 //  - highSteps          the previous day's steps were in the top third of the user's own days.
@@ -101,11 +101,13 @@ public enum AutoFactors {
     /// Shorter sleeps are naps; the main sleep of a wake day is its longest at least this long.
     public static let mainSleepMinSec = 3 * 3600
 
+    /// `sleepLedgerNeedsByDay` contains exact-night targets excluding debt repayment.
+    /// Missing or invalid targets leave that three-night debt window unknown.
     public static func derive(nights: [AutoFactorNight],
                               days: [AutoFactorDay],
                               workouts: [AutoFactorWorkout],
                               calendar: Calendar,
-                              sleepNeedHours: Double = AnalyticsEngine.Rest.defaultNeedHours) -> AutoFactorResult {
+                              sleepLedgerNeedsByDay: [String: Double] = [:]) -> AutoFactorResult {
         var splits: [AutoFactor: AutoFactorSplit] = [:]
         let main = mainNights(nights)
         let onsets = main.map { (night: $0, minutes: onsetClockMinutes($0.onsetTs, calendar: calendar)) }
@@ -155,9 +157,9 @@ public enum AutoFactors {
                 .union(sleepByDay.keys)
             for wake in candidates {
                 let priorKeys = (1...debtWindowNights).reversed().compactMap { CorrelationEngine.shiftDay(wake, by: -$0) }
-                let prior = priorKeys.compactMap { k in sleepByDay[k].map { (day: k, totalSleepMin: Optional($0)) } }
-                guard prior.count == debtWindowNights else { continue }
-                let ledger = SleepDebt.ledger(series: prior, needHours: sleepNeedHours, window: debtWindowNights)
+                let prior = priorKeys.map { (day: $0, totalSleepMin: sleepByDay[$0], needMin: sleepLedgerNeedsByDay[$0]) }
+                let ledger = SleepDebt.ledger(nightlyNeeds: prior, window: debtWindowNights)
+                guard ledger.nightCount == debtWindowNights, ledger.balanceMin.isFinite else { continue }
                 if ledger.balanceMin <= -debtThresholdMin { debtYes.insert(wake) } else { debtNo.insert(wake) }
             }
             if !debtYes.isEmpty || !debtNo.isEmpty {

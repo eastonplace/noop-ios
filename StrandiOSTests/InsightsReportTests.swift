@@ -51,7 +51,7 @@ final class InsightsReportTests: XCTestCase {
         XCTAssertEqual(row.deltaText, "+12 pts")
         XCTAssertEqual(plain(row.rowTitle), "In bed before 11:30 PM")
         XCTAssertTrue(row.detailLine.hasSuffix("30 vs 30 nights · Solid"))
-        XCTAssertEqual(row.headline, "Your bedtime moves your recovery most")
+        XCTAssertEqual(row.headline, "Your bedtime is linked with your recovery")
         XCTAssertEqual(plain(row.withLabel), "Before 11:30 PM")
         XCTAssertEqual(row.countsText, "30 vs 30 nights")
         XCTAssertEqual(row.source.label, "From your data")
@@ -98,11 +98,165 @@ final class InsightsReportTests: XCTestCase {
         XCTAssertEqual(InsightsHubViewModel.typicalClearDay(outcome, doses: doses), 60)
     }
 
+    func testInvalidOutcomeDaysDoNotCountAsHistory() {
+        var i = InsightsInputs()
+        i.outcomes = [.recovery: Dictionary(uniqueKeysWithValues: (0..<30).map { (day($0), Double.infinity) }),
+                      .hrv: [day(0): .nan, day(1): 60]]
+        let report = InsightsReportBuilder.build(i)
+        XCTAssertEqual(report.daysOfData, 1)
+        XCTAssertFalse(report.hasEnoughData)
+        XCTAssertTrue(report.rows.isEmpty)
+    }
+
+    func testOutcomeFormattingRejectsNonfiniteAndUnrepresentableNumbers() {
+        for value in [Double.nan, .infinity, -.infinity, .greatestFiniteMagnitude, Double(Int.max)] {
+            let effect = BehaviorEffect(behavior: "test", outcome: "test", meanWith: value, meanWithout: value,
+                                        delta: value, pctChange: value, nWith: 5, nWithout: 5,
+                                        cohensD: 1, pApprox: 0.01, significant: true)
+            for outcome in InsightOutcome.allCases {
+                XCTAssertEqual(outcome.format(value), "—")
+                XCTAssertEqual(outcome.amount(effect), "—")
+                XCTAssertEqual(outcome.signedAmount(effect), "—")
+                XCTAssertEqual(outcome.pair(effect), "— vs —")
+            }
+        }
+        XCTAssertEqual(InsightOutcome.recovery.format(63.7), "64%")
+    }
+
+    func testSolidFindingsSortBeforeLargerBuildingEffects() {
+        func row(_ name: String, confidence: ScoreConfidence, magnitude: Double) -> InsightRow {
+            let effect = BehaviorEffect(behavior: name, outcome: "recovery", meanWith: 80, meanWithout: 60,
+                                        delta: 20, pctChange: 33, nWith: 10, nWithout: 10,
+                                        cohensD: magnitude, pApprox: 0.001, significant: true)
+            return InsightRow(source: .journal(question: name), outcome: .recovery,
+                              effect: RankedEffect(behavior: name, outcome: "recovery", lag: 0,
+                                                   effect: effect, confidence: confidence, adjustedP: 0.01), bedtime: nil)
+        }
+        let report = InsightsReport(rows: [row("building", confidence: .building, magnitude: 5),
+                                           row("solid", confidence: .solid, magnitude: 1)],
+                                    daysOfData: 30, unclear: [])
+        XCTAssertEqual(report.significant.map(\.source.factorID), ["journal.solid", "journal.building"])
+    }
+
     func testTooLittleHistoryIsNotEnoughData() {
         var i = InsightsInputs()
         i.outcomes = [.recovery: Dictionary(uniqueKeysWithValues: (0..<10).map { (day($0), 60.0) })]
         let report = InsightsReportBuilder.build(i)
         XCTAssertFalse(report.hasEnoughData)
         XCTAssertTrue(report.significant.isEmpty)
+    }
+}
+
+@MainActor
+final class InsightsHistoryRepositoryTests: XCTestCase {
+    func testSharedLoaderRejectsSourceChangeAfterReadsAndAfterBuild() async throws {
+        for switchAfterBuild in [false, true] {
+            let store = try await WhoopStore.inMemory()
+            let repo = Repository(deviceId: "my-whoop")
+            repo.setStoreForTesting(store)
+            let day = Repository.localDayKey(Date())
+            let source = try XCTUnwrap(repo.computedReadIds.first)
+            try await store.upsertDailyMetrics([
+                DailyMetric(day: day, totalSleepMin: 420, efficiency: nil, deepMin: nil, remMin: nil,
+                            lightMin: nil, disturbances: nil, restingHr: 55, avgHrv: 60, recovery: 80,
+                            strain: 45, exerciseCount: nil)
+            ], deviceId: source)
+            let current = await InsightsLoader.load(repo: repo)
+            XCTAssertEqual(current.daysOfData, 1)
+            let refresh = repo.refreshSeq
+            let changeSource: @MainActor () async -> Void = {
+                XCTAssertTrue(repo.adoptActiveDeviceId("replacement-insights-source"))
+                XCTAssertEqual(repo.refreshSeq, refresh, "Source adoption does not require a wearable refresh")
+            }
+            let stale = await InsightsLoader.loadForTesting(
+                repo: repo, afterInputs: switchAfterBuild ? nil : changeSource,
+                afterBuild: switchAfterBuild ? changeSource : nil)
+            XCTAssertEqual(stale, .empty, "The shared loader must protect Coach as well as mounted views")
+        }
+    }
+
+    func testEditedSleepScoreAndTimingFactorUseTheSameSnapshotAuthority() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: "my-whoop")
+        repo.setStoreForTesting(store)
+        let computed = try XCTUnwrap(repo.computedReadIds.first)
+        let imported = try XCTUnwrap(repo.importedReadIds.first)
+        let calendar = Calendar.current
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let day = Repository.localDayKey(today)
+        let end = Int(today.addingTimeInterval(7 * 3_600).timeIntervalSince1970)
+        let editedOnset = end - 10 * 3_600
+        let importedNights = (0..<7).map { offset -> CachedSleepSession in
+            let wake = calendar.date(byAdding: .day, value: -offset, to: today)!
+            let wakeTs = Int(wake.addingTimeInterval(7 * 3_600).timeIntervalSince1970)
+            return CachedSleepSession(startTs: wakeTs - 8 * 3_600, endTs: wakeTs,
+                                      efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
+        }
+        try await store.upsertSleepSessions(importedNights, deviceId: imported)
+        try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: end - 8 * 3_600, endTs: end, efficiency: nil, restingHr: nil,
+                               avgHrv: nil, stagesJSON: nil, userEdited: true, startTsAdjusted: editedOnset)
+        ], deviceId: computed)
+        try await store.upsertMetricSeries([MetricPoint(day: day, key: "sleep_performance", value: 67)], deviceId: imported)
+        try await store.upsertMetricSeries([MetricPoint(day: day, key: Repository.sleepPerformanceV2Key, value: 85)], deviceId: computed)
+        let key = "sleep.performance.v2.mode"
+        let prior = UserDefaults.standard.object(forKey: key)
+        defer { UserDefaults.standard.set(prior, forKey: key) }
+        UserDefaults.standard.set("on", forKey: key)
+        let inputs = await InsightsLoader.readInputs(repo: repo, now: now)
+        XCTAssertEqual(inputs.outcomes[.sleep]?[day], 85)
+        XCTAssertEqual(inputs.nights.count, 7)
+        XCTAssertEqual(inputs.nights.first { $0.wakeDay == day }?.onsetTs, editedOnset)
+        let factors = AutoFactors.derive(nights: inputs.nights, days: inputs.days, workouts: [], calendar: calendar)
+        XCTAssertTrue(factors.splits[.earlyBedtime]?.yes.contains(day) == true)
+        XCTAssertFalse(factors.splits[.earlyBedtime]?.no.contains(day) == true)
+    }
+
+    func testBluetoothHistoryUsesAll180PersistedDaysAndSelectedSleepModel() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: "my-whoop")
+        repo.setStoreForTesting(store)
+        let source = try XCTUnwrap(repo.computedReadIds.first)
+        let now = Date()
+        let today = Repository.localDayKey(now)
+        let rows = (0..<180).map { offset in
+            DailyMetric(day: DailyTrainingTargetEngine.offsetDay(today, by: -offset)!,
+                        totalSleepMin: 420, efficiency: 0.9, deepMin: 80, remMin: 100, lightMin: 240,
+                        disturbances: 2, restingHr: 55, avgHrv: 60, recovery: 80,
+                        strain: 45, exerciseCount: 1, strainVersion: 2)
+        }
+        try await store.upsertDailyMetrics(rows, deviceId: source)
+        try await store.upsertMetricSeries(rows.flatMap { row in [
+            MetricPoint(day: row.day, key: Repository.sleepPerformanceV2Key, value: 85),
+            MetricPoint(day: row.day, key: "sleep_performance", value: 70),
+            MetricPoint(day: row.day, key: Repository.sleepNeedV2Key, value: 480),
+            MetricPoint(day: row.day, key: "noop_sleep_debt_need_v2_min", value: 60)
+        ] }, deviceId: source)
+        repo.days = Array(rows.prefix(30))
+        let key = "sleep.performance.v2.mode"
+        let prior = UserDefaults.standard.object(forKey: key)
+        defer { UserDefaults.standard.set(prior, forKey: key) }
+        for mode in ["on", "shadow", "off"] {
+            UserDefaults.standard.set(mode, forKey: key)
+            let inputs = await InsightsLoader.readInputs(repo: repo, now: now)
+            XCTAssertEqual(inputs.days.count, 180)
+            for outcome in InsightOutcome.allCases { XCTAssertEqual(inputs.outcomes[outcome]?.count, 180) }
+            XCTAssertEqual(inputs.outcomes[.sleep]?[today], mode == "on" ? 85 : 70)
+            XCTAssertEqual(inputs.sleepLedgerNeedsByDay[today], 420, "Repayment cannot count as new debt")
+            let result = AutoFactors.derive(nights: inputs.nights, days: inputs.days, workouts: inputs.workouts,
+                                            calendar: inputs.calendar, sleepLedgerNeedsByDay: inputs.sleepLedgerNeedsByDay)
+            XCTAssertTrue(result.splits[.sleepDebt]?.no.contains(today) == true)
+            XCTAssertFalse(result.splits[.sleepDebt]?.yes.contains(today) == true)
+        }
+        // Imported vitals retain their established precedence across the full requested history.
+        let imported = try XCTUnwrap(repo.importedReadIds.first)
+        try await store.upsertDailyMetrics([rows[0].replacing(avgHrv: .some(75), recovery: .some(90))], deviceId: imported)
+        try await store.upsertMetricSeries([MetricPoint(day: today, key: "sleep_performance", value: 67)], deviceId: imported)
+        let result = await InsightsLoader.readInputs(repo: repo, now: now)
+        XCTAssertEqual(result.outcomes[.sleep]?[today], 67)
+        XCTAssertEqual(result.outcomes[.recovery]?[today], 90)
+        XCTAssertEqual(result.outcomes[.hrv]?[today], 75)
+        XCTAssertEqual(result.days.count, 180)
     }
 }

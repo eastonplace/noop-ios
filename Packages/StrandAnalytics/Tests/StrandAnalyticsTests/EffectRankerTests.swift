@@ -20,6 +20,31 @@ final class EffectRankerTests: XCTestCase {
     /// of 0 by design). Trivially mirrored in Kotlin from the day-of-month.
     private func jitter(_ dayOfMonth: Int) -> Double { Double((dayOfMonth * 7) % 5 - 2) }
 
+    func testNonfiniteOutcomesCannotClearTheGroupGate() {
+        let yes = Set((0..<5).map { "yes-\($0)" })
+        let no = Set((0..<5).map { "no-\($0)" })
+        for invalid in [Double.infinity, -.infinity, .nan] {
+            var values = Dictionary(uniqueKeysWithValues: yes.map { ($0, 60.0) } + no.map { ($0, 80.0) })
+            values["yes-0"] = invalid
+            let effect = BehaviorInsights.effect(behaviorDays: yes, controlDays: no, outcomeByDay: values,
+                                                 behavior: "test", outcome: "hrv")
+            XCTAssertEqual(effect?.nWith, 4)
+            XCTAssertFalse(effect?.significant ?? true)
+            XCTAssertTrue(EffectRanker.rankFamily([.init(behavior: "test", yesDays: yes, noDays: no,
+                                                         outcome: "hrv", outcomeByDay: values)]).isEmpty)
+        }
+    }
+
+    func testFiniteOverflowCannotBecomeASignificantEffect() {
+        let yes = Set((0..<5).map { "yes-\($0)" })
+        let no = Set((0..<5).map { "no-\($0)" })
+        for extreme in [Double.greatestFiniteMagnitude, 1e200] {
+            let values = Dictionary(uniqueKeysWithValues: yes.sorted().enumerated().map { ($0.element, $0.offset == 0 ? 0 : extreme) } + no.map { ($0, 60.0) })
+            XCTAssertNil(BehaviorInsights.effect(behaviorDays: yes, controlDays: no, outcomeByDay: values,
+                                                  behavior: "test", outcome: "hrv"))
+        }
+    }
+
     // MARK: - Fixed lag: no searching across lags
 
     /// The outcome the morning after each behaviour day (D+1) is depressed (≈50) while every other

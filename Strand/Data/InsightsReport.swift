@@ -58,40 +58,44 @@ enum InsightOutcome: String, CaseIterable, Identifiable, Sendable {
     var higherIsBetter: Bool { self != .rhr }
 
     func format(_ v: Double) -> String {
+        guard let rounded = StableStatistics.roundedInt(v) else { return "—" }
         switch self {
-        case .recovery, .sleep: return "\(Int(v.rounded()))%"
-        case .hrv: return "\(Int(v.rounded())) ms"
-        case .rhr: return "\(Int(v.rounded())) bpm"
+        case .recovery, .sleep: return "\(rounded)%"
+        case .hrv: return "\(rounded) ms"
+        case .rhr: return "\(rounded) bpm"
         }
     }
 
     /// The size of a difference as it reads in a sentence: points for the 0–100 scores (a percent of a
     /// percent misleads), relative percent for HRV, beats per minute for resting heart rate.
     func amount(_ e: BehaviorEffect) -> String {
+        guard let delta = StableStatistics.roundedInt(abs(e.delta)) else { return "—" }
         switch self {
         case .recovery, .sleep:
-            let points = max(1, Int(abs(e.delta).rounded()))
+            let points = max(1, delta)
             return points == 1 ? String(localized: "1 point") : String(localized: "\(points) points")
         case .rhr:
             let bpm = abs(e.delta)
-            return bpm < 10 ? String(format: "%.1f bpm", bpm) : "\(Int(bpm.rounded())) bpm"
+            return bpm < 10 ? String(format: "%.1f bpm", bpm) : "\(delta) bpm"
         case .hrv:
-            let pct = abs(e.pctChange ?? 0)
-            return "\(max(1, Int(pct.rounded())))%"
+            guard let pct = e.pctChange.flatMap({ StableStatistics.roundedInt(abs($0)) }) else { return "—" }
+            return "\(max(1, pct))%"
         }
     }
 
     /// The signed difference for a row's trailing number: "+8 pts", "−16%", "+1.6 bpm".
     func signedAmount(_ e: BehaviorEffect) -> String {
+        guard let delta = StableStatistics.roundedInt(abs(e.delta)) else { return "—" }
         let sign = e.delta < 0 ? "\u{2212}" : "+"
         switch self {
         case .recovery, .sleep:
-            return String(localized: "\(sign)\(max(1, Int(abs(e.delta).rounded()))) pts")
+            return String(localized: "\(sign)\(max(1, delta)) pts")
         case .rhr:
             let bpm = abs(e.delta)
-            return "\(sign)" + (bpm < 10 ? String(format: "%.1f bpm", bpm) : "\(Int(bpm.rounded())) bpm")
+            return "\(sign)" + (bpm < 10 ? String(format: "%.1f bpm", bpm) : "\(delta) bpm")
         case .hrv:
-            return "\(sign)\(max(1, Int(abs(e.pctChange ?? 0).rounded())))%"
+            guard let pct = e.pctChange.flatMap({ StableStatistics.roundedInt(abs($0)) }) else { return "—" }
+            return "\(sign)\(max(1, pct))%"
         }
     }
 
@@ -211,14 +215,17 @@ struct InsightsInputs: Sendable {
     var nights: [AutoFactorNight] = []
     var days: [AutoFactorDay] = []
     var workouts: [AutoFactorWorkout] = []
+    var sleepLedgerNeedsByDay: [String: Double] = [:]
     var calendar: Calendar = .current
 }
 
 enum InsightsReportBuilder {
 
     static func build(_ inputs: InsightsInputs) -> InsightsReport {
+        let outcomes = inputs.outcomes.mapValues { $0.filter { $0.value.isFinite } }
         let auto = AutoFactors.derive(nights: inputs.nights, days: inputs.days,
-                                      workouts: inputs.workouts, calendar: inputs.calendar)
+                                      workouts: inputs.workouts, calendar: inputs.calendar,
+                                      sleepLedgerNeedsByDay: inputs.sleepLedgerNeedsByDay)
         let bedtime = auto.bedtimeThresholdMinutes.map { bedtimeText($0, calendar: inputs.calendar) }
 
         // Factor → (source, yes, no)
@@ -239,7 +246,7 @@ enum InsightsReportBuilder {
         var sourceByID: [String: InsightSource] = [:]
         var outcomeByName: [String: InsightOutcome] = [:]
         for outcome in InsightOutcome.allCases {
-            let values = inputs.outcomes[outcome] ?? [:]
+            let values = outcomes[outcome] ?? [:]
             guard !values.isEmpty else { continue }
             outcomeByName[outcome.rawValue] = outcome
             for factor in factors {
@@ -268,7 +275,7 @@ enum InsightsReportBuilder {
             .map { UnclearFactor(source: $0.0, name: InsightWords.factorName($0.0), checked: $0.1) }
             .sorted { $0.source.isJournal == $1.source.isJournal ? $0.name < $1.name : !$0.source.isJournal }
 
-        let daysOfData = Set(inputs.outcomes.values.flatMap(\.keys)).count
+        let daysOfData = Set(outcomes.values.flatMap(\.keys)).count
         return InsightsReport(rows: rows, daysOfData: daysOfData, unclear: unclear)
     }
 
@@ -286,6 +293,19 @@ enum InsightsReportBuilder {
 
 // MARK: - Loading
 
+/// One owner/revision for every read and the detached calculation, including Coach consumers.
+struct InsightsReadIdentity: Equatable {
+    let sourceContext: String
+    let refreshSeq: Int
+    let journalRevision: Int
+
+    @MainActor init(repo: Repository) {
+        sourceContext = repo.notificationSourceContext
+        refreshSeq = repo.refreshSeq
+        journalRevision = repo.journalRevision
+    }
+}
+
 enum InsightsLoader {
     /// How far back Insights look. Long enough for seasons of habits, short enough to stay current
     /// and to keep the read bounded.
@@ -293,69 +313,81 @@ enum InsightsLoader {
 
     @MainActor
     static func load(repo: Repository) async -> InsightsReport {
+        await load(repo: repo, afterInputs: nil, afterBuild: nil)
+    }
+
+    #if DEBUG
+    @MainActor
+    static func loadForTesting(repo: Repository, afterInputs: (@MainActor () async -> Void)? = nil,
+                               afterBuild: (@MainActor () async -> Void)? = nil) async -> InsightsReport {
+        await load(repo: repo, afterInputs: afterInputs, afterBuild: afterBuild)
+    }
+    #endif
+
+    @MainActor
+    private static func load(repo: Repository, afterInputs: (@MainActor () async -> Void)?,
+                             afterBuild: (@MainActor () async -> Void)?) async -> InsightsReport {
+        let identity = InsightsReadIdentity(repo: repo)
         let inputs = await readInputs(repo: repo)
-        return await Task.detached(priority: .utility) { InsightsReportBuilder.build(inputs) }.value
+        await afterInputs?()
+        guard !Task.isCancelled, identity == InsightsReadIdentity(repo: repo) else { return .empty }
+        let report = await Task.detached(priority: .utility) { InsightsReportBuilder.build(inputs) }.value
+        await afterBuild?()
+        guard !Task.isCancelled, identity == InsightsReadIdentity(repo: repo) else { return .empty }
+        return report
     }
 
     @MainActor
-    static func readInputs(repo: Repository) async -> InsightsInputs {
-        let now = Date()
+    static func readInputs(repo: Repository, now: Date = Date()) async -> InsightsInputs {
+        let identity = InsightsReadIdentity(repo: repo)
         let lo = Int(Repository.dateByAddingCalendarDays(-historyDays, to: now).timeIntervalSince1970)
         let hi = Int(Repository.dateByAddingCalendarDays(1, to: now).timeIntervalSince1970)
         let earliest = Repository.localDayKey(Repository.dateByAddingCalendarDays(-historyDays, to: now))
 
         async let journalLoad = repo.journalEntries(days: historyDays)
-        async let recoveryLoad = repo.series(key: "recovery", source: "my-whoop")
-        async let hrvLoad = repo.series(key: "hrv", source: "my-whoop")
-        async let sleepLoad = repo.series(key: "sleep_performance", source: "my-whoop")
-        async let rhrLoad = repo.series(key: "rhr", source: "my-whoop")
-        async let sleepsLoad = repo.allSleepSessions(days: historyDays)
         async let workoutsLoad = repo.workoutRows(from: lo, to: hi, reconcileHR: false)
 
-        async let historyLoad = repo.dailyMetrics(fromDay: earliest,
-                                                  toDay: Repository.localDayKey(Repository.dateByAddingCalendarDays(1, to: now)))
-        async let appleLoad = repo.appleDailyRows(days: historyDays)
-
-        // The published `days` cover the recent dashboard window; older rows come from the store.
-        // Published rows win where both exist.
-        var byDay: [String: DailyMetric] = [:]
-        for d in await historyLoad { byDay[d.day] = d }
-        for d in repo.days where d.day >= earliest { byDay[d.day] = d }
-        let merged = byDay.values.sorted { $0.day < $1.day }
-        let loaded: [InsightOutcome: [(day: String, value: Double)]] = [
-            .recovery: await recoveryLoad, .hrv: await hrvLoad, .sleep: await sleepLoad, .rhr: await rhrLoad,
-        ]
+        let throughDay = Repository.localDayKey(Repository.dateByAddingCalendarDays(1, to: now))
+        async let historyLoad = try? repo.insightsHistory(fromDay: earliest, throughDay: throughDay,
+                                                          fromTs: lo, throughTs: hi)
+        async let needsLoad = try? repo.sleepPresentationNeeds(from: earliest, to: throughDay)
+        let history = await historyLoad
+        let merged = history?.days ?? []
         var inputs = InsightsInputs()
         for outcome in InsightOutcome.allCases {
             var dict: [String: Double] = [:]
-            for row in loaded[outcome] ?? [] where row.day >= earliest { dict[row.day] = row.value }
-            // Strap-only fallback, as the Insights hub has always done.
-            for d in merged where dict[d.day] == nil {
+            for d in merged {
                 let v: Double? = switch outcome {
                 case .recovery: d.recovery
                 case .hrv: d.avgHrv
                 case .rhr: d.restingHr.map(Double.init)
                 case .sleep: nil
                 }
-                if let v { dict[d.day] = v }
+                if let v, v.isFinite { dict[d.day] = v }
+            }
+            if outcome == .sleep, let history {
+                for point in history.canonical.sleepScoreByDay.values where point.value.isFinite {
+                    dict[point.day] = point.value
+                }
             }
             inputs.outcomes[outcome] = dict
         }
+        inputs.sleepLedgerNeedsByDay = (await needsLoad ?? [:]).compactMapValues(\.ledgerMinutes)
 
         inputs.journal = await journalLoad
-        inputs.nights = (await sleepsLoad).map { s in
+        inputs.nights = (history?.sleeps ?? []).map { s in
             AutoFactorNight(wakeDay: Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(s.endTs))),
                             onsetTs: s.effectiveStartTs, endTs: s.endTs)
         }
         inputs.workouts = (await workoutsLoad).map { AutoFactorWorkout(startTs: $0.startTs, endTs: $0.endTs) }
         var appleSteps: [String: Int] = [:]
-        for row in await appleLoad { if let steps = row.steps { appleSteps[row.day] = steps } }
-        for (day, point) in repo.canonicalHealth.appleDailyByDay { if let steps = point.steps { appleSteps[day] = steps } }
+        for (day, point) in history?.canonical.appleDailyByDay ?? [:] { if let steps = point.steps { appleSteps[day] = steps } }
         inputs.days = merged.map { d in
             let steps = d.steps.map(Double.init) ?? appleSteps[d.day].map(Double.init)
             return AutoFactorDay(day: d.day, totalSleepMin: d.totalSleepMin, strain: d.strain, steps: steps)
         }
         inputs.calendar = .current
+        guard !Task.isCancelled, identity == InsightsReadIdentity(repo: repo) else { return InsightsInputs() }
         return inputs
     }
 }
@@ -532,16 +564,16 @@ extension InsightWords {
         let what = outcome.inSentence
         switch source {
         case .journal(let q):
-            return String(localized: "\(journalQuestionTitle(q)) moves your \(what) most")
+            return String(localized: "\(journalQuestionTitle(q)) is linked with your \(what)")
         case .data(let f):
             switch f {
-            case .earlyBedtime: return String(localized: "Your bedtime moves your \(what) most")
-            case .consistentBedtime: return String(localized: "A steady bedtime moves your \(what) most")
-            case .sevenHours: return String(localized: "Sleep length moves your \(what) most")
-            case .sleepDebt: return String(localized: "Sleep debt moves your \(what) most")
-            case .lateWorkout: return String(localized: "Late workouts move your \(what) most")
-            case .highStrain: return String(localized: "Hard days move your \(what) most")
-            case .highSteps: return String(localized: "Busy days on your feet move your \(what) most")
+            case .earlyBedtime: return String(localized: "Your bedtime is linked with your \(what)")
+            case .consistentBedtime: return String(localized: "A steady bedtime is linked with your \(what)")
+            case .sevenHours: return String(localized: "Sleep length is linked with your \(what)")
+            case .sleepDebt: return String(localized: "Sleep debt is linked with your \(what)")
+            case .lateWorkout: return String(localized: "Late workouts are linked with your \(what)")
+            case .highStrain: return String(localized: "Hard days are linked with your \(what)")
+            case .highSteps: return String(localized: "Busy days on your feet are linked with your \(what)")
             }
         }
     }

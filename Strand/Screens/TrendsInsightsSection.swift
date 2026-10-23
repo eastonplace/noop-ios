@@ -23,9 +23,14 @@ struct TrendsInsightsSection: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("trends.insights")
-        .task(id: repo.refreshSeq) {
-            report = await InsightsLoader.load(repo: repo)
-        }
+        .task(id: InsightsLoadIdentity(repo: repo)) { await loadReport() }
+    }
+
+    private func loadReport() async {
+        let identity = InsightsLoadIdentity(repo: repo)
+        let loaded = await InsightsLoader.load(repo: repo)
+        guard !Task.isCancelled, identity == InsightsLoadIdentity(repo: repo) else { return }
+        report = loaded
     }
 
     private var header: some View {

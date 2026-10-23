@@ -44,7 +44,7 @@ struct InsightsHubView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("insights.detail")
         }
-        .task(id: repo.refreshSeq) { await model.load(repo: repo) }
+        .task(id: InsightsLoadIdentity(repo: repo)) { await model.load(repo: repo) }
         .sheet(isPresented: $showJournal) {
             #if os(iOS)
             CoachingRootView()
@@ -138,10 +138,10 @@ struct InsightsHubView: View {
 
     private func sectionTitle(_ outcome: InsightOutcome) -> String {
         switch outcome {
-        case .recovery: return String(localized: "What moves your recovery")
-        case .hrv: return String(localized: "What moves your HRV")
-        case .sleep: return String(localized: "What moves your sleep")
-        case .rhr: return String(localized: "What moves your resting HR")
+        case .recovery: return String(localized: "Patterns in your recovery")
+        case .hrv: return String(localized: "Patterns in your HRV")
+        case .sleep: return String(localized: "Patterns in your sleep")
+        case .rhr: return String(localized: "Patterns in your resting HR")
         }
     }
 
@@ -365,6 +365,20 @@ private struct DoseSection: View {
 // Loads the shared InsightsReport (also used by Trends and the Coach) plus the alcohol/caffeine
 // dose series for the DoseResponseEngine cards.
 
+/// Journal writes and source replacement can change inputs without a wearable refresh.
+/// Both mounted Insights surfaces must reload when any part of their read identity changes.
+struct InsightsLoadIdentity: Equatable, Hashable {
+    let sourceContext: String
+    let refreshSeq: Int
+    let journalRevision: Int
+
+    @MainActor init(repo: Repository) {
+        sourceContext = repo.notificationSourceContext
+        refreshSeq = repo.refreshSeq
+        journalRevision = repo.journalRevision
+    }
+}
+
 @MainActor
 final class InsightsHubViewModel: ObservableObject {
 
@@ -375,7 +389,31 @@ final class InsightsHubViewModel: ObservableObject {
     /// The source id dose rows are parked under (mirrors MoodStore's noop-mood isolation).
     static let doseSource = "noop-journal-dose"
 
+    private var loadID: UUID?
+
+    struct LoadedContent {
+        let report: InsightsReport
+        let doseCards: [DoseCard]
+    }
+
     func load(repo: Repository) async {
+        await load(repo: repo) { await Self.read(repo: repo) }
+    }
+
+    /// Keep publication separate from reads so a cancelled or replaced request cannot restore old data.
+    func load(repo: Repository, read: @MainActor () async -> LoadedContent) async {
+        let requestID = UUID()
+        loadID = requestID
+        let identity = InsightsLoadIdentity(repo: repo)
+        let content = await read()
+        guard !Task.isCancelled, loadID == requestID,
+              identity == InsightsLoadIdentity(repo: repo) else { return }
+        report = content.report
+        doseCards = content.doseCards
+        loaded = true
+    }
+
+    private static func read(repo: Repository) async -> LoadedContent {
         async let reportLoad = InsightsLoader.load(repo: repo)
         async let entriesLoad = repo.journalEntries()
         async let recoveryLoad = repo.series(key: "recovery", source: "my-whoop")
@@ -421,9 +459,7 @@ final class InsightsHubViewModel: ObservableObject {
                                   typical: Self.typicalClearDay(outcomeDays, doses: doses)))
         }
 
-        self.report = await reportLoad
-        self.doseCards = cards
-        self.loaded = true
+        return LoadedContent(report: await reportLoad, doseCards: cards)
     }
 
     // MARK: Static shaping helpers

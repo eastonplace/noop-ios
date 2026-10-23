@@ -98,7 +98,9 @@ final class AutoFactorsTests: XCTestCase {
         let days = mins.enumerated().map {
             AutoFactorDay(day: day($0.offset + 1), totalSleepMin: $0.element, strain: nil, steps: nil)
         }
-        let s = split(AutoFactors.derive(nights: [], days: days, workouts: [], calendar: utc), .sleepDebt)
+        let needs = Dictionary(uniqueKeysWithValues: days.map { ($0.day, 480.0) })
+        let s = split(AutoFactors.derive(nights: [], days: days, workouts: [], calendar: utc,
+                                         sleepLedgerNeedsByDay: needs), .sleepDebt)
         XCTAssertTrue(s.yes.contains(day(4)))
         XCTAssertTrue(s.no.contains(day(5)))
         XCTAssertTrue(s.no.contains(day(6)))   // 420 + 540 + 540 − 1440 = 60 surplus
@@ -108,8 +110,39 @@ final class AutoFactorsTests: XCTestCase {
 
     func testSleepDebtNeedsThreeConsecutivePriorNights() {
         let days = [1, 2, 4].map { AutoFactorDay(day: day($0), totalSleepMin: 300, strain: nil, steps: nil) }
-        let s = AutoFactors.derive(nights: [], days: days, workouts: [], calendar: utc).splits[.sleepDebt]
+        let needs = Dictionary(uniqueKeysWithValues: days.map { ($0.day, 480.0) })
+        let s = AutoFactors.derive(nights: [], days: days, workouts: [], calendar: utc,
+                                   sleepLedgerNeedsByDay: needs).splits[.sleepDebt]
         XCTAssertFalse(s?.yes.contains(day(5)) ?? false, "a gap night means the debt is unknown")
+    }
+
+    func testSleepDebtUsesEachNightsTargetInsteadOfEightHours() {
+        let days = (1...4).map { AutoFactorDay(day: day($0), totalSleepMin: 420, strain: nil, steps: nil) }
+        let sevenHours = Dictionary(uniqueKeysWithValues: days.map { ($0.day, 420.0) })
+        let noDebt = AutoFactors.derive(nights: [], days: days, workouts: [], calendar: utc,
+                                        sleepLedgerNeedsByDay: sevenHours)
+        XCTAssertTrue(noDebt.splits[.sleepDebt]?.no.contains(day(4)) == true)
+        var changing = sevenHours
+        changing[day(2)] = 540
+        let debt = AutoFactors.derive(nights: [], days: days, workouts: [], calendar: utc,
+                                     sleepLedgerNeedsByDay: changing)
+        XCTAssertTrue(debt.splits[.sleepDebt]?.yes.contains(day(4)) == true)
+        let ledger = SleepDebt.ledger(nightlyNeeds: days.prefix(3).map {
+            (day: $0.day, totalSleepMin: $0.totalSleepMin, needMin: changing[$0.day])
+        }, window: 3)
+        XCTAssertEqual(ledger.balanceMin, -120)
+    }
+
+    func testSleepDebtSkipsMissingAndInvalidExactNightTargets() {
+        let days = (1...3).map { AutoFactorDay(day: day($0), totalSleepMin: 300, strain: nil, steps: nil) }
+        for missing in [nil, Double.nan, Double.infinity, 0, -1] as [Double?] {
+            var needs = Dictionary(uniqueKeysWithValues: days.map { ($0.day, 480.0) })
+            needs[day(2)] = missing
+            let result = AutoFactors.derive(nights: [], days: days, workouts: [], calendar: utc,
+                                            sleepLedgerNeedsByDay: needs)
+            XCTAssertNil(result.splits[.sleepDebt])
+        }
+        XCTAssertNil(AutoFactors.derive(nights: [], days: days, workouts: [], calendar: utc).splits[.sleepDebt])
     }
 
     // MARK: - Late workout
