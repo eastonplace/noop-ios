@@ -21,7 +21,7 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## 2.0.0
 
-Staged combined release. Phone installation and publication remain on hold until Easton calls the batch ready. This entry accumulates implemented work from PR68 onward; the tentative endpoint is PR77 and may change. Unmerged features are not listed as delivered.
+Staged combined release. Phone installation and publication remain on hold until Easton calls the batch ready. This entry covers merged work from PR68 through PR80, including PR77, PR78 and PR80. Open PR79 is not included. The batch remains open to later additions.
 
 - **Recent and stable readiness.** Physiology baselines expire by calendar day, non-finite observations cannot crash the readiness view, and extreme imported loads cannot overflow the training-load warmup. Sparse sleep interpolation preserves the same output with one forward neighbor search.
 - **Review and runtime reliability.** Cancelled HealthKit queries release their import work without waiting for late callbacks, and cancellation before an export deletion keeps the existing samples. Anchored reads stop at cancellation boundaries.
@@ -60,6 +60,8 @@ CI work in PR76 removes duplicate package testing and selects checks by change t
 - **Training load focus.** Review four weeks of workout heart-rate zone minutes grouped into low aerobic, high aerobic and anaerobic load. Training Load adds intensity and sport views with week-by-week contributions; the method explains its data requirements and ranges.
 
 - **Score guides everywhere.** Shared information sheets explain each score or metric, what its ranges mean, how to read the displayed result and how it is calculated. Guides are available from Today, Trends, Sleep, health, stress, training-load and insight screens.
+
+- **Bug fixes and improvements.** Cleaner scores, filtered steps, safer sync and history. The in-app 2.0 showcase now ends with this summary and explicitly includes the Coach brief widget alongside Journal and Insights.
 
 ## 1.8.1
 
