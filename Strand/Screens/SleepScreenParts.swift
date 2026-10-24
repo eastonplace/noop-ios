@@ -277,10 +277,10 @@ struct SleepStageChart: View {
     @State private var inspectedInterval: SleepInterval?
 
     @ScaledMetric(relativeTo: .caption2) private var gutter: CGFloat = 40
-    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 98
+    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 140
 
     private static let laneOrder: [SleepStage] = [.awake, .rem, .light, .deep]
-    private static let barThickness: CGFloat = 14
+    private static let barThickness: CGFloat = 10
 
     init(timeline: SleepStageTimeline, start: Date, highlighted: SleepStage?, hasRecordedStageTiming: Bool = false) {
         self.timeline = timeline
@@ -358,7 +358,7 @@ struct SleepStageChart: View {
             GeometryReader { proxy in
                 if let inspectedInterval {
                     inspectionTooltip(inspectedInterval)
-                        .frame(width: min(236, proxy.size.width))
+                        .frame(width: min(206, proxy.size.width))
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
             }
@@ -378,7 +378,8 @@ struct SleepStageChart: View {
                 Text(interval.stage.label).font(StrandFont.captionNumber.weight(.semibold))
             }
             .foregroundStyle(StrandPalette.textPrimary)
-            Text(detail).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+            Text(detail).font(StrandFont.footnote).monospacedDigit()
+                .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 9).padding(.vertical, 6)

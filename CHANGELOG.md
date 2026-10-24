@@ -23,7 +23,7 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 In development in PR81, stacked on the reviewed PR79 fixes. Merge is authorized after validation; phone installation and release publication are not.
 
-- **Sleep takes focus.** The stage chart follows the KPI figures, with alarms directly below the stage section. Sleep values and the score dial are 25% larger; the stage plot is 40% taller with thicker bars. Existing heart-rate row heights and centered text are preserved.
+- **Sleep takes focus.** The stage chart follows the KPI figures, with alarms directly below the stage section. Sleep values and the score dial are 25% larger; the stage plot is twice its original height, with the original slim bars and unchanged compact stage totals. Existing heart-rate row heights and centered text are preserved.
 - **Explore sleep stages.** Hold a stage bar to see its stage and time window, then slide across the chart to inspect neighboring periods.
 - **Multiple wake alarms.** Save independent wake times and days. WHOOP 4 stores one endpoint, so the next enabled occurrence is armed and later strap alarms require NOOP to run and reconnect. Each enabled schedule has a phone notification backup, subject to iOS permissions and delivery limits.
 

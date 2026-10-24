@@ -20,8 +20,8 @@ final class SleepStageInspectionUITests: XCTestCase {
         XCTAssertTrue(chart.waitForExistence(timeout: 60))
         XCTAssertTrue(app.frame.contains(chart.frame))
         // The demo's first recorded block is Light. The 40pt label gutter precedes the plot;
-        // its Light lane is at 5/8 of the unchanged 98pt plot height.
-        let firstBar = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.53))
+        // its Light lane is at 5/8 of the 140pt plot height, before the clock axis.
+        let firstBar = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.55))
         firstBar.press(forDuration: 0.45)
         let callout = element("sleep.stageInspection", in: app)
         XCTAssertTrue(callout.waitForExistence(timeout: 5))
@@ -33,7 +33,7 @@ final class SleepStageInspectionUITests: XCTestCase {
         capture(app, "sleep-stage-held-light-window")
 
         firstBar.press(forDuration: 0.45, thenDragTo: chart.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.65, dy: 0.53)), withVelocity: .slow, thenHoldForDuration: 0.2)
+            withNormalizedOffset: CGVector(dx: 0.65, dy: 0.55)), withVelocity: .slow, thenHoldForDuration: 0.2)
         XCTAssertTrue(callout.exists)
         XCTAssertNotEqual(callout.label, firstWindow, "Holding while dragging reads the new period")
         XCTAssertNotNil(callout.label.range(of: #"\d{1,2}:\d{2} [AP]M to \d{1,2}:\d{2} [AP]M"#,

@@ -9,7 +9,7 @@ final class SleepAlarmsReleaseUITests: XCTestCase {
         defer { app.terminate() }
         let chart = element("sleep.stageChart", in: app)
         XCTAssertTrue(chart.waitForExistence(timeout: 60))
-        XCTAssertGreaterThanOrEqual(chart.frame.height, 115)
+        XCTAssertGreaterThanOrEqual(chart.frame.height, 155)
         XCTAssertGreaterThanOrEqual(chart.frame.width, 300)
         XCTAssertTrue(chart.frame.intersects(app.frame), "The chart is visible before any scroll")
         capture(app, "sleep-201-larger-kpis-and-chart")
