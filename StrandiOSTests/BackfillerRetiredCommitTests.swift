@@ -8,12 +8,36 @@ final class BackfillerRetiredCommitTests: XCTestCase {
     private actor Gate {
         private(set) var waiting = false
         private var continuation: CheckedContinuation<Void, Never>?
+        private var opened = false
         func wait() async {
+            guard !opened else { return }
             waiting = true
             await withCheckedContinuation { continuation = $0 }
             waiting = false
         }
-        func open() { continuation?.resume(); continuation = nil }
+        func open() {
+            opened = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    private func waitForPause(
+        _ gate: Gate, transfer: Task<Void, Never>,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            if await gate.waiting { return true }
+            do { try await clock.sleep(for: .milliseconds(5)) }
+            catch { break }
+        }
+        transfer.cancel()
+        // Opening is latched: a transfer that reaches wait() after timeout also cannot suspend.
+        await gate.open()
+        XCTFail("The historical transfer did not reach its controlled pause within five seconds.", file: file, line: line)
+        return false
     }
 
     /// Pause only after the real SQLite transaction returns its actual durable receipt.
@@ -107,7 +131,7 @@ final class BackfillerRetiredCommitTests: XCTestCase {
             extract: { _, _, _, _, _, _ in Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)]) })
         XCTAssertTrue(backfiller.begin(family: .whoop4, historicalCursorScope: scope))
         let transfer = Task { await backfiller.ingest(record); await backfiller.ingest(end) }
-        while !(await gate.waiting) { await Task.yield() }
+        guard await waitForPause(gate, transfer: transfer) else { return }
         let receiptsBeforeRetirement = try await store.historicalDataCommitReceipts(deviceId: "strap-a")
         XCTAssertEqual(receiptsBeforeRetirement.count, 1, "the real SQLite commit already completed")
 
@@ -147,7 +171,7 @@ final class BackfillerRetiredCommitTests: XCTestCase {
             extract: { _, _, _, _, _, _ in Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)]) })
         XCTAssertTrue(backfiller.begin(family: .whoop4, historicalCursorScope: scopeA))
         let transfer = Task { await backfiller.ingest(record); await backfiller.ingest(end) }
-        while !(await gate.waiting) { await Task.yield() }
+        guard await waitForPause(gate, transfer: transfer) else { return }
         backfiller.timeoutFired()
         backfiller.deviceId = "strap-b"
         XCTAssertTrue(backfiller.begin(family: .whoop4, historicalCursorScope: scopeB))
@@ -180,7 +204,7 @@ final class BackfillerRetiredCommitTests: XCTestCase {
             extract: { _, _, _, _, _, _ in Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)]) })
         XCTAssertTrue(backfiller.begin(family: .whoop4, historicalCursorScope: scope))
         let transfer = Task { await backfiller.ingest(record); await backfiller.ingest(end) }
-        while !(await gate.waiting) { await Task.yield() }
+        guard await waitForPause(gate, transfer: transfer) else { return }
         backfiller.timeoutFired()
         await gate.open()
         await transfer.value
