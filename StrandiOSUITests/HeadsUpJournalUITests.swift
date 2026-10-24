@@ -24,7 +24,7 @@ final class HeadsUpJournalUITests: XCTestCase {
         capture(app, "heads-up-raised-today-banner")
 
         let card = element("today.headsUp.card", in: app)
-        try reveal(card, in: app)
+        try reveal(card, in: app, onToday: true)
         let cardLabel = card.label
         XCTAssertTrue(cardLabel.contains("3 of 4 signals up"),
                       "The card must count the signals that moved. Actual label: \(cardLabel)")
@@ -45,10 +45,11 @@ final class HeadsUpJournalUITests: XCTestCase {
         continueAfterFailure = false
         for state in ["off", "learning", "unavailable", "clear", "mild"] {
             let app = launch(headsUp: state)
+            defer { app.terminate() }
             try requireDemoReady(in: app)
             // Off is not a button as a whole; its Turn on action is what can be revealed and tapped.
             let card = element(state == "off" ? "today.headsUp.turnOn" : "today.headsUp.card", in: app)
-            try reveal(card, in: app)
+            try reveal(card, in: app, onToday: true)
             capture(app, "heads-up-\(state)-today-card")
             if state == "unavailable" {
                 XCTAssertTrue(card.label.contains("No reading"))
@@ -67,7 +68,6 @@ final class HeadsUpJournalUITests: XCTestCase {
                 gutterDrag(in: app)
                 capture(app, "heads-up-\(state)-page-2")
             }
-            app.terminate()
         }
     }
 
@@ -75,9 +75,10 @@ final class HeadsUpJournalUITests: XCTestCase {
         continueAfterFailure = false
         for state in ["explained", "unwell"] {
             let app = launch(headsUp: state)
+            defer { app.terminate() }
             try requireDemoReady(in: app)
             let card = element("today.headsUp.card", in: app)
-            try reveal(card, in: app)
+            try reveal(card, in: app, onToday: true)
             capture(app, "heads-up-\(state)-today-card")
             card.tap()
             try require(element("headsUp.detail", in: app), in: app, timeout: 15)
@@ -86,7 +87,6 @@ final class HeadsUpJournalUITests: XCTestCase {
                 gutterDrag(in: app)
                 capture(app, "heads-up-\(state)-page-\(index)")
             }
-            app.terminate()
         }
     }
 
@@ -186,6 +186,7 @@ final class HeadsUpJournalUITests: XCTestCase {
 
     private func launch(headsUp state: String) -> XCUIApplication {
         let app = XCUIApplication()
+        app.terminate()
         app.launchArguments = baseArguments + ["--demo-heads-up", state]
         app.launch()
         return app
@@ -230,7 +231,7 @@ final class HeadsUpJournalUITests: XCTestCase {
 
     /// Require the whole target below the fixed header and above the tab bar. A clipped tile can report hittable
     /// while its center lies behind the header, so partial intersection alone is insufficient.
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication) throws {
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, onToday: Bool = false) throws {
         let visible = CGRect(x: app.frame.minX, y: app.frame.minY + 150,
                              width: app.frame.width, height: app.frame.height - 250)
         for _ in 0..<16 {
@@ -238,7 +239,11 @@ final class HeadsUpJournalUITests: XCTestCase {
                visible.contains(element.frame) {
                 return
             }
-            if element.exists, element.frame.minY < visible.minY {
+            if onToday {
+                // A drag at x=2% can stay outside the padded content and leave Today at
+                // the same offset. Match the dashboard suite's heading-anchored scrolling.
+                try scrollToday(in: app, down: element.exists && element.frame.minY < visible.minY)
+            } else if element.exists, element.frame.minY < visible.minY {
                 let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.30))
                 let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
                 start.press(forDuration: 0.05, thenDragTo: end)
@@ -247,7 +252,49 @@ final class HeadsUpJournalUITests: XCTestCase {
             }
         }
         captureFailure(in: app)
-        throw HarnessError.unreachable("Could not reveal \(element.identifier)")
+        throw HarnessError.unreachable("Could not reveal \(element.exists ? element.identifier : "the requested element")")
+    }
+
+    private func scrollToday(in app: XCUIApplication, down: Bool) throws {
+        let appFrame = app.frame
+        let surface = app.scrollViews.firstMatch
+        guard surface.exists else {
+            captureFailure(in: app)
+            throw HarnessError.unreachable("Today has no scroll viewport")
+        }
+        let safeArea = CGRect(x: appFrame.minX, y: appFrame.minY + 150,
+                              width: appFrame.width, height: appFrame.height - 250)
+        let visible = surface.frame.intersection(safeArea)
+        guard !visible.isNull, !visible.isInfinite,
+              visible.width > 0, visible.height > 88 else {
+            captureFailure(in: app)
+            throw HarnessError.unreachable("Today has no usable scroll viewport")
+        }
+        let anchors = [element("today.health.title", in: app), app.staticTexts["Today’s Stress"],
+                       app.staticTexts.matching(NSPredicate(format: "label ==[cd] %@", "Live Heart Rate")).firstMatch,
+                       app.staticTexts["LOW"], app.staticTexts["AVG"], app.staticTexts["PEAK"]]
+        let points = anchors.compactMap { anchor -> CGPoint? in
+            guard anchor.exists else { return nil }
+            let frame = anchor.frame
+            let part = frame.intersection(visible)
+            guard !part.isNull, !part.isInfinite, part.width > 0,
+                  part.height >= min(frame.height, 16), frame.height > 0 else { return nil }
+            let inset = min(8, part.height / 2)
+            let y = down ? part.minY + inset : part.maxY - inset
+            guard down ? y < visible.maxY - 44 : y > visible.minY + 44 else { return nil }
+            return CGPoint(x: part.midX, y: y)
+        }
+        let anchor = down ? points.min(by: { $0.y < $1.y }) : points.max(by: { $0.y < $1.y })
+        // Stay inside the 16-point content padding if no heading is currently visible.
+        let x = anchor?.x ?? (visible.minX + min(24, visible.width / 2))
+        let startY = anchor?.y ?? (visible.minY + visible.height * (down ? 0.2 : 0.8))
+        let defaultEndY = visible.minY + visible.height * (down ? 0.8 : 0.2)
+        let endY = anchor == nil ? defaultEndY
+            : (down ? max(defaultEndY, startY + 44) : min(defaultEndY, startY - 44))
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: x - appFrame.minX, dy: startY - appFrame.minY))
+        let end = origin.withOffset(CGVector(dx: x - appFrame.minX, dy: endY - appFrame.minY))
+        start.press(forDuration: 0.05, thenDragTo: end)
     }
 
     private func require(_ element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval) throws {

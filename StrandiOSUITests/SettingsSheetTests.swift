@@ -8,7 +8,14 @@ final class SettingsSheetTests: XCTestCase {
         let app = XCUIApplication()
         // Use the simulator shell fixture, as the other navigation tests do. Demo data alone
         // leaves onboarding and Terms over Today, so its profile button exists behind an overlay.
-        app.launchArguments = ["--noop-coach-shell-qa", "--demo-seed", "--demo-tab", "today", "-AppleInterfaceStyle", "Dark"]
+        app.terminate()
+        // The routine-selection suite deliberately leaves an active lift. Use the existing
+        // fresh Lift fixture so restoring that session cannot cover the Settings route.
+        app.launchArguments = [
+            "--noop-coach-shell-qa", "--demo-seed", "--noop-lift-demo", "fresh", "--demo-tab", "today",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-AppleInterfaceStyle", "Dark",
+        ]
         app.launch()
         // Seeding finishes after the shell is interactive. Match the other navigation
         // suites' readiness condition before a seed-driven root redraw can interrupt a tap.
@@ -38,6 +45,7 @@ final class SettingsSheetTests: XCTestCase {
     func testAvatarOpensSettingsSearchPushesAPageAndSwipeDownDismisses() throws {
         continueAfterFailure = false
         let app = launch()
+        defer { app.terminate() }
 
         // The tab bar is four tabs and the quick-actions button; Settings is not one of them.
         XCTAssertTrue(app.buttons["app.tab.4"].waitForExistence(timeout: 60))
@@ -77,6 +85,7 @@ final class SettingsSheetTests: XCTestCase {
     func testAPageGoesBackWithTheEdgeSwipeAndTheProfileRowOpensPersonalProfile() throws {
         continueAfterFailure = false
         let app = launch()
+        defer { app.terminate() }
         let avatar = app.buttons["Profile and settings"]
         XCTAssertTrue(avatar.waitForExistence(timeout: 60))
         tapProfile(avatar, in: app)
