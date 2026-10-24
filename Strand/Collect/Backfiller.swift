@@ -134,6 +134,7 @@ final class Backfiller {
     /// (#547 session-relative gate); nil when the range isn't known yet (the absolute-only floor applies).
     typealias Extractor = @Sendable ([ParsedFrame], DeviceFamily, Int, Int, Int?, Int?) -> Streams
     typealias Parser = @Sendable ([UInt8], DeviceFamily) -> ParsedFrame
+    typealias RetiredCommitHandler = @MainActor (HistoricalCommitContext) async -> Void
 
     private let store: BackfillStoreWriting
     /// Current device id for the next session. An admitted session never reads this after decode starts;
@@ -302,6 +303,7 @@ final class Backfiller {
     /// Context-aware handoff seam. This is the producer-owned source identity until the receipt schema
     /// carries durable lineage/epoch fields itself.
     private let onHistoricalCommitContext: ((HistoricalCommitContext) -> Void)?
+    private let onRetiredHistoricalCommitContext: RetiredCommitHandler?
     /// Runs only after Core Bluetooth confirms the exact trim ACK. Deferred materialization is scheduled
     /// through this seam so large V20/V21 work can never move back onto the save-before-ACK path.
     private let onHistoricalAcknowledged: ((HistoricalDataCommitReceipt, HistoricalCommitOutcome) -> Void)?
@@ -340,6 +342,7 @@ final class Backfiller {
          rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) async -> Bool)? = nil,
          onHistoricalCommit: ((HistoricalDataCommitReceipt) -> Void)? = nil,
          onHistoricalCommitContext: ((HistoricalCommitContext) -> Void)? = nil,
+         onRetiredHistoricalCommitContext: RetiredCommitHandler? = nil,
          onHistoricalAcknowledged: ((HistoricalDataCommitReceipt, HistoricalCommitOutcome) -> Void)? = nil,
          beforeHistoricalCommit: (() async -> Void)? = nil,
          onChunk: ((_ decoded: Bool, _ console: Bool) -> Void)? = nil,
@@ -369,6 +372,7 @@ final class Backfiller {
         self.rejectedSink = rejectedSink
         self.onHistoricalCommit = onHistoricalCommit
         self.onHistoricalCommitContext = onHistoricalCommitContext
+        self.onRetiredHistoricalCommitContext = onRetiredHistoricalCommitContext
         self.onHistoricalAcknowledged = onHistoricalAcknowledged
         self.beforeHistoricalCommit = beforeHistoricalCommit
         self.onChunk = onChunk
@@ -1213,20 +1217,22 @@ final class Backfiller {
         let inserted = commitResult.outcome == .inserted
         PerformanceTrace.end(commitTrace, changedRows: inserted ? receipt.insertedRows.total : 0)
         HistoricalTransportTrace.commitEnded(succeeded: true)
+        let durableSource = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: receipt.deviceId,
+            lineage: receipt.lineage,
+            epoch: Int64(receipt.cursorEpoch),
+            trimScope: receipt.trimScope)
+        let context = HistoricalCommitContext(receipt: receipt, sourceIdentity: durableSource)
         guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
-            // The receipt is durable under its original scope, but a newer session now owns the strap.
-            // Never publish its state or ACK it through the new session.
+            // Transport retirement cannot revoke an already committed receipt. Signal it separately
+            // under its immutable store/source owner, without changing the replacement session or ACKing.
+            if inserted { await onRetiredHistoricalCommitContext?(context) }
             log?("Backfill: committed trim=\(trim) after secure-session ownership changed — leaving it unacked with zero current-session progress for safe replay.")
             return
         }
         if inserted {
             onHistoricalCommit?(receipt)
-            let durableSource = HistoricalReceiptWatermark.SourceIdentity(
-                deviceId: receipt.deviceId,
-                lineage: receipt.lineage,
-                epoch: Int64(receipt.cursorEpoch),
-                trimScope: receipt.trimScope)
-            onHistoricalCommitContext?(HistoricalCommitContext(receipt: receipt, sourceIdentity: durableSource))
+            onHistoricalCommitContext?(context)
         } else {
             log?("Backfill: exact durable receipt replay at trim=\(trim) — ACKing safely with zero fresh progress.")
         }

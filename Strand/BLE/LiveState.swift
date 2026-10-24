@@ -547,14 +547,15 @@ public final class LiveState: ObservableObject {
     func finalizeHistoricalSyncBurst(
         at timestamp: TimeInterval,
         watermark: HistoricalReceiptWatermark? = nil,
-        receipt: HistoricalDataCommitReceipt? = nil
+        receipt: HistoricalDataCommitReceipt? = nil,
+        clearPassProgress: Bool = true
     ) {
         let resolvedWatermark = watermark ?? receipt.map { HistoricalReceiptWatermark(receipt: $0) }
         finalizedHistoricalDataCommitWatermark = resolvedWatermark
         finalizedHistoricalDataCommitReceipt = receipt
         finalizedHistoricalBurst = HistoricalBurstFinalization(watermark: resolvedWatermark, publishedAt: timestamp)
         backfillDataAvailableAt = timestamp
-        clearHistoricalSyncProgress()
+        if clearPassProgress { clearHistoricalSyncProgress() }
     }
 
     func clearHistoricalSyncProgress() {
