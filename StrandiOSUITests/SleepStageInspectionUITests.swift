@@ -20,29 +20,31 @@ final class SleepStageInspectionUITests: XCTestCase {
         XCTAssertTrue(chart.waitForExistence(timeout: 60))
         XCTAssertTrue(app.frame.contains(chart.frame))
         // The demo's first recorded block is Light. The 40pt label gutter precedes the plot;
-        // its Light lane is at 5/8 of the 140pt plot height, before the clock axis.
+        // its Light lane is at 5/8 of the minimum-height plot height, before the clock axis.
         let firstBar = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.55))
-        firstBar.press(forDuration: 0.45)
+        firstBar.tap()
         let callout = element("sleep.stageInspection", in: app)
-        XCTAssertTrue(callout.waitForExistence(timeout: 5))
+        XCTAssertTrue(callout.waitForExistence(timeout: 5), "A normal tap must select a stage")
         XCTAssertTrue(callout.label.hasPrefix("Light,"), callout.label)
         XCTAssertNotNil(callout.label.range(of: #"\d{1,2}:\d{2} [AP]M to \d{1,2}:\d{2} [AP]M"#,
             options: .regularExpression), callout.label)
         XCTAssertTrue(app.frame.contains(callout.frame), "The readout stays on screen")
+        XCTAssertTrue(callout.label.contains("minute"), "The selected period includes its duration")
         let firstWindow = callout.label
-        capture(app, "sleep-stage-held-light-window")
+        capture(app, "sleep-stage-tapped-light-window")
 
         firstBar.press(forDuration: 0.45, thenDragTo: chart.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.65, dy: 0.55)), withVelocity: .slow, thenHoldForDuration: 0.2)
+            withNormalizedOffset: CGVector(dx: 0.60, dy: 0.55)), withVelocity: .slow, thenHoldForDuration: 0.2)
         XCTAssertTrue(callout.exists)
         XCTAssertNotEqual(callout.label, firstWindow, "Holding while dragging reads the new period")
+        XCTAssertTrue(callout.label.hasPrefix("REM,"), "Dragging into REM shows that period: \(callout.label)")
         XCTAssertNotNil(callout.label.range(of: #"\d{1,2}:\d{2} [AP]M to \d{1,2}:\d{2} [AP]M"#,
             options: .regularExpression), callout.label)
         XCTAssertTrue(app.frame.contains(callout.frame))
         capture(app, "sleep-stage-held-drag-window")
 
-        firstBar.tap()
-        XCTAssertFalse(callout.exists, "A tap dismisses the retained readout")
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.05)).tap()
+        XCTAssertFalse(callout.exists, "A tap in empty chart space dismisses the retained readout")
         let beforeScroll = chart.frame.minY
         firstBar.press(forDuration: 0.05, thenDragTo: firstBar.withOffset(CGVector(dx: 0, dy: -100)))
         XCTAssertLessThan(chart.frame.minY, beforeScroll - 20, "Ordinary movement still scrolls before a hold")

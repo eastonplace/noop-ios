@@ -144,11 +144,82 @@ struct SleepHeroSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            FactStrip(facts: facts, valueSize: 25, columnSpacing: 8)
+            SleepHeroFacts(facts: facts)
                 .accessibilityIdentifier("sleep.kpis")
                 .padding(.top, NoopMetrics.space1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Sleep's headline values keep their emphasis at small text sizes. Reflow the facts when
+/// their intrinsic widths do not fit, instead of reducing every number to fit the longest one.
+private struct SleepHeroFacts: View {
+    let facts: [FactStrip.Fact]
+    @ScaledMetric(relativeTo: .title3) private var scaledValueSize: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var valueSize: CGFloat { max(25, scaledValueSize) }
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            stacked
+        } else {
+            ViewThatFits(in: .horizontal) {
+                columns(facts)
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(stride(from: 0, to: facts.count, by: 2)), id: \.self) { index in
+                        columns(Array(facts[index..<min(index + 2, facts.count)]))
+                    }
+                }
+                stacked
+            }
+        }
+    }
+
+    private func columns(_ items: [FactStrip.Fact]) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, fact in
+                if index > 0 {
+                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 40)
+                        .padding(.horizontal, 4)
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(fact.label).font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+                    UnitValueText(value: fact.value, unit: fact.unit, size: valueSize)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(SpokenFact(fact: fact))
+            }
+        }
+    }
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(facts.enumerated()), id: \.offset) { _, fact in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(fact.label).font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    UnitValueText(value: fact.value, unit: fact.unit, size: valueSize)
+                }
+                .modifier(SpokenFact(fact: fact))
+            }
+        }
+    }
+
+    private struct SpokenFact: ViewModifier {
+        let fact: FactStrip.Fact
+        @ViewBuilder func body(content: Content) -> some View {
+            if let spoken = fact.spokenValue {
+                content.accessibilityElement(children: .ignore)
+                    .accessibilityLabel(fact.label).accessibilityValue(Text(verbatim: spoken))
+            } else {
+                content.accessibilityElement(children: .combine)
+            }
+        }
     }
 }
 
@@ -227,7 +298,8 @@ enum SleepStageInspection {
               let interval = interval(in: timeline, atX: point.x, width: size.width) else { return nil }
         let laneHeight = size.height / 4
         let center = laneHeight * (CGFloat(interval.stage.bandRank) + 0.5)
-        return abs(point.y - center) <= barThickness / 2 ? interval : nil
+        // A forgiving touch target must stay in its own lane and never fill a time gap.
+        return abs(point.y - center) <= min(barThickness, laneHeight) / 2 ? interval : nil
     }
 
     static func detail(for interval: SleepInterval, nightStart: Date, hasRecordedStageTiming: Bool,
@@ -275,12 +347,16 @@ struct SleepStageChart: View {
     private let highlighted: SleepStage?
     private let hasRecordedStageTiming: Bool
     @State private var inspectedInterval: SleepInterval?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ScaledMetric(relativeTo: .caption2) private var gutter: CGFloat = 40
-    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 140
+    @ScaledMetric(relativeTo: .caption) private var scaledPlotHeight: CGFloat = 170
+    private var plotHeight: CGFloat { max(170, scaledPlotHeight) }
 
     private static let laneOrder: [SleepStage] = [.awake, .rem, .light, .deep]
     private static let barThickness: CGFloat = 10
+    private static let touchHeight: CGFloat = 44
+    private var focusedStage: SleepStage? { inspectedInterval?.stage ?? highlighted }
 
     init(timeline: SleepStageTimeline, start: Date, highlighted: SleepStage?, hasRecordedStageTiming: Bool = false) {
         self.timeline = timeline
@@ -310,7 +386,8 @@ struct SleepStageChart: View {
                     ForEach(Self.laneOrder, id: \.self) { stage in
                         Text(stage.label)
                             .font(StrandFont.micro)
-                            .foregroundStyle(highlighted == stage ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                            .foregroundStyle(focusedStage == stage ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                            .opacity(inspectedInterval != nil && focusedStage != stage ? 0.4 : 1)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                             .frame(maxHeight: .infinity, alignment: .center)
@@ -340,9 +417,9 @@ struct SleepStageChart: View {
         .accessibilityLabel(summary)
         .accessibilityIdentifier("sleep.stageChart")
         .accessibilityValue(inspectedInterval.map {
-            "\($0.stage.label), \(SleepStageInspection.detail(for: $0, nightStart: start, hasRecordedStageTiming: hasRecordedStageTiming))"
+            inspectionLabel($0)
         } ?? "")
-        .accessibilityHint("Touch and hold a stage bar, then drag to inspect nearby periods. Tap the chart to dismiss details.")
+        .accessibilityHint("Tap a stage bar to inspect it, or hold and drag between periods. Tap it again or tap empty chart space to dismiss details.")
         .accessibilityAdjustableAction { direction in
             let current = inspectedInterval.flatMap { selected in timeline.intervals.firstIndex { $0.id == selected.id } }
             let next: Int
@@ -354,12 +431,16 @@ struct SleepStageChart: View {
             guard timeline.intervals.indices.contains(next) else { return }
             inspectedInterval = timeline.intervals[next]
         }
-        .overlay(alignment: .topTrailing) {
+        // Keep the readout outside the chart's combined accessibility element, and inside
+        // the plot's height so a lower callout cannot cover the clock axis.
+        .overlay {
             GeometryReader { proxy in
                 if let inspectedInterval {
                     inspectionTooltip(inspectedInterval)
-                        .frame(width: min(206, proxy.size.width))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .frame(width: min(220, max(0, proxy.size.width - gutter - NoopMetrics.space2)))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(height: plotHeight,
+                               alignment: inspectedInterval.stage.bandRank < 2 ? .bottom : .top)
                 }
             }
             .allowsHitTesting(false)
@@ -369,26 +450,52 @@ struct SleepStageChart: View {
         .onDisappear { inspectedInterval = nil }
     }
 
+    private func inspectionDuration(_ interval: SleepInterval) -> String? {
+        guard hasRecordedStageTiming, interval.end > interval.start,
+              SleepDurationPresentation.roundedMinutes(interval.duration / 60) != nil else { return nil }
+        return SleepSpokenDuration.text(minutes: interval.duration / 60)
+    }
+
+    private func inspectionLabel(_ interval: SleepInterval) -> String {
+        let detail = SleepStageInspection.detail(for: interval, nightStart: start,
+            hasRecordedStageTiming: hasRecordedStageTiming)
+        return [interval.stage.label, detail, inspectionDuration(interval)].compactMap { $0 }.joined(separator: ", ")
+    }
+
     private func inspectionTooltip(_ interval: SleepInterval) -> some View {
         let detail = SleepStageInspection.detail(for: interval, nightStart: start,
             hasRecordedStageTiming: hasRecordedStageTiming)
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Circle().fill(StrandPalette.sleepStageColor(interval.stage)).frame(width: 7, height: 7)
-                Text(interval.stage.label).font(StrandFont.captionNumber.weight(.semibold))
+        let color = StrandPalette.sleepStageColor(interval.stage)
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(spacing: 6) {
+                    Circle().fill(color).frame(width: 7, height: 7)
+                    Text(interval.stage.label).font(StrandFont.captionNumber.weight(.semibold))
+                }
+                Spacer(minLength: 0)
+                if inspectionDuration(interval) != nil {
+                    Text(SleepStageRowPresentation.durationText(interval.duration / 60))
+                        .font(StrandFont.captionNumber).foregroundStyle(color)
+                }
             }
             .foregroundStyle(StrandPalette.textPrimary)
             Text(detail).font(StrandFont.footnote).monospacedDigit()
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 9).padding(.vertical, 6)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(StrandPalette.card))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(StrandPalette.hairlineStrong, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12).fill(StrandPalette.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(color.opacity(0.5), lineWidth: 1))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(interval.stage.label), \(detail)")
+        .accessibilityLabel(inspectionLabel(interval))
         .accessibilityIdentifier("sleep.stageInspection")
+    }
+
+    private func select(at point: CGPoint, size: CGSize) {
+        let next = SleepStageInspection.hit(in: timeline, at: point, size: size,
+            barThickness: Self.touchHeight)
+        inspectedInterval = next?.id == inspectedInterval?.id ? nil : next
     }
 
     private var plot: some View {
@@ -403,7 +510,7 @@ struct SleepStageChart: View {
                 var guide = Path()
                 guide.move(to: CGPoint(x: 0, y: y(stage)))
                 guide.addLine(to: CGPoint(x: size.width, y: y(stage)))
-                context.stroke(guide, with: .color(StrandPalette.hairline), lineWidth: 1)
+                context.stroke(guide, with: .color(StrandPalette.hairline.opacity(inspectedInterval == nil ? 1 : 0.4)), lineWidth: 1)
             }
 
             var risers = Path()
@@ -413,14 +520,15 @@ struct SleepStageChart: View {
                 risers.move(to: CGPoint(x: x(b.start), y: y(a.stage)))
                 risers.addLine(to: CGPoint(x: x(b.start), y: y(b.stage)))
             }
-            context.stroke(risers, with: .color(StrandPalette.textTertiary.opacity(highlighted == nil ? 0.3 : 0.12)),
+            context.stroke(risers, with: .color(StrandPalette.textTertiary.opacity(inspectedInterval != nil ? 0.06 : highlighted == nil ? 0.3 : 0.12)),
                            style: StrokeStyle(lineWidth: 1, lineCap: .round))
 
             for interval in intervals {
                 let width = max(3, x(interval.end) - x(interval.start))
                 let rect = CGRect(x: x(interval.start), y: y(interval.stage) - Self.barThickness / 2,
                                   width: width, height: Self.barThickness)
-                let dimmed = highlighted != nil && highlighted != interval.stage
+                let dimmed = inspectedInterval.map { $0.id != interval.id }
+                    ?? (highlighted != nil && highlighted != interval.stage)
                 context.fill(Path(roundedRect: rect, cornerRadius: min(Self.barThickness / 2, width / 2)),
                              with: .color(StrandPalette.sleepStageColor(interval.stage).opacity(dimmed ? 0.18 : 1)))
                 if interval.id == inspectedInterval?.id {
@@ -429,32 +537,33 @@ struct SleepStageChart: View {
                 }
             }
         }
-        .animation(.easeOut(duration: 0.18), value: highlighted)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: highlighted)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: inspectedInterval?.id)
         .overlay {
             #if os(iOS)
             SleepStageInspectionSurface(
                 canBegin: { point, size in
                     SleepStageInspection.hit(in: timeline, at: point, size: size,
-                        barThickness: Self.barThickness) != nil
+                        barThickness: Self.touchHeight) != nil
                 },
                 onBegin: { point, size in
                     inspectedInterval = SleepStageInspection.hit(in: timeline, at: point, size: size,
-                        barThickness: Self.barThickness)
+                        barThickness: Self.touchHeight)
                 },
                 onMove: { point, size in
                     inspectedInterval = SleepStageInspection.interval(in: timeline, atX: point.x, width: size.width)
                 },
-                onTap: { inspectedInterval = nil })
+                onTap: { point, size in select(at: point, size: size) })
             #else
             GeometryReader { proxy in
                 Color.clear.contentShape(Rectangle())
                     .onContinuousHover { phase in
                         if case .active(let point) = phase {
                             inspectedInterval = SleepStageInspection.hit(in: timeline, at: point,
-                                size: proxy.size, barThickness: Self.barThickness)
+                                size: proxy.size, barThickness: Self.touchHeight)
                         }
                     }
-                    .onTapGesture { inspectedInterval = nil }
+                    .onTapGesture { point in select(at: point, size: proxy.size) }
             }
             #endif
         }
@@ -468,7 +577,7 @@ private struct SleepStageInspectionSurface: UIViewRepresentable {
     let canBegin: (CGPoint, CGSize) -> Bool
     let onBegin: (CGPoint, CGSize) -> Void
     let onMove: (CGPoint, CGSize) -> Void
-    let onTap: () -> Void
+    let onTap: (CGPoint, CGSize) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -481,7 +590,7 @@ private struct SleepStageInspectionSurface: UIViewRepresentable {
         hold.allowableMovement = 8
         hold.delegate = context.coordinator
         view.addGestureRecognizer(hold)
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap))
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:)))
         tap.require(toFail: hold)
         view.addGestureRecognizer(tap)
         return view
@@ -498,7 +607,7 @@ private struct SleepStageInspectionSurface: UIViewRepresentable {
         var canBegin: (CGPoint, CGSize) -> Bool = { _, _ in false }
         var onBegin: (CGPoint, CGSize) -> Void = { _, _ in }
         var onMove: (CGPoint, CGSize) -> Void = { _, _ in }
-        var onTap: () -> Void = {}
+        var onTap: (CGPoint, CGSize) -> Void = { _, _ in }
 
         @MainActor @objc func hold(_ recognizer: UILongPressGestureRecognizer) {
             guard let view = recognizer.view else { return }
@@ -509,7 +618,10 @@ private struct SleepStageInspectionSurface: UIViewRepresentable {
             }
         }
 
-        @MainActor @objc func tap() { onTap() }
+        @MainActor @objc func tap(_ recognizer: UITapGestureRecognizer) {
+            guard let view = recognizer.view else { return }
+            onTap(recognizer.location(in: view), view.bounds.size)
+        }
 
         nonisolated func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             MainActor.assumeIsolated {
@@ -609,7 +721,7 @@ struct SleepStageTypicalRow: View {
                 }
             } else {
                 HStack(spacing: NoopMetrics.space3) {
-                    name.frame(width: nameWidth, alignment: .leading)
+                    name.frame(width: max(62, nameWidth), alignment: .leading)
                     bar
                     trailing.frame(width: trailingWidth, alignment: .trailing)
                 }

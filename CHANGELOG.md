@@ -19,9 +19,17 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 2.0.3
+
+Corrective Sleep update after the installed 2.0.2 review. Release publication remains on hold.
+
+- **Room to read.** The stage plot keeps a useful minimum height at smaller text settings. Sleep headline values keep their larger size and reflow when needed instead of silently shrinking. Stage totals retain their compact layout.
+- **Tap a stage.** A normal tap selects a period, dims the surrounding periods and shows its stage, recorded time window and duration. Hold and drag still inspect adjacent periods. Tap the selected period or empty space to dismiss.
+- **Bug fixes and improvements.** Stage touch targets extend beyond the thin bars while respecting lane boundaries and recorded gaps. Ordinary chart scrolling remains available; reconstructed timelines do not invent recorded times.
+
 ## 2.0.2
 
-In development in PR81, stacked on the reviewed PR79 fixes. Merge is authorized after validation; phone installation and release publication are not.
+Merged in PR81 after PR79 and installed in place as build 254. Release publication remains on hold.
 
 - **Sleep takes focus.** The stage chart follows the KPI figures, with alarms directly below the stage section. Sleep values and the score dial are 25% larger; the stage plot is twice its original height, with the original slim bars and unchanged compact stage totals. Existing heart-rate row heights and centered text are preserved.
 - **Explore sleep stages.** Hold a stage bar to see its stage and time window, then slide across the chart to inspect neighboring periods.
