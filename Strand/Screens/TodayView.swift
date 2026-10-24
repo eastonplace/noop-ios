@@ -543,6 +543,8 @@ struct TodayView: View {
     /// inside a NavigationLink.
     @State private var showingHeartRateTimeline = false
     @State private var showingStressDetail = false
+    /// The Heads-Up page, from its card under Health Monitor or the banner at the top.
+    @State private var showingHeadsUp = false
     /// `nil` means the user tapped the generic first-run card / a non-section entry: open at the top.
     @State private var showGuideTop = false
 
@@ -1755,6 +1757,12 @@ struct TodayView: View {
                 paperStressCard
                 TodaySectionSeparator(above: 15, below: 13.3)
                 paperHealthMonitorCard
+                // Heads-Up reads the newest nights, so it belongs to today only (also before today's row exists,
+                // or between midnight and the 04:00 roll). It draws its own hairline and nothing at all before the
+                // day history first loads.
+                if usesCurrentDayResolution {
+                    TodayHeadsUpSection(onOpen: { showingHeadsUp = true })
+                }
             }
         }
     }
@@ -2128,7 +2136,7 @@ struct TodayView: View {
                 DayNavBar(selectedOffset: selectedDayOffset,
                           today: Repository.logicalDay(Date())) { notificationSelectedDayKey = nil; selectedDayOffset = $0 }
                 #endif
-                HealthAlertBanner()
+                HealthAlertBanner(onOpen: { showingHeadsUp = true })
                 // Keeps an empty Recovery honest while a historical offload is still writing: only when the displayed
                 // day has no Recovery yet (the header spinner covers an ordinary sync).
                 if displayDay?.recovery == nil { SyncingHistoryNoteIfBackfilling() }
@@ -2235,6 +2243,10 @@ struct TodayView: View {
         }
         .navigationDestination(isPresented: $showingStressDetail) {
             stressDetail
+        }
+        .navigationDestination(isPresented: $showingHeadsUp) {
+            HeadsUpDetailView()
+                .environment(\.screenScaffoldNavigationRole, .detail)
         }
         .navigationDestination(isPresented: $showingTodayWorkouts) {
             TodayWorkoutsView(day: selectedLogicalDay)
@@ -5172,7 +5184,13 @@ struct TodayView: View {
 
     private func sleepValue(_ d: DailyMetric?) -> String {
         guard let m = d?.totalSleepMin else { return "—" }
-        let h = Int(m) / 60, mm = Int(m) % 60
+        return Self.sleepDurationText(minutes: m)
+    }
+
+    /// "6h 46m": the Sleep tile's duration text. Heads-Up's "Elsewhere today" reads it from here, so the two
+    /// cannot round differently.
+    nonisolated static func sleepDurationText(minutes: Double) -> String {
+        let h = Int(minutes) / 60, mm = Int(minutes) % 60
         return String(localized: "\(h)h \(mm)m")
     }
 

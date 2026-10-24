@@ -237,10 +237,18 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         .overlay(alignment: .top) {
             // Tab roots keep their page header outside this scroll viewport.
             if showsCompactHeader, !showsAppHeaderChrome, !showsUtilityHeader, title != nil || subtitle != nil {
+                // An opaque band, not just a tinted strip: it runs up under the status bar and the sheet's top edge
+                // (rows scroll under both), leaves room below the title so a row is never cut against its last line,
+                // and ends on a hairline like the sheet footer. Without it rows showed through the pinned header.
                 compactHeader
                 .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(StrandPalette.appCanvas)
+                .padding(.top, 6)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity)
+                .background(alignment: .top) { StrandPalette.appCanvas.ignoresSafeArea(edges: .top) }
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                }
                 .transition(reduceMotion ? .identity : .opacity)
                 .accessibilityHidden(false)
             }

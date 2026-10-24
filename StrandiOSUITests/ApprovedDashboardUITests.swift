@@ -707,7 +707,9 @@ final class ApprovedDashboardUITests: XCTestCase {
                 return current.exists && (current.value as? String) == expectedValue
             }, object: app
         )
-        guard XCTWaiter.wait(for: [committed], timeout: 8) == .completed else {
+        // On the hosted simulator one accessibility read of this List can take 5-7 seconds right after a toggle, so an
+        // 8-second wait saw a single read taken before the save landed. Allow several reads of the same exact value.
+        guard XCTWaiter.wait(for: [committed], timeout: 30) == .completed else {
             let actualValue = String(describing: saved.value)
             let parsedSelection: String
             do {
@@ -790,12 +792,13 @@ final class ApprovedDashboardUITests: XCTestCase {
                         scrollAnchors: [XCUIElement] = []) throws {
         if let viewport { try requireExists(viewport, in: app) }
         for attempt in 0..<20 {
-            let appFrame = app.frame
-            let viewportFrame = viewport?.frame ?? appFrame
-            guard usableScrollFrame(appFrame), usableScrollFrame(viewportFrame) else {
+            guard let frames = settledScrollFrames(in: app, viewport: viewport) else {
+                printScrollSurfaces(in: app, tag: "scroll-viewport-invalid")
                 captureFailure(in: app)
                 throw HarnessError.unreachable("The requested scroll viewport has an invalid raw frame")
             }
+            let appFrame = frames.app
+            let viewportFrame = frames.viewport
             var visibleFrame = viewportFrame.intersection(appFrame)
             if viewport != nil, app.navigationBars.firstMatch.exists {
                 // A native List's AX frame extends beneath its navigation/search chrome.
@@ -885,6 +888,29 @@ final class ApprovedDashboardUITests: XCTestCase {
         }
         captureFailure(in: app)
         throw HarnessError.unreachable("Could not reveal \(element.exists ? element.identifier : "the requested element")")
+    }
+
+    /// Right after a scroll gesture the hosted simulator can take seconds per accessibility snapshot, and one lookup
+    /// can come back without the viewport. Re-read for a few seconds before calling it invalid; a viewport that stays
+    /// unusable still fails the caller.
+    private func settledScrollFrames(in app: XCUIApplication, viewport: XCUIElement?,
+                                     timeout: TimeInterval = 5) -> (app: CGRect, viewport: CGRect)? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let appFrame = app.frame
+            let viewportFrame = viewport?.frame ?? appFrame
+            if usableScrollFrame(appFrame), usableScrollFrame(viewportFrame) { return (appFrame, viewportFrame) }
+            printScrollSurfaces(in: app, tag: "scroll-viewport-unsettled")
+            _ = viewport?.waitForExistence(timeout: 1)
+        } while Date() < deadline
+        return nil
+    }
+
+    /// The scroll surfaces and modal chrome on screen, for a log that has to explain a failure without its attachments.
+    private func printScrollSurfaces(in app: XCUIApplication, tag: String) {
+        let scrolls = app.scrollViews.allElementsBoundByIndex.map { "\($0.identifier)@\($0.frame)" }
+        let bars = app.navigationBars.allElementsBoundByIndex.map(\.identifier)
+        print("[\(tag)] scrollViews=\(scrolls) navigationBars=\(bars) alerts=\(app.alerts.count) sheets=\(app.sheets.count)")
     }
 
     private func usableScrollFrame(_ frame: CGRect) -> Bool {

@@ -680,7 +680,23 @@ struct RootTabView: View {
             .presentationBackground(StrandPalette.appCanvas)
     }
 
+    @ViewBuilder
     private func notificationScreen(_ request: NotificationSheetDestination) -> some View {
+        if case .journal = request.destination {
+            // The Journal is a full screen with its own header and close button, like the quick-action Journal.
+            NavigationStack {
+                NotificationDestinationScreen(destination: request.destination, sourceContext: request.sourceContext,
+                                              onClose: { notificationDestination = nil })
+                    .background(StrandPalette.appCanvas.ignoresSafeArea())
+                    .toolbar(.hidden, for: .navigationBar)
+            }
+            .drillInDestinationEnvironment()
+        } else {
+            standardNotificationScreen(request)
+        }
+    }
+
+    private func standardNotificationScreen(_ request: NotificationSheetDestination) -> some View {
         NavigationStack {
             NotificationDestinationScreen(destination: request.destination, sourceContext: request.sourceContext)
                 .toolbar {
@@ -1218,15 +1234,12 @@ private struct NotificationSheetDestination: Identifiable {
 private struct NotificationDestinationScreen: View {
     let destination: NotificationDestination
     let sourceContext: String
+    /// Closes the sheet. Only the Journal draws its own header with a close button; the rest use the sheet's Done.
+    var onClose: () -> Void = {}
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var lift: NoopReceiptLiftIntegration
     @State private var workout: WorkoutRow?
     @State private var loaded = false
-    @State private var journalAnswers: [String: Bool] = [:]
-    @State private var journalNumeric: [String: Double] = [:]
-    @State private var journalQuestions: [String] = []
-    @State private var dayOffset = 0
-    @State private var journalSelectedDayKey: String?
     @State private var sleepByDay: [String: Double] = [:]
     @State private var openedSource: String?
 
@@ -1251,19 +1264,10 @@ private struct NotificationDestinationScreen: View {
                 else if loaded { unavailable("This workout was removed or is no longer available from the current source.") }
                 else { ProgressView("Opening workout…") }
             case .journal(let day):
-                if Self.date(day) != nil, loaded {
-                    ScrollView {
-                        JournalLogCard(importedQuestions: journalQuestions, answers: journalAnswers,
-                            numericAnswers: journalNumeric, dayOffset: $dayOffset, selectedDayKey: $journalSelectedDayKey,
-                            onChanged: {
-                                loaded = false
-                                journalAnswers = [:]
-                                journalNumeric = [:]
-                                Task { await loadJournal(); loaded = true }
-                            }).padding()
-                    }.navigationTitle("Journal")
-                } else if loaded { unavailable("The journal date is no longer available.") }
-                else { ProgressView("Opening journal…") }
+                // The evening reminder is about that evening's behaviours: the Journal's Today for that date.
+                if Self.date(day) != nil, let key = JournalBehaviorDay.storageKey(forBehaviorKey: day) {
+                    CoachingRootView(day: key).sheetScreenScaffoldEnvironment(onClose: onClose)
+                } else { unavailable("The journal date is no longer available.") }
             case .weeklyReview(let week):
                 if Self.date(week) != nil {
                     let digest = WeeklyDigestSource.digest(from: repo.canonicalDays, anchorDay: week, sleepByDay: sleepByDay)
@@ -1306,28 +1310,12 @@ private struct NotificationDestinationScreen: View {
             }
         case .plannedWorkout:
             await lift.selectCurrentSource()
-        case .journal(let day):
-            if let date = Self.date(day) {
-                journalSelectedDayKey = day
-                dayOffset = Calendar.current.dateComponents([.day], from: date, to: Calendar.current.startOfDay(for: Date())).day ?? 0
-                let imported = await repo.importedJournalEntries()
-                journalQuestions = Array(Set(imported.map(\.question))).sorted()
-                await loadJournal()
-            }
         case .weeklyReview:
             let rows = await repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
             sleepByDay = Dictionary(rows.map { ($0.day, $0.value) }, uniquingKeysWith: { _, latest in latest })
         default: break
         }
         loaded = true
-    }
-    private func loadJournal() async {
-        guard let day = journalSelectedDayKey else { return }
-        let answers = await repo.nativeJournalAnswers(day: day)
-        let numeric = await repo.nativeJournalNumeric(day: day)
-        guard journalSelectedDayKey == day else { return }
-        journalAnswers = answers
-        journalNumeric = numeric
     }
 }
 #endif

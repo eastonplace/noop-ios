@@ -24,6 +24,57 @@ final class CoachJournalSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.sourceContext, repo.journalEntrySourceContext)
     }
 
+    func testANumericZeroIsAnExplicitNoAndAPositiveAmountIsYes() async throws {
+        let repo = try await repository()
+        await repo.saveJournalNumeric(day: "2026-10-22", question: "Alcohol", value: 0)
+        await repo.saveJournalNumeric(day: "2026-10-22", question: "Caffeine", value: 2)
+        let answers = await repo.nativeJournalAnswers(day: "2026-10-22")
+        XCTAssertEqual(answers["Alcohol"], false, "Zero servings must not count as drinking")
+        XCTAssertEqual(answers["Caffeine"], true)
+        let numeric = await repo.nativeJournalNumeric(day: "2026-10-22")
+        XCTAssertEqual(numeric["Alcohol"], 0, "The logged zero keeps its amount")
+        XCTAssertEqual(numeric["Caffeine"], 2)
+    }
+
+    func testSnapshotCarriesWhatAnImportBroughtForTheDayAndKeepsItApartFromNativeTaps() async throws {
+        let repo = try await repository()
+        let handle = await repo.storeHandle()
+        let store = try XCTUnwrap(handle)
+        _ = try await store.upsertJournal(
+            [JournalEntry(day: "2026-10-22", question: "Caffeine", answeredYes: true, notes: nil),
+             JournalEntry(day: "2026-10-22", question: "Alcohol", answeredYes: true, notes: nil, numericValue: 2),
+             JournalEntry(day: "2026-10-21", question: "Stress", answeredYes: true, notes: nil)],
+            deviceId: Repository.whoopSource)
+        await repo.saveJournalAnswer(day: "2026-10-22", question: "Caffeine", answeredYes: false)
+        let snapshot = try await repo.coachJournalSnapshot(day: "2026-10-22")
+        XCTAssertEqual(snapshot.importedAnswers, ["Caffeine": true, "Alcohol": true])
+        XCTAssertEqual(snapshot.importedNumeric, ["Alcohol": 2])
+        XCTAssertEqual(snapshot.answers, ["Caffeine": false], "Native taps stay native-only")
+        let page = JournalQuickLog.merged(native: .init(answers: snapshot.answers, numeric: snapshot.numericAnswers),
+                                          imported: .init(answers: snapshot.importedAnswers,
+                                                          numeric: snapshot.importedNumeric))
+        XCTAssertEqual(page.answers, ["Caffeine": false, "Alcohol": true], "The tap wins; the import still counts")
+        XCTAssertEqual(page.numeric, ["Alcohol": 2])
+    }
+
+    func testJournalDayValuesSplitsNativeFromImportedAndNeverBorrowsAnotherDay() async throws {
+        let repo = try await repository()
+        let handle = await repo.storeHandle()
+        let store = try XCTUnwrap(handle)
+        _ = try await store.upsertJournal(
+            [JournalEntry(day: "2026-10-22", question: "Caffeine", answeredYes: true, notes: nil),
+             JournalEntry(day: "2026-10-21", question: "Stress", answeredYes: true, notes: nil)],
+            deviceId: Repository.whoopSource)
+        await repo.saveJournalNumeric(day: "2026-10-22", question: "Sauna", value: 20)
+        let values = await repo.journalDayValues(day: "2026-10-22")
+        XCTAssertEqual(values.imported.answers, ["Caffeine": true])
+        XCTAssertEqual(values.native.numeric, ["Sauna": 20])
+        XCTAssertEqual(values.native.answers, ["Sauna": true])
+        let empty = await repo.journalDayValues(day: "2026-10-20")
+        XCTAssertEqual(empty.native, .init())
+        XCTAssertEqual(empty.imported, .init())
+    }
+
     func testSnapshotDoesNotBorrowAnotherDaysAnswers() async throws {
         let repo = try await repository()
         await repo.saveJournalAnswer(day: "2026-10-21", question: "Alcohol", answeredYes: true)

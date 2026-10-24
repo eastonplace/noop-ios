@@ -96,7 +96,7 @@ final class LiftRoutineSelectionTests: XCTestCase {
     }
 
     private func visibleAction(_ label: String, in app: XCUIApplication) -> XCUIElement? {
-        let query = app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label))
+        let query = actionQuery(label, in: app)
         // Optional actions are absent on some valid pages. Avoid asking XCTest to resolve
         // an empty matching snapshot before the per-element visibility checks can run.
         guard query.firstMatch.exists else { return nil }
@@ -109,6 +109,17 @@ final class LiftRoutineSelectionTests: XCTestCase {
                       app.frame.contains(frame) else { return false }
                 return element.isHittable
             }
+    }
+
+    private func actionQuery(_ label: String, in app: XCUIApplication) -> XCUIElementQuery {
+        // SwiftUI Menu is a Button in legacy accessibility attributes and a PopUpButton
+        // in modern snapshots. A typed buttons query can exist, then fail to resolve
+        // the same menu while enumerating. Match both control types in an untyped query.
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "(elementType == %@ OR elementType == %@) AND (label == %@ OR identifier == %@)",
+            NSNumber(value: XCUIElement.ElementType.button.rawValue),
+            NSNumber(value: XCUIElement.ElementType.popUpButton.rawValue), label, label
+        ))
     }
 
     private func openRoutineEditor(in app: XCUIApplication) throws -> XCUIElement {
@@ -134,7 +145,7 @@ final class LiftRoutineSelectionTests: XCTestCase {
     }
 
     private func readyAction(_ label: String, in app: XCUIApplication) -> XCUIElement {
-        let query = app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label))
+        let query = actionQuery(label, in: app)
         let deadline = Date().addingTimeInterval(15)
         repeat {
             if let action = visibleAction(label, in: app) { return action }

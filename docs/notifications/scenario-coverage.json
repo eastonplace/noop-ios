@@ -107,10 +107,10 @@
       "code": [
         "Strand/System/NotificationCoordinator.swift#reconcileSchedules",
         "StrandiOS/App/RootTabView.swift#loadJournal",
-        "Strand/Screens/JournalLogCard.swift#entryDayKey"
+        "Strand/Screens/JournalBehaviorDay.swift#storageKey"
       ],
       "tests": [
-        "StrandiOSTests/NotificationRoutingTests.swift#testJournalNotificationKeepsCivilDayAfterTimezoneChange",
+        "StrandiOSTests/JournalBehaviorDayTests.swift",
         "StrandiOSTests/NotificationPreferencesTests.swift"
       ]
     },
@@ -187,7 +187,7 @@
       ],
       "tests": [
         "StrandiOSTests/NotificationScheduleTests.swift",
-        "StrandiOSTests/NotificationRoutingTests.swift#testJournalNotificationKeepsCivilDayAfterTimezoneChange",
+        "StrandiOSTests/JournalBehaviorDayTests.swift",
         "StrandiOSTests/NotificationScheduleTests.swift#testWorkoutExpiryUsesChosenStartRatherThanReminderLeadAndJournalUsesTwoHours"
       ]
     },
@@ -219,7 +219,6 @@
     "Strand/Data/NotificationPreferences.swift": "3168228321b62aedb45cc5dea5a1effdef5ac8bbc1f78b6091ae2b7d8b7da60b",
     "Strand/Data/Repository.swift": "89ed874ede5dc9636ec1571f2d4350d19e35eda7a781c705bb344e150b9f96c2",
     "Strand/Screens/DevicesView.swift": "eed9bae6a6c219d58e476926de90ff6496db42b719abb31c73f867aa08cc7110",
-    "Strand/Screens/JournalLogCard.swift": "471c792e3d3a9aa38002a90e9b639f1afe08d9cc76fa65931e08694b81d40fc8",
     "Strand/Screens/NotificationSettingsView.swift": "f1f7c185d1fea1b823e064882ea32030579cb96ecad42c6569a79ac69e5f3df4",
     "Strand/Screens/SmartAlarmView.swift": "c01139774387eb1e798cf6c89da8368b977f17e69355e3057dad664b2717d74a",
     "Strand/System/BatteryNotifier.swift": "12cddc283c3d5bb4c1a8962e02ee460196e521a1b4ede9a2b8a1ac02ac3486f1",

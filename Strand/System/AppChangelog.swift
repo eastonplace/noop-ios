@@ -49,15 +49,15 @@ enum AppChangelog {
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
         .fork("2.0.0", "NOOP 2.0", "October 2026", [
+            Feature("heart.text.square.fill", .heart, "Heads-Up", "See when your body looks run down, and why."),
+            Feature("book.closed.fill", .journal, "One-page Journal", "Tap to save, dictate notes and add a Coach widget."),
             Feature("flame.fill", .strain, "Training load and targets", "Preview daily targets and see your training load mix."),
             Feature("dumbbell.fill", .strain, "Lift plans and imports", "Review progression or import CSV and Excel routines."),
-            Feature("book.closed.fill", .journal, "Coach and Journal", "Dictate daily notes and add a Coach brief widget."),
             Feature("figure.walk", .accent, "Workout review and export", "Review detected types and share measured GPX or FIT routes."),
             Feature("waveform.path.ecg", .stress, "Your stress baseline", "Compare hourly stress with your own normal."),
-            Feature("heart.fill", .hrv, "Reliable daily data", "Cleaner scores, protected history and quicker workout review."),
-            Feature("bed.double.fill", .sleep, "Sleep at a glance", "See sleep need, stages and night detail with less scrolling."),
+            Feature("heart.fill", .hrv, "Reliable daily data", "Cleaner scores, protected history, faster workout review."),
+            Feature("bed.double.fill", .sleep, "Sleep and alarms", "Sleep need and stages; alarms check your strap."),
             Feature("info.circle", .accent, "Score guides everywhere", "See what each metric means and how to read yours."),
-            Feature("alarm.fill", .sleep, "Confirmed strap alarms", "Wake times check the current strap's reply."),
         ]),
         .fork("1.8.1", "Steadier readings and scores", "October 2026", [
             Feature("antenna.radiowaves.left.and.right", .accent, "Connection control", "Disconnect and Forget keep your strap released."),

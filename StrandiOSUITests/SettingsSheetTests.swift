@@ -6,8 +6,25 @@ import XCTest
 final class SettingsSheetTests: XCTestCase {
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo-seed", "--demo-tab", "today", "-AppleInterfaceStyle", "Dark"]
+        // Use the simulator shell fixture, as the other navigation tests do. Demo data alone
+        // leaves onboarding and Terms over Today, so its profile button exists behind an overlay.
+        app.terminate()
+        // The routine-selection suite deliberately leaves an active lift. Use the existing
+        // fresh Lift fixture so restoring that session cannot cover the Settings route.
+        app.launchArguments = [
+            "--noop-coach-shell-qa", "--demo-seed", "--noop-lift-demo", "fresh", "--demo-tab", "today",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-AppleInterfaceStyle", "Dark",
+        ]
         app.launch()
+        // Seeding finishes after the shell is interactive. Match the other navigation
+        // suites' readiness condition before a seed-driven root redraw can interrupt a tap.
+        let battery = app.buttons["app.battery"]
+        XCTAssertTrue(battery.waitForExistence(timeout: 60))
+        let seeded = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Strap battery 68 percent"), object: battery)
+        XCTAssertEqual(XCTWaiter.wait(for: [seeded], timeout: 60), .completed,
+                       "The demo fixture must finish before testing Settings navigation")
         return app
     }
 
@@ -15,9 +32,20 @@ final class SettingsSheetTests: XCTestCase {
         app.descendants(matching: .any)["settings.row.\(route)"].firstMatch
     }
 
+    private func tapProfile(_ avatar: XCUIElement, in app: XCUIApplication) {
+        // XCTest can compute (-1, -1) for pinned chrome above a clipped scroll sibling.
+        // Verify the complete real touch target, then deliver a touch at its visible center.
+        XCTAssertTrue(app.frame.contains(avatar.frame), "The profile control is fully on screen")
+        XCTAssertGreaterThanOrEqual(avatar.frame.width + 0.000001, 44)
+        XCTAssertGreaterThanOrEqual(avatar.frame.height + 0.000001, 44)
+        XCTAssertTrue(avatar.isEnabled)
+        avatar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
     func testAvatarOpensSettingsSearchPushesAPageAndSwipeDownDismisses() throws {
         continueAfterFailure = false
         let app = launch()
+        defer { app.terminate() }
 
         // The tab bar is four tabs and the quick-actions button; Settings is not one of them.
         XCTAssertTrue(app.buttons["app.tab.4"].waitForExistence(timeout: 60))
@@ -25,7 +53,7 @@ final class SettingsSheetTests: XCTestCase {
 
         let avatar = app.buttons["Profile and settings"]
         XCTAssertTrue(avatar.waitForExistence(timeout: 30))
-        avatar.tap()
+        tapProfile(avatar, in: app)
 
         let done = app.buttons["settings.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 15), "the Settings sheet opens with its Done button")
@@ -57,9 +85,10 @@ final class SettingsSheetTests: XCTestCase {
     func testAPageGoesBackWithTheEdgeSwipeAndTheProfileRowOpensPersonalProfile() throws {
         continueAfterFailure = false
         let app = launch()
+        defer { app.terminate() }
         let avatar = app.buttons["Profile and settings"]
         XCTAssertTrue(avatar.waitForExistence(timeout: 60))
-        avatar.tap()
+        tapProfile(avatar, in: app)
 
         let profileRow = app.descendants(matching: .any)["settings.profileRow"].firstMatch
         XCTAssertTrue(profileRow.waitForExistence(timeout: 15))

@@ -198,7 +198,7 @@ final class CoachJournalSession: ObservableObject {
 
     func didSave() {
         draftAnswers = [:]
-        status = String(localized: "Saved to \(FriendlyDayLabel.label(forDayKey: day))")
+        status = String(localized: "Saved to \(JournalBehaviorDay.label(forStorageKey: day))")
         reconcile(forceReload: true)
     }
 

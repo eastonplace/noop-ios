@@ -548,7 +548,7 @@ struct HeadsUpCard: View {
     private var title: String {
         switch result.level {
         case .raised:        return String(localized: "Heads-up")
-        case .alreadyUnwell: return String(localized: "Sleep up")
+        case .alreadyUnwell: return String(localized: "Rest up")
         case .suppressed:    return String(localized: "Probably not illness")
         case .mild:          return String(localized: "A few signals are up")
         case .quiet:         return String(localized: "Nothing notable")

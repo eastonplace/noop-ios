@@ -565,6 +565,9 @@ public struct NoopIconButton: View {
                             in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
                     .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+                // Keep the 40-point visual while giving the complete button a 44-point hit area.
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)

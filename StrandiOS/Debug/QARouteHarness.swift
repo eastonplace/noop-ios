@@ -44,7 +44,7 @@ enum QANotificationResponse {
 /// state), compare, trends-explore,
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
 /// Recovery ⓘ opens it), updates, settings (the Settings sheet; `settings-<page>` lands on one page, named by its
-/// `SettingsRouteID` case: settings-syncbattery, settings-personalprofile), live-hr, breathe, journal, journal-compose (the Journal screen with the note composer open over it), intervals,
+/// `SettingsRouteID` case: settings-syncbattery, settings-personalprofile), live-hr, breathe, journal, journal-compose (the Journal screen with the note composer open over it), journal-questions (the Edit questions screen at the root of a sheet; tap a row to reach a question page), intervals,
 /// quick-actions (the shell's plus menu), training-load (Trends' Training load detail for the default month range),
 /// start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
@@ -94,6 +94,8 @@ enum QARoute: String, CaseIterable {
     case journal
     /// The Coaching journal screen with the "Write or dictate a note" composer already open over it.
     case journalCompose = "journal-compose"
+    /// The Edit questions screen (which questions the Journal asks, and each one's page) at the root of a sheet.
+    case journalQuestions = "journal-questions"
     case intervals
     case startWorkout = "start-workout"
     /// The shell's plus menu (Quick Actions).
@@ -142,7 +144,7 @@ enum QARoute: String, CaseIterable {
             return .cover(.today)
         case .scoringGuide, .scoringGuideRecovery, .workoutDetailRun, .workoutDetailStrength, .workoutDetailWhoop,
              .workoutDetailManual, .manualWorkout, .coachWorkoutsSheet, .markerEditor, .lift, .liftHistory,
-             .liftProgress, .liftRoutines:
+             .liftProgress, .liftRoutines, .journalQuestions:
             return .sheet(.today)
         case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .trainingLoad, .insights, .intelligence, .labBook:
             return .push(.trends)
@@ -460,6 +462,14 @@ private struct QARouteHost: ViewModifier {
         case .workoutDetailManual: QAWorkoutDetailHost(kind: .manual, onClose: { sheeted = false })
         case .manualWorkout: ManualWorkoutSheet(editing: nil) { _, _ in }
         case .markerEditor: MarkerEditorView { _ in }
+        case .journalQuestions:
+            NavigationStack {
+                CoachingBehaviorSettingsView()
+                    .sheetScreenScaffoldEnvironment(onClose: { sheeted = false })
+                    .background(StrandPalette.appCanvas.ignoresSafeArea())
+            }
+            // As the Journal's own sheet has it: pushed question pages are drill-ins with a back chevron.
+            .drillInDestinationEnvironment()
         case .coachWorkoutsSheet:
             // The Workouts hub as Coach's plan opens it: the root of a sheet that supplies its own close action.
             NavigationStack {

@@ -579,11 +579,15 @@ final class NotificationCoordinator: ObservableObject {
         await process(candidates: [reminder])
     }
 
+    /// `day` is the calendar day the evening reminder is sent. It asks about that evening's behaviours, which the
+    /// Journal stores under the morning after (its "Today"), so completion is checked there: a finished
+    /// "Yesterday" must not silence a reminder for an unfinished "Today".
     func journalReminderIfNeeded(_ candidate: NotificationCandidate, day: String,
                                  catalog: JournalCatalogStore, importedQuestions: [String],
                                  store: WhoopStore) async throws -> NotificationCandidate? {
         guard candidate.group == .journalCheckIn, candidate.sourceContext == context().sourceContext else { return nil }
-        let incomplete = try await NotificationJournalEligibility.isIncomplete(day: day,
+        let storageKey = JournalBehaviorDay.storageKey(forBehaviorKey: day) ?? day
+        let incomplete = try await NotificationJournalEligibility.isIncomplete(day: storageKey,
             catalog: catalog, importedQuestions: importedQuestions, store: store)
         guard candidate.sourceContext == context().sourceContext else { return nil }
         if incomplete { return candidate }
