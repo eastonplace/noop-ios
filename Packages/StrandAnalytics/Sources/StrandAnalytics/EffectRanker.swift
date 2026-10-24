@@ -1,60 +1,58 @@
 import Foundation
 
-// EffectRanker.swift — the unified, LAG-AWARE "what moves your Charge" ranker.
+// EffectRanker.swift — the unified "what moves your outcomes" ranker.
 //
-// Pure, deterministic, DB-free. Generalises ActivityCostEngine's single-sport D+1 to
-// EVERY logged journal behaviour against EVERY daily outcome, and searches a small fixed
-// lag set so it can tell "same day" from "shows up the next morning."
+// Pure, deterministic, DB-free. Compares the days a factor held (Journal "yes" answers or an
+// automatically detected factor) with the days it did not, against each daily outcome.
 //
-// For each (behaviour b, outcome o, lag L ∈ {0, +1, +2}):
-//   1. behaviourDays = the day keys b was logged on (dose ≥ 1; callers pass the set).
-//   2. Pair behaviour day D with outcome day D+L by SHIFTING the outcome map back by L —
-//      i.e. re-key outcome[D+L] under D via CorrelationEngine.shiftDay(day, by: -L). This is
-//      exactly the alignment ActivityCostEngine does for D+1, parameterised over the lag and
-//      reusing the same fixed-UTC day arithmetic, so behaviour day D is compared with the
-//      outcome that landed L days later.
-//   3. Run the EXISTING BehaviorInsights.effect on the shifted outcome map → meanWith,
-//      meanWithout, delta, cohensD, Welch pApprox, significant (already gated at
-//      min(nWith, nWithout) ≥ 5).
-//   4. Keep, per (b, o), the lag L* with the LARGEST |cohensD| among lags whose effect
-//      computed AND cleared the significance group gate, carrying L* as the lead/lag.
+// FIXED LAG. Each test uses one lag chosen up front, never the best of several. Both the Journal
+// and AutoFactors key a behaviour under the morning it affects (an evening on day D is stored
+// under D+1), so the default lag is 0: the factor's key IS the outcome day. Searching lags
+// {0, 1, 2} and keeping the largest |d| (the old behaviour) tripled the comparisons and inflated
+// every effect it reported.
 //
-// HONESTY (effect-size first, not stargazing): the primary signal is the effect SIZE +
-// n + a ScoreConfidence tier, never a bare "significant" stamp. The lag search is capped
-// at the small fixed set {0,1,2} so the comparison count stays bounded and explainable; we
-// never claim a behaviour "causes" anything — only that it lines up with a change.
+// FAMILY CORRECTION. `rankFamily` runs every factor x outcome test together and adjusts the
+// p-values with Benjamini–Hochberg (MultipleComparisons), so adding factors does not add false
+// positives. A row is significant only when its adjusted p is below BehaviorInsights.alpha and
+// both sides clear the 5-day group gate.
 //
-// Output: one RankedEffect per (b, o) that produced a usable lag, ranked with the same rule
-// as BehaviorInsights.rank (significant first, |cohensD| desc, stable tiebreak), so the feed
-// matches the existing Behaviour Effects ordering exactly. Self-contained except for the two
-// reused primitives, so the Kotlin twin is line-for-line.
-//
-// (Spec: 2026-06-19-v5-insights-correlation-engine-design.md — "Lag-aware effect ranking".)
+// HONESTY: effect size, day counts and a ScoreConfidence tier come first; association, not cause.
 
 // MARK: - Result
 
-/// One ranked, lag-aware behaviour→outcome effect: the best lag's BehaviorEffect plus the
-/// lead/lag it was found at and a confidence tier from the paired-day count.
+/// One ranked behaviour→outcome effect at a fixed lag, with a confidence tier from the
+/// paired-day count and, when ranked as a family, its adjusted p-value.
 public struct RankedEffect: Equatable, Sendable {
     /// The behaviour label (e.g. "Alcohol").
     public let behavior: String
     /// The outcome metric label (e.g. "Charge").
     public let outcome: String
-    /// The lag (in days) at which the strongest honest effect was found: 0 = same day,
-    /// +1 = the next morning, +2 = two mornings later.
+    /// The fixed lag (in days) between the factor's key and the outcome day: 0 = the same key
+    /// (the morning a Journal answer or AutoFactor is stored under), +1 = the morning after.
     public let lag: Int
     /// The measured effect at `lag` (means, delta, Cohen's d, Welch p, significant).
     public let effect: BehaviorEffect
     /// Per-result certainty tier from the smaller group's size at the chosen lag.
     public let confidence: ScoreConfidence
+    /// Benjamini–Hochberg adjusted p-value across the family this row was ranked in, or nil
+    /// when the row was ranked on its own (`rank`).
+    public let adjustedP: Double?
 
     public init(behavior: String, outcome: String, lag: Int,
-                effect: BehaviorEffect, confidence: ScoreConfidence) {
+                effect: BehaviorEffect, confidence: ScoreConfidence, adjustedP: Double? = nil) {
         self.behavior = behavior
         self.outcome = outcome
         self.lag = lag
         self.effect = effect
         self.confidence = confidence
+        self.adjustedP = adjustedP
+    }
+
+    /// Significant after the family correction when there was one, else the raw per-test flag.
+    public var isSignificant: Bool {
+        guard let q = adjustedP else { return effect.significant }
+        return q < BehaviorInsights.alpha
+            && Swift.min(effect.nWith, effect.nWithout) >= BehaviorInsights.minGroupForSignificance
     }
 
     /// Plain-English lead/lag chip text, e.g. "same day" / "next morning" / "2 mornings later".
@@ -80,80 +78,90 @@ public struct RankedEffect: Equatable, Sendable {
 
 public enum EffectRanker {
 
-    /// The fixed, bounded lag set searched per (behaviour, outcome). Kept small and explicit
-    /// — not a fitted VAR — so the multiple-comparison count stays bounded and honest at small n.
-    public static let lagSet: [Int] = [0, 1, 2]
+    /// The lag every test uses unless the caller says otherwise. Factors are keyed by the
+    /// morning they affect, so 0 pairs each factor day with that morning's outcome.
+    public static let defaultLag: Int = 0
 
-    /// Paired-day count below which a chosen lag's confidence is `.calibrating` (too thin to
-    /// shout). This equals BehaviorInsights' significance group gate, so a row that clears the
-    /// gate is never `.calibrating`.
+    /// Paired-day count below which confidence is `.calibrating` (too thin to shout). This equals
+    /// BehaviorInsights' significance group gate, so a row that clears the gate is never `.calibrating`.
     public static let calibratingBelow: Int = BehaviorInsights.minGroupForSignificance  // 5
-    /// Paired-day count at/above which a chosen lag's confidence is `.solid` (else `.building`).
+    /// Paired-day count at/above which confidence is `.solid` (else `.building`).
     public static let solidPairs: Int = 10
+
+    /// One factor x outcome test for `rankFamily`.
+    public struct FactorTest: Sendable {
+        public let behavior: String
+        public let yesDays: Set<String>
+        public let noDays: Set<String>
+        public let outcome: String
+        public let outcomeByDay: [String: Double]
+        public let lag: Int
+
+        public init(behavior: String, yesDays: Set<String>, noDays: Set<String>,
+                    outcome: String, outcomeByDay: [String: Double], lag: Int = EffectRanker.defaultLag) {
+            self.behavior = behavior
+            self.yesDays = yesDays
+            self.noDays = noDays
+            self.outcome = outcome
+            self.outcomeByDay = outcomeByDay
+            self.lag = lag
+        }
+    }
 
     // MARK: - Rank
 
-    /// Rank every behaviour against one outcome across the lag set, keeping each behaviour's
-    /// best lag. Mirrors BehaviorInsights.rank's ordering on the surviving rows.
-    ///
-    /// - Parameters:
-    ///   - behaviors: per behaviour name, the SET of "yyyy-MM-dd" days it was logged (dose ≥ 1).
-    ///   - outcomeByDay: the daily outcome series keyed "yyyy-MM-dd" (e.g. Charge 0–100).
-    ///   - outcome: the outcome label carried onto each RankedEffect (e.g. "Charge").
-    /// - Returns: one RankedEffect per behaviour that produced a usable lag, ranked
-    ///   significant-first, |cohensD| desc, then behaviour name asc. Behaviours with no
-    ///   computable lag are dropped.
+    /// Rank every behaviour against one outcome at one fixed lag. Rows are uncorrected
+    /// (`adjustedP == nil`); use `rankFamily` when several tests are shown together.
     public static func rank(behaviors: [String: Set<String>],
                             controls: [String: Set<String>],
                             outcomeByDay: [String: Double],
-                            outcome: String) -> [RankedEffect] {
+                            outcome: String,
+                            lag: Int = defaultLag) -> [RankedEffect] {
         var rows: [RankedEffect] = []
-        // Sort behaviour names so the build order is deterministic regardless of dict order.
         for name in behaviors.keys.sorted() {
-            let days = behaviors[name]!
-            if let row = bestLag(behaviorDays: days,
-                                 controlDays: controls[name] ?? [],
-                                 outcomeByDay: outcomeByDay,
-                                 behavior: name, outcome: outcome) {
+            if let row = effect(behaviorDays: behaviors[name]!,
+                                controlDays: controls[name] ?? [],
+                                outcomeByDay: outcomeByDay,
+                                behavior: name, outcome: outcome, lag: lag) {
                 rows.append(row)
             }
         }
         return sorted(rows)
     }
 
-    /// Find the best-lag RankedEffect for ONE behaviour against ONE outcome, or nil when no
-    /// lag in `lagSet` yields a computable effect that clears the group gate.
-    public static func bestLag(behaviorDays: Set<String>,
-                               controlDays: Set<String>,
-                               outcomeByDay: [String: Double],
-                               behavior: String,
-                               outcome: String) -> RankedEffect? {
-        var best: (lag: Int, effect: BehaviorEffect)?
-        for lag in lagSet {
-            let shifted = shiftedOutcome(outcomeByDay, byLag: lag)
-            guard let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
-                                                  controlDays: controlDays,
-                                                  outcomeByDay: shifted,
-                                                  behavior: behavior,
-                                                  outcome: outcome) else { continue }
-            // Group gate: a lag only competes if both sides clear the significance minimum,
-            // so a 2-day lag can't win on a fluke. (Mirrors BehaviorInsights.significant's n-gate.)
-            guard Swift.min(e.nWith, e.nWithout) >= BehaviorInsights.minGroupForSignificance else { continue }
-
-            if let cur = best {
-                // Largest |cohensD| wins; ties break to the SMALLER lag (prefer same-day /
-                // shorter lead over a longer one when the effect size is identical).
-                let better = abs(e.cohensD) > abs(cur.effect.cohensD)
-                    || (abs(e.cohensD) == abs(cur.effect.cohensD) && lag < cur.lag)
-                if better { best = (lag, e) }
-            } else {
-                best = (lag, e)
-            }
+    /// Run a whole family of tests, adjust their p-values together (Benjamini–Hochberg) and
+    /// rank the survivors: significant first, then |d| descending.
+    public static func rankFamily(_ tests: [FactorTest]) -> [RankedEffect] {
+        let raw = tests.compactMap { t in
+            effect(behaviorDays: t.yesDays, controlDays: t.noDays, outcomeByDay: t.outcomeByDay,
+                   behavior: t.behavior, outcome: t.outcome, lag: t.lag)
         }
-        guard let chosen = best else { return nil }
-        let pairs = Swift.min(chosen.effect.nWith, chosen.effect.nWithout)
-        return RankedEffect(behavior: behavior, outcome: outcome, lag: chosen.lag,
-                            effect: chosen.effect, confidence: confidence(forPairs: pairs))
+        let q = MultipleComparisons.benjaminiHochberg(raw.map(\.effect.pApprox))
+        let adjusted = zip(raw, q).map { row, q in
+            RankedEffect(behavior: row.behavior, outcome: row.outcome, lag: row.lag,
+                         effect: row.effect, confidence: row.confidence, adjustedP: q)
+        }
+        return sorted(adjusted)
+    }
+
+    /// The effect of ONE behaviour on ONE outcome at a fixed lag, or nil when it cannot be
+    /// computed or either side has fewer than the group gate's days.
+    public static func effect(behaviorDays: Set<String>,
+                              controlDays: Set<String>,
+                              outcomeByDay: [String: Double],
+                              behavior: String,
+                              outcome: String,
+                              lag: Int = defaultLag) -> RankedEffect? {
+        let shifted = shiftedOutcome(outcomeByDay, byLag: lag)
+        guard let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                              controlDays: controlDays,
+                                              outcomeByDay: shifted,
+                                              behavior: behavior,
+                                              outcome: outcome),
+              Swift.min(e.nWith, e.nWithout) >= BehaviorInsights.minGroupForSignificance else { return nil }
+        let pairs = Swift.min(e.nWith, e.nWithout)
+        return RankedEffect(behavior: behavior, outcome: outcome, lag: lag,
+                            effect: e, confidence: confidence(forPairs: pairs))
     }
 
     // MARK: - Lag alignment
@@ -187,14 +195,14 @@ public enum EffectRanker {
 
     // MARK: - Ranking
 
-    /// Stable rank matching BehaviorInsights.rank: significant first, |cohensD| desc, then
-    /// behaviour name ascending.
+    /// Stable rank: significant first, |cohensD| desc, then behaviour and outcome ascending.
     static func sorted(_ rows: [RankedEffect]) -> [RankedEffect] {
         rows.sorted { a, b in
-            if a.effect.significant != b.effect.significant { return a.effect.significant }
+            if a.isSignificant != b.isSignificant { return a.isSignificant }
             let la = abs(a.effect.cohensD), lb = abs(b.effect.cohensD)
             if la != lb { return la > lb }
-            return a.behavior < b.behavior
+            if a.behavior != b.behavior { return a.behavior < b.behavior }
+            return a.outcome < b.outcome
         }
     }
 }

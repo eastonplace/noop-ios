@@ -134,6 +134,8 @@ struct TrendsView: View {
                     trainingLoadCard
                     paperWeekReview
                     trendsSeparator
+                    TrendsInsightsSection()
+                    trendsSeparator
                     TrendsExploreMoreList()
                 }
                 // Today's first section sits this far below the tab title row; match it.

@@ -31,7 +31,7 @@ enum TrendsExploreDestination: CaseIterable, Identifiable {
 
     var title: Text {
         switch self {
-        case .whatMovesYou: Text("What Moves You")
+        case .whatMovesYou: Text("Insights")
         case .intelligence: Text("Intelligence")
         case .coach: Text("Coach")
         case .allMetrics: Text("All metrics")
@@ -42,7 +42,7 @@ enum TrendsExploreDestination: CaseIterable, Identifiable {
 
     var subtitle: Text {
         switch self {
-        case .whatMovesYou: Text("Personal patterns ranked by effect size")
+        case .whatMovesYou: Text("What lines up with your best days")
         case .intelligence: Text("Your scored days and tomorrow's Recovery")
         case .coach: Text("Ask questions grounded in your metrics")
         case .allMetrics: Text("Open every signal and its history")
@@ -113,6 +113,9 @@ struct TrendsExploreMoreList: View {
     @EnvironmentObject private var repo: Repository
     @State private var expanded = false
 
+    /// Insights has its own section directly above this list on Trends, so it is not repeated here.
+    static let destinations = TrendsExploreDestination.allCases.filter { $0 != .whatMovesYou }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -136,7 +139,7 @@ struct TrendsExploreMoreList: View {
             .accessibilityIdentifier("trends.exploreMore")
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(TrendsExploreDestination.allCases.enumerated()), id: \.element) { index, d in
+                    ForEach(Array(Self.destinations.enumerated()), id: \.element) { index, d in
                         if index > 0 { FlatRowSeparator(leadingInset: 32) }
                         NavigationLink { d.destination(repo: repo) } label: {
                             HStack(spacing: NoopMetrics.space3) {

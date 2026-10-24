@@ -91,7 +91,7 @@ public enum BehaviorInsights {
                               outcome: String) -> BehaviorEffect? {
         var withVals: [Double] = []
         var withoutVals: [Double] = []
-        for (day, value) in outcomeByDay {
+        for (day, value) in outcomeByDay where value.isFinite {
             if behaviorDays.contains(day) { withVals.append(value) }
             else if controlDays.contains(day) { withoutVals.append(value) }
             // A day in neither set was not answered. It is not a control.
@@ -111,9 +111,16 @@ public enum BehaviorInsights {
         let v1 = sampleVariance(withVals, mean: m1)   // ddof=1; 0 when n==1
         let v2 = sampleVariance(withoutVals, mean: m2)
 
+        // Finite observations can still overflow intermediate sums/variances. Such a test is
+        // unavailable, never zero-spread evidence with p=0.
+        guard m1.isFinite, m2.isFinite, delta.isFinite, v1.isFinite, v2.isFinite,
+              pct?.isFinite != false,
+              (Double(n1 - 1) * v1 + Double(n2 - 1) * v2).isFinite,
+              (v1 / Double(n1) + v2 / Double(n2)).isFinite else { return nil }
         let d = cohensD(m1: m1, m2: m2, n1: n1, v1: v1, n2: n2, v2: v2)
         let p = welchP(m1: m1, v1: v1, n1: n1, m2: m2, v2: v2, n2: n2)
 
+        guard d.isFinite, p.isFinite, (0...1).contains(p) else { return nil }
         let sig = p < alpha && Swift.min(n1, n2) >= minGroupForSignificance
 
         return BehaviorEffect(behavior: behavior, outcome: outcome,

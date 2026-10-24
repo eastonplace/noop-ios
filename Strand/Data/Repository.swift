@@ -485,6 +485,14 @@ final class Repository: ObservableObject {
         editedDayRescoreQueue = EditedDayRescoreQueue(defaults: nil)
     }
 
+    /// Exercise the single-flight join branch without opening the app's on-disk database.
+    /// The opening task supplies a real isolated store; the joining read must hydrate its identity.
+    func setOpeningStoreForTesting(_ opening: Task<WhoopStore?, Never>) {
+        store = nil
+        storeOpenTask = opening
+        editedDayRescoreQueue = EditedDayRescoreQueue(defaults: nil)
+    }
+
     /// Deterministic test seam for the authoritative exact-day Sleep read. It exercises the database-failure
     /// branch without scheduler timing or a damaged shared database. Production always uses `.database`.
     enum TodayHealthSnapshotSleepReadOverride: Equatable {
@@ -3029,6 +3037,75 @@ final class Repository: ObservableObject {
     }
 
     // MARK: - Detail passthroughs
+
+    /// Resolve the initially unknown database identity before an Insights read captures its context.
+    /// The stable owner/revision checks still reject adoption, restore, or data changes during opening.
+    func prepareInsightsRead() async -> Bool {
+        let generation = storeOpenGeneration
+        let owner = deviceId
+        let sourceState = liveSourceState
+        let importedIDs = importedReadIds
+        let computedIDs = computedReadIds
+        let refresh = refreshSeq
+        let journal = journalRevision
+        guard !Task.isCancelled, let store = await ensureStore() else { return false }
+        // Joining an in-flight open can return the handle before its original caller hydrates identity.
+        // Complete that step ourselves before the loader captures notificationSourceContext.
+        await cacheTodayHealthSnapshotDatabaseIdentity(from: store, expectedGeneration: generation)
+        return !Task.isCancelled && generation == storeOpenGeneration && owner == deviceId
+            && sourceState == liveSourceState && importedIDs == importedReadIds && computedIDs == computedReadIds
+            && refresh == refreshSeq && journal == journalRevision
+    }
+
+    /// Bounded Insights history uses the dashboard's field-level provenance rules and the same
+    /// production Sleep selector. It does not depend on the dashboard's short published window.
+    func insightsHistory(fromDay: String, throughDay: String, fromTs: Int, throughTs: Int) async throws
+        -> (days: [DailyMetric], canonical: CanonicalHealthReadModel, sleeps: [CachedSleepSession]) {
+        guard let store = await ensureStore() else { throw RepositoryComputedRowsError.storeUnavailable }
+        let generation = storeOpenGeneration
+        let sourceContext = notificationSourceContext
+        let importedIDs = importedReadIds
+        let computedIDs = computedReadIds
+        let read = try await store.canonicalHealthSurfaceSnapshot(
+            sourceIds: Self.stableUniqueSourceIds(importedIDs + computedIDs + [Self.appleHealthSource, Self.activityFileSource]),
+            fromDay: fromDay, throughDay: throughDay, sleepFromTs: fromTs, sleepThroughTs: throughTs,
+            metricKeys: ["sleep_performance", Self.sleepPerformanceV2Key])
+        func rows(_ ids: [String]) -> [DailyMetric] {
+            var byDay: [String: DailyMetric] = [:]
+            for id in ids {
+                for row in read.dailyRows where row.sourceId == id && byDay[row.metric.day] == nil {
+                    byDay[row.metric.day] = row.metric
+                }
+            }
+            return byDay.values.sorted { $0.day < $1.day }
+        }
+        let computedSet = Set(computedIDs)
+        let editedDays = Self.userEditedDays(read.sleepRows.filter { computedSet.contains($0.sourceId) }.map(\.session))
+        let hasRMSSD = try await store.hasDailyHrv(deviceIds: importedIDs + computedIDs)
+        guard generation == storeOpenGeneration, sourceContext == notificationSourceContext,
+              importedIDs == importedReadIds, computedIDs == computedReadIds else { throw CancellationError() }
+        try Task.checkCancellation()
+        let daily = Self.mergeActivityFileSteps(
+            into: Self.mergeDaily(
+                imported: Self.mergeDaily(imported: rows(importedIDs), computed: rows(computedIDs),
+                                          userEditedDays: editedDays),
+                computed: Self.appleFallbackDaily(rows([Self.appleHealthSource]), hasRMSSDSource: hasRMSSD)),
+            rows([Self.activityFileSource]))
+        let canonical = try Self.buildCanonicalHealthReadModel(
+            from: read, importedReadIds: importedIDs, computedReadIds: computedIDs,
+            authoritativeDayKeys: Set(daily.map(\.day)), previous: .empty, sourceGeneration: 1)
+        func sleeps(_ ids: [String]) -> [CachedSleepSession] {
+            let ordered = ids.flatMap { id in read.sleepRows.filter { $0.sourceId == id }.map(\.session) }
+            return Self.dedupBlocks(ordered.filter(Self.hasValidSleepWindow))
+        }
+        // A corrected computed night owns both its score and timing factors. Keep the normal imported
+        // precedence on other wake days; do not change the general-purpose sleep read APIs.
+        let importedSleep = sleeps(importedIDs).filter {
+            !editedDays.contains(Self.localDayKey(Date(timeIntervalSince1970: TimeInterval($0.endTs))))
+        }
+        let factorSleep = Self.mergeSleep(imported: importedSleep, computed: sleeps(computedIDs))
+        return (daily, canonical, factorSleep)
+    }
 
     func dailyMetrics(fromDay: String, toDay: String) async -> [DailyMetric] {
         guard let store = await ensureStore() else { return [] }

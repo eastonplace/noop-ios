@@ -1,7 +1,7 @@
 import XCTest
 @testable import StrandAnalytics
 
-/// EffectRanker — the lag-aware "what moves your Charge" ranker. The oracle for the Android
+/// EffectRanker — the fixed-lag, family-corrected "what moves you" ranker. The oracle for the Android
 /// EffectRankerTest; keep the two in lockstep (same fixtures, same numbers).
 final class EffectRankerTests: XCTestCase {
 
@@ -20,47 +20,106 @@ final class EffectRankerTests: XCTestCase {
     /// of 0 by design). Trivially mirrored in Kotlin from the day-of-month.
     private func jitter(_ dayOfMonth: Int) -> Double { Double((dayOfMonth * 7) % 5 - 2) }
 
-    // MARK: - Planted lag-1 effect is found at L=1 and beats L=0/L=2
+    func testNonfiniteOutcomesCannotClearTheGroupGate() {
+        let yes = Set((0..<5).map { "yes-\($0)" })
+        let no = Set((0..<5).map { "no-\($0)" })
+        for invalid in [Double.infinity, -.infinity, .nan] {
+            var values = Dictionary(uniqueKeysWithValues: yes.map { ($0, 60.0) } + no.map { ($0, 80.0) })
+            values["yes-0"] = invalid
+            let effect = BehaviorInsights.effect(behaviorDays: yes, controlDays: no, outcomeByDay: values,
+                                                 behavior: "test", outcome: "hrv")
+            XCTAssertEqual(effect?.nWith, 4)
+            XCTAssertFalse(effect?.significant ?? true)
+            XCTAssertTrue(EffectRanker.rankFamily([.init(behavior: "test", yesDays: yes, noDays: no,
+                                                         outcome: "hrv", outcomeByDay: values)]).isEmpty)
+        }
+    }
 
-    /// The outcome the NEXT morning (D+1) after each behaviour day is depressed (≈50) while
-    /// every other day sits at baseline (≈70). Behaviour days are spaced 4 apart so each D+1 dip
-    /// is clean. The strongest |cohensD| must therefore be at lag 1 ("next morning"), negative,
-    /// and it must beat lag 0 and lag 2.
-    func testPlantedLag1IsFoundAndWins() {
+    func testFiniteOverflowCannotBecomeASignificantEffect() {
+        let yes = Set((0..<5).map { "yes-\($0)" })
+        let no = Set((0..<5).map { "no-\($0)" })
+        for extreme in [Double.greatestFiniteMagnitude, 1e200] {
+            let values = Dictionary(uniqueKeysWithValues: yes.sorted().enumerated().map { ($0.element, $0.offset == 0 ? 0 : extreme) } + no.map { ($0, 60.0) })
+            XCTAssertNil(BehaviorInsights.effect(behaviorDays: yes, controlDays: no, outcomeByDay: values,
+                                                  behavior: "test", outcome: "hrv"))
+        }
+    }
+
+    // MARK: - Fixed lag: no searching across lags
+
+    /// The outcome the morning after each behaviour day (D+1) is depressed (≈50) while every other
+    /// day sits at baseline (≈70). The ranker must NOT go looking for that lag on its own: at the
+    /// default lag 0 it reports the same-key effect, and only an explicit lag 1 finds the dip.
+    func testFixedLagDoesNotSearchForTheBestLag() {
         var outcome: [String: Double] = [:]
         var behaviorDays: Set<String> = []
-
-        // Anchors Jun 1,5,9,13,17,21 (6, spaced 4 apart so the D+1 dips never collide).
         for i in 0..<6 { behaviorDays.insert(ymd(2026, 6, 1 + 4 * i)) }
-        // Dense baseline grid (Jun 1..30, Jul 1..8) at ≈70 with per-day jitter.
         for d in 1...30 { outcome[ymd(2026, 6, d)] = 70 + jitter(d) }
         for d in 1...8 { outcome[ymd(2026, 7, d)] = 70 + jitter(d) }
-        // Stamp the next-morning dip (≈50) on each anchor's D+1.
         for i in 0..<6 {
-            let dip = 2 + 4 * i   // day-of-month of anchor+1 (2,6,10,14,18,22)
+            let dip = 2 + 4 * i
             outcome[ymd(2026, 6, dip)] = 50 + jitter(dip)
         }
 
-        let out = EffectRanker.rank(behaviors: ["Alcohol": behaviorDays],
-                                    controls: ["Alcohol": explicitControls(outcome, excluding: behaviorDays)],
-                                    outcomeByDay: outcome, outcome: "Charge")
-        let r = row(out, "Alcohol")
-        XCTAssertNotNil(r)
-        XCTAssertEqual(r!.lag, 1)                       // the planted lag
-        XCTAssertEqual(r!.leadLagText, "next morning")
-        XCTAssertLessThan(r!.effect.cohensD, 0)         // next-morning outcome is LOWER
-        XCTAssertTrue(r!.effect.significant)
-        // The next-morning group really is ≈50 vs a ≈70 baseline (means carry the jitter).
-        XCTAssertLessThan(r!.effect.meanWith, 55)
-        XCTAssertGreaterThan(r!.effect.meanWithout, 65)
+        let atZero = EffectRanker.rank(behaviors: ["Alcohol": behaviorDays],
+                                       controls: ["Alcohol": explicitControls(outcome, excluding: behaviorDays)],
+                                       outcomeByDay: outcome, outcome: "Charge")
+        let zero = row(atZero, "Alcohol")
+        XCTAssertEqual(zero?.lag, 0)
+        XCTAssertGreaterThan(zero!.effect.cohensD, 0, "lag 0 must not report the next-morning dip")
+        XCTAssertEqual(abs(zero!.effect.cohensD), abs(effectAtLag(behaviorDays, outcome, 0)!.cohensD), accuracy: 1e-12)
 
-        // Lag 1 must dominate lag 0 and lag 2 in |cohensD|. Read each lag's effect directly via
-        // the same internal alignment the engine uses.
-        let d1 = abs(r!.effect.cohensD)
-        let d0 = abs(effectAtLag(behaviorDays, outcome, 0)!.cohensD)
-        let d2 = abs(effectAtLag(behaviorDays, outcome, 2)!.cohensD)
-        XCTAssertGreaterThan(d1, d0)
-        XCTAssertGreaterThan(d1, d2)
+        let shifted = EffectRanker.shiftedOutcome(outcome, byLag: 1)
+        let atOne = EffectRanker.rank(behaviors: ["Alcohol": behaviorDays],
+                                      controls: ["Alcohol": explicitControls(shifted, excluding: behaviorDays)],
+                                      outcomeByDay: outcome, outcome: "Charge", lag: 1)
+        let one = row(atOne, "Alcohol")
+        XCTAssertEqual(one?.lag, 1)
+        XCTAssertEqual(one?.leadLagText, "next morning")
+        XCTAssertLessThan(one!.effect.cohensD, 0)
+        XCTAssertTrue(one!.effect.significant)
+        XCTAssertLessThan(one!.effect.meanWith, 55)
+        XCTAssertGreaterThan(one!.effect.meanWithout, 65)
+    }
+
+    // MARK: - Family correction
+
+    /// Twenty null factors plus one real one. Uncorrected, some nulls can slip under 0.05; after
+    /// Benjamini–Hochberg only the real factor stays significant, and every row carries its q.
+    func testFamilyCorrectionKeepsOnlyTheRealEffect() {
+        var outcome: [String: Double] = [:]
+        for d in 1...60 {
+            let day = CorrelationEngine.shiftDay("2026-01-01", by: d)!
+            outcome[day] = 60 + Double((d * 37) % 11) - 5
+        }
+        let keys = outcome.keys.sorted()
+        var tests: [EffectRanker.FactorTest] = []
+        // Real: every third day is 15 points higher.
+        var real = Set<String>()
+        for (i, k) in keys.enumerated() where i % 3 == 0 { real.insert(k); outcome[k]! += 15 }
+        tests.append(.init(behavior: "Real", yesDays: real, noDays: Set(keys).subtracting(real),
+                           outcome: "Recovery", outcomeByDay: outcome))
+        for f in 0..<20 {
+            var yes = Set<String>()
+            for (i, k) in keys.enumerated() where (i * (f + 3) + f) % 4 == 0 && !real.contains(k) { yes.insert(k) }
+            tests.append(.init(behavior: "Null \(f)", yesDays: yes,
+                               noDays: Set(keys).subtracting(yes).subtracting(real),
+                               outcome: "Recovery", outcomeByDay: outcome))
+        }
+        let ranked = EffectRanker.rankFamily(tests)
+        XCTAssertTrue(ranked.allSatisfy { $0.adjustedP != nil })
+        XCTAssertEqual(ranked.first?.behavior, "Real")
+        XCTAssertEqual(ranked.filter(\.isSignificant).map(\.behavior), ["Real"])
+        for r in ranked { XCTAssertGreaterThanOrEqual(r.adjustedP!, r.effect.pApprox - 1e-12) }
+    }
+
+    func testBenjaminiHochbergMatchesTheTextbookExample() {
+        // m = 5: q_i = min over j >= i of p_(j) * m / j.
+        let q = MultipleComparisons.benjaminiHochberg([0.01, 0.04, 0.03, 0.005, 0.5])
+        let expected = [0.025, 0.05, 0.05, 0.025, 0.5]
+        for (a, b) in zip(q, expected) { XCTAssertEqual(a, b, accuracy: 1e-12) }
+        XCTAssertEqual(MultipleComparisons.benjaminiHochberg([]), [])
+        XCTAssertEqual(MultipleComparisons.benjaminiHochberg([.nan]), [1])
     }
 
     /// Test-only: the BehaviorEffect at a specific lag, via the engine's own shift alignment.
@@ -124,7 +183,7 @@ final class EffectRankerTests: XCTestCase {
                                     ],
                                     outcomeByDay: outcome, outcome: "Charge")
         XCTAssertEqual(out.map { $0.behavior }, ["Big", "Small"])   // |d| Big > Small
-        XCTAssertEqual(row(out, "Big")!.lag, 0)                     // both are same-day effects
+        XCTAssertEqual(row(out, "Big")!.lag, 0)                     // the fixed default lag
         XCTAssertEqual(row(out, "Small")!.lag, 0)
     }
 

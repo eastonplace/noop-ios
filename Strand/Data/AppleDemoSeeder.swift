@@ -193,7 +193,11 @@ enum AppleDemoSeeder {
         var journal: [JournalEntry] = []
 
         var weight = 79.5
-        var fitness = 0.0  // slow upward drift: HRV rises, resting-HR falls, VO2max climbs
+        var fitness = 0.0
+        // Yesterday's training and a late evening workout show up on the next morning, so the
+        // automatic Insights (high-strain day, late workout, bedtime) have real patterns to find.
+        var prevWorkouts = 0
+        var lateWorkoutLastNight = false  // slow upward drift: HRV rises, resting-HR falls, VO2max climbs
 
         let isoFmt = DateFormatter()
         isoFmt.locale = Locale(identifier: "en_US_POSIX")
@@ -226,16 +230,17 @@ enum AppleDemoSeeder {
 
             // --- autonomic markers ---
             let hrv = (gauss(&rng, 78.0 + fitness * 1.5 + autonomicWave * 5.0, 12.0)
-                + (weekend ? 6 : 0) - Double(nWorkouts) * 4 - (fatigueDay ? 16 : 0))
+                + (weekend ? 6 : 0) - Double(prevWorkouts) * 6 - (lateWorkoutLastNight ? 8 : 0)
+                - (fatigueDay ? 16 : 0))
                 .clamped(28.0, 150.0)
             let rhr = Int((gauss(&rng, 56.0 - fitness * 0.4 - autonomicWave * 1.8, 3.0)
-                + Double(nWorkouts) * 1.2 + (fatigueDay ? 6 : 0)).clamped(42.0, 74.0))
+                + Double(prevWorkouts) * 1.2 + (fatigueDay ? 6 : 0)).clamped(42.0, 74.0))
             let spo2 = gauss(&rng, 96.5, 0.8).clamped(93.0, 100.0)
             let skinTempDev = (gauss(&rng, 0.0, 0.25) + (fatigueDay ? 0.45 : 0)).clamped(-1.2, 1.4)
             let resp = (gauss(&rng, 14.6, 0.9) + (fatigueDay ? 1.3 : 0)).clamped(11.0, 19.0)
 
             // --- recovery: a function of HRV, sleep quality and resting-HR ---
-            let recovery = (
+            var recovery = (
                 40 + (hrv - 70) * 0.55 + (efficiency - 85) * 0.6 + (totalSleep - 420) * 0.03 -
                     (Double(rhr) - 55) * 1.4 - Double(disturbances) * 0.8
                     - (fatigueDay ? 8 : 0) + gauss(&rng, 0.0, 5.0)
@@ -247,24 +252,37 @@ enum AppleDemoSeeder {
                  : gauss(&rng, 13.5, 2.4) + Double(nWorkouts - 1) * 2.5) * STRAIN_SCALE
             ).clamped(3.0 * STRAIN_SCALE, 100.0)
 
-            daily.append(DailyMetric(
-                day: day, totalSleepMin: round1(totalSleep), efficiency: round1(efficiency),
-                deepMin: round1(deep), remMin: round1(rem), lightMin: round1(light),
-                disturbances: disturbances, restingHr: rhr, avgHrv: round1(hrv),
-                recovery: round1(recovery), strain: round1(strain), exerciseCount: nWorkouts,
-                spo2Pct: round1(spo2), skinTempDevC: round2(skinTempDev), respRateBpm: round1(resp)))
-
             // --- sleep session: previous night ~23:10 → wake, with a REAL stage timeline so the
             //     hypnogram renders the computed segment path (not just the proportional bar). ---
             let onsetBase = cal.date(byAdding: .day, value: -1, to: date)!
             let onsetDay = cal.startOfDay(for: onsetBase)
-            let onset = Int(onsetDay.timeIntervalSince1970) + 23 * 3600 + 10 * 60 + rng.nextInt(-1800, 1800)
+            let onsetJitter = rng.nextInt(-1800, 1800)
+            // About one night in nine runs well past the usual time, so off-schedule nights cost something.
+            let offScheduleNight = i % 9 == 4
+            let onsetDaySeconds: Int = Int(onsetDay.timeIntervalSince1970)
+            let usualOnsetSeconds: Int = 23 * 3600 + 10 * 60
+            let offScheduleDelaySeconds: Int = offScheduleNight ? 80 * 60 : 0
+            let jitteredOnsetSeconds: Int = onsetDaySeconds + usualOnsetSeconds + onsetJitter
+            let onset: Int = jitteredOnsetSeconds + offScheduleDelaySeconds
+            // Realistic sizes: an earlier-than-usual night is worth about 9 points of recovery over a later one,
+            // a night well off schedule costs about 5 and a late workout about 4 on top of its HRV dip.
+            recovery = (recovery + (onsetJitter < 0 ? 4.5 : -4.5)
+                - (offScheduleNight ? 5 : 0)
+                - (lateWorkoutLastNight ? 4 : 0)).clamped(8.0, 99.0)
+
             let inBedSec = Int((totalSleep + totalSleep * (100 - efficiency) / 100) * 60)
             sleeps.append(CachedSleepSession(
                 startTs: onset, endTs: onset + inBedSec,
                 efficiency: round1(efficiency), restingHr: rhr, avgHrv: round1(hrv),
                 stagesJSON: segmentsJSON(onset: onset, deep: deep, rem: rem, light: light,
                                          awakeMin: Double(disturbances) * 1.6)))
+
+            daily.append(DailyMetric(
+                day: day, totalSleepMin: round1(totalSleep), efficiency: round1(efficiency),
+                deepMin: round1(deep), remMin: round1(rem), lightMin: round1(light),
+                disturbances: disturbances, restingHr: rhr, avgHrv: round1(hrv),
+                recovery: round1(recovery), strain: round1(strain), exerciseCount: nWorkouts,
+                spo2Pct: round1(spo2), skinTempDevC: round2(skinTempDev), respRateBpm: round1(resp)))
 
             // --- long-format extras (body composition) under my-whoop ---
             weight += gauss(&rng, -0.02, 0.18)
@@ -296,7 +314,8 @@ enum AppleDemoSeeder {
             for k in 0..<nWorkouts {
                 let sport = SPORTS[rng.nextInt(0, SPORTS.count)]
                 let durSec = gauss(&rng, 48.0, 16.0).clamped(18.0, 110.0) * 60
-                let hour = weekend ? 9 : 18
+                // Every fifth weekday the session runs late, ending within three hours of bed.
+                let hour = weekend ? 9 : (i % 3 == 0 ? 20 : 18)
                 let dayStart = cal.startOfDay(for: date)
                 let start = Int(dayStart.timeIntervalSince1970) + hour * 3600 + rng.nextInt(0, 50) * 60 + k * 3600
                 let avg = Int(gauss(&rng, 138.0, 12.0))
@@ -319,6 +338,9 @@ enum AppleDemoSeeder {
                     distanceM: DISTANCE_SPORTS.contains(sport) ? round1(gauss(&rng, 6500.0, 2500.0).atLeast(500.0)) : nil,
                     zonesJSON: zonesJSON, notes: nil))
             }
+
+            prevWorkouts = nWorkouts
+            lateWorkoutLastNight = nWorkouts > 0 && !weekend && i % 3 == 0
 
             // --- journal answers for the recent 40 days (real catalog strings → Insights light up) ---
             if i >= DAYS - 40 {
