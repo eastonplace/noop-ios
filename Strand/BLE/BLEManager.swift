@@ -1008,6 +1008,7 @@ public final class BLEManager: NSObject, ObservableObject {
                                 onHistoricalCommitContext: { [weak self] context in
                                     self?.recordHistoricalCommit(context)
                                 },
+                                onRetiredHistoricalCommitContext: makeRetiredHistoricalCommitHandler(for: store),
                                 onHistoricalAcknowledged: { [weak self, weak store] receipt, outcome in
                                     Task { @MainActor [weak self, weak store] in
                                         guard let self, let store else { return }
@@ -3323,6 +3324,28 @@ public final class BLEManager: NSObject, ObservableObject {
         // burst. Finalize again at the receipt boundary so durable work cannot strand behind a dead drain.
         if !backfilling {
             publishBackfillBurstIfNeeded()
+        }
+    }
+
+    /// A retired transport can finish a transaction after its old burst was consumed. Keep that receipt's
+    /// availability separate from any replacement burst, and reject every retired database generation.
+    func makeRetiredHistoricalCommitHandler(for store: WhoopStore) -> Backfiller.RetiredCommitHandler {
+        let generation = historicalMaterializationStoreGeneration
+        return { [weak self, weak store] context in
+            guard let self, let store,
+                  !self.restoreInProgress, self.dataStore === store,
+                  self.historicalMaterializationStoreGeneration == generation,
+                  let databaseID = try? await store.databaseInstanceId(),
+                  databaseID == context.receipt.databaseInstanceId,
+                  !self.restoreInProgress, self.dataStore === store,
+                  self.historicalMaterializationStoreGeneration == generation else { return }
+            var retiredBurst = BackfillBurstPublication()
+            retiredBurst.record(receipt: context.receipt)
+            guard let finalization = retiredBurst.consumeFinalization() else { return }
+            self.state.finalizeHistoricalSyncBurst(
+                at: Date().timeIntervalSince1970,
+                watermark: finalization.watermark,
+                clearPassProgress: false)
         }
     }
 
