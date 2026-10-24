@@ -50,6 +50,7 @@ enum AppChangelog {
     static let releases: [Release] = [
         .fork("2.0.2", "More room for sleep", "October 2026", [
             Feature("bed.double.fill", .sleep, "Sleep takes focus", "Larger figures and stages, with alarms below the chart."),
+            Feature("hand.draw.fill", .sleep, "Explore sleep stages", "Hold a stage bar to see when it started and ended."),
             Feature("alarm.fill", .sleep, "Multiple wake alarms", "Save wake times with their own days and switches."),
             Feature("checkmark.circle", .accent, "Clear alarm delivery", "See the next strap alarm and phone backup status."),
             Feature("checkmark.shield.fill", .accent, "Bug fixes and improvements", "Steadier Trends, sync progress and sleep details."),

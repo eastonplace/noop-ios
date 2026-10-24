@@ -122,7 +122,23 @@ public enum WakeAlarmBackupReplacement {
         let obsolete = existing.filter { old in !proposed.contains { matches(old, $0) } }
         // A deleted or edited time must never remain as a surprising stale alarm, even on failure.
         remove(obsolete.map(identifier))
-        guard otherCount + proposed.count <= 64 else { return .insufficientCapacity }
+        @MainActor func adoptCompatibleFallback() async -> Bool {
+            // A predecessor may still clean up its IDs after this operation returns. Recreate every
+            // retained logical time under our own IDs on every failure path, including capacity denial.
+            let available = max(0, 64 - otherCount)
+            let fallback = proposed.filter { request in compatible.contains { matches($0, request) } }
+            remove(compatible.map(identifier))
+            for request in fallback.prefix(available) {
+                guard isCurrent() else { remove(proposedIDs); return false }
+                try? await add(request)
+                guard isCurrent() else { remove(proposedIDs); return false }
+            }
+            return true
+        }
+        guard otherCount + proposed.count <= 64 else {
+            guard await adoptCompatibleFallback() else { return .superseded }
+            return .insufficientCapacity
+        }
 
         let mustFreeCapacity = otherCount + compatible.count + proposed.count > 64
         if mustFreeCapacity { remove(compatible.map(identifier)) }
@@ -135,15 +151,7 @@ public enum WakeAlarmBackupReplacement {
         } catch {
             remove(proposedIDs)
             guard isCurrent() else { return .superseded }
-            if mustFreeCapacity {
-                // Restore only compatible old times. Use the current generation's request values/IDs,
-                // so a cancellation during a restore cannot clean up a successor's requests.
-                for request in proposed where compatible.contains(where: { matches($0, request) }) {
-                    guard isCurrent() else { remove(proposedIDs); return .superseded }
-                    try? await add(request)
-                    guard isCurrent() else { remove(proposedIDs); return .superseded }
-                }
-            }
+            guard await adoptCompatibleFallback() else { return .superseded }
             return .failed
         }
         remove(compatible.map(identifier))

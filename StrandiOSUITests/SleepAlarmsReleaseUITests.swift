@@ -1,5 +1,6 @@
 import XCTest
 
+@MainActor
 final class SleepAlarmsReleaseUITests: XCTestCase {
     func testSleepChartLeadsWithLargerFiguresAndAlarmsBelow() throws {
         continueAfterFailure = false
@@ -34,6 +35,8 @@ final class SleepAlarmsReleaseUITests: XCTestCase {
         XCTAssertEqual(toggles.count, 1)
         XCTAssertEqual(toggles.element(boundBy: 0).value as? String, "0")
         toggles.element(boundBy: 0).tap()
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
+        if allow.waitForExistence(timeout: 3) { allow.tap() }
         for expectedCount in 2...3 {
             element("alarm.add", in: app).tap()
             let save = element("alarm.editor.save", in: app)

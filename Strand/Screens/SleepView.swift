@@ -714,7 +714,9 @@ struct SleepView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                SleepStageChart(timeline: night.stageTimeline, start: night.onsetDate, highlighted: selectedStage)
+                SleepStageChart(timeline: night.stageTimeline, start: night.onsetDate,
+                                highlighted: selectedStage,
+                                hasRecordedStageTiming: (night.realSegments?.count ?? 0) >= 2)
                 stageTypicalRows(model, stages: night.stages)
             }
             // Keep the existing H9 honesty note mounted under the stage section.

@@ -213,6 +213,88 @@ final class SleepScreenPartsTests: XCTestCase {
         XCTAssertTrue(SleepStageTimeline([]).isEmpty)
     }
 
+    @MainActor
+    func testStageInspectionUsesExactBoundariesAndLeavesGapsEmpty() throws {
+        let timeline = inspectionTimeline()
+        func selected(_ x: CGFloat) -> SleepInterval? {
+            SleepStageInspection.interval(in: timeline, atX: x, width: 240)
+        }
+        XCTAssertEqual(selected(0)?.stage, .light)
+        XCTAssertEqual(selected(59)?.stage, .light)
+        XCTAssertEqual(selected(60)?.stage, .deep, "A shared boundary belongs to the period starting there")
+        XCTAssertNil(selected(120), "The previous period's end does not fill the following gap")
+        XCTAssertNil(selected(179))
+        XCTAssertEqual(selected(180)?.stage, .rem)
+        XCTAssertEqual(selected(240)?.stage, .rem, "The last recorded endpoint remains inspectable")
+        let deep = try XCTUnwrap(selected(60))
+        XCTAssertEqual(deep.start, 400)
+        XCTAssertEqual(deep.end, 700)
+    }
+
+    @MainActor
+    func testStageInspectionBeginsOnlyOnTheTouchedStageBar() {
+        let timeline = inspectionTimeline()
+        func hit(_ y: CGFloat) -> SleepInterval? {
+            SleepStageInspection.hit(in: timeline, at: CGPoint(x: 30, y: y),
+                size: CGSize(width: 240, height: 100), barThickness: 14)
+        }
+        XCTAssertEqual(hit(62.5)?.stage, .light)
+        XCTAssertEqual(hit(69.5)?.stage, .light)
+        XCTAssertNil(hit(70))
+        XCTAssertNil(hit(87.5), "Holding a different lane must not select a bar above it")
+    }
+
+    @MainActor
+    func testStageInspectionRejectsInvalidAndOutsideCoordinates() {
+        let timeline = inspectionTimeline()
+        for x in [CGFloat(-1), 241, .nan, .infinity] {
+            XCTAssertNil(SleepStageInspection.interval(in: timeline, atX: x, width: 240))
+        }
+        for width in [CGFloat(0), -1, .nan, .infinity] {
+            XCTAssertNil(SleepStageInspection.interval(in: timeline, atX: 0, width: width))
+        }
+        XCTAssertNil(SleepStageInspection.hit(in: timeline, at: CGPoint(x: 30, y: CGFloat.nan),
+            size: CGSize(width: 240, height: 100), barThickness: 14))
+    }
+
+    @MainActor
+    func testStageInspectionUsesDisplayedSmoothedWindowWithoutCrossingFragmentGap() throws {
+        let timeline = SleepStageTimeline([
+            SleepInterval(stage: .light, start: 0, end: 1800),
+            SleepInterval(stage: .deep, start: 1800, end: 2400),
+            SleepInterval(stage: .awake, start: 2400, end: 2460),
+            SleepInterval(stage: .deep, start: 2460, end: 3000),
+            SleepInterval(stage: .rem, start: 9000, end: 9060),
+        ])
+        let selected = try XCTUnwrap(SleepStageInspection.interval(in: timeline, atX: 2400, width: 9060))
+        XCTAssertEqual(selected.stage, .deep)
+        XCTAssertEqual(selected.start, 1800)
+        XCTAssertEqual(selected.end, 3000)
+        XCTAssertNil(SleepStageInspection.interval(in: timeline, atX: 6000, width: 9060))
+    }
+
+    func testStageInspectionShowsAmPmOnBothSidesOfMidnight() {
+        let start = Date(timeIntervalSince1970: 1_792_885_800) // 2026-10-24 23:50 UTC
+        let interval = SleepInterval(stage: .light, start: 0, end: 1500)
+        XCTAssertEqual(SleepStageInspection.detail(for: interval, nightStart: start, hasRecordedStageTiming: true,
+            locale: Locale(identifier: "en_US"), timeZone: TimeZone(secondsFromGMT: 0)!),
+            "11:50 PM to 12:15 AM")
+    }
+
+    func testStageInspectionDoesNotInventTimingForReconstructedBars() {
+        XCTAssertEqual(SleepStageInspection.detail(
+            for: SleepInterval(stage: .deep, start: 300, end: 900), nightStart: Date(),
+            hasRecordedStageTiming: false), String(localized: "Timing unavailable"))
+    }
+
+    @MainActor private func inspectionTimeline() -> SleepStageTimeline {
+        SleepStageTimeline([
+            SleepInterval(stage: .light, start: 100, end: 400),
+            SleepInterval(stage: .deep, start: 400, end: 700),
+            SleepInterval(stage: .rem, start: 1000, end: 1300),
+        ], minimumSegment: 0)
+    }
+
     // MARK: Spoken durations
 
     func testSpokenDurationRejectsInvalidAndOverflowingSeconds() {
