@@ -221,7 +221,7 @@ extension WhoopStore {
         }
     }
 
-    private static func decodeSleepRecoveryDailyOverride(_ row: Row) -> SleepRecoveryDailyOverride {
+    static func decodeSleepRecoveryDailyOverride(_ row: Row) -> SleepRecoveryDailyOverride {
         SleepRecoveryDailyOverride(
             day: row["day"],
             sessionStartTs: row["sessionStartTs"],

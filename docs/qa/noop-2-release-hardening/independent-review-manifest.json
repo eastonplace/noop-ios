@@ -1,0 +1,698 @@
+{
+  "reviewed_at_utc": "2026-10-23T14:30:19.339630+00:00",
+  "base_commit": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+  "branch": "audit/noop-2-release-hardening-20261023",
+  "scope": "Changed production/test Swift, privacy manifests, project/release metadata, reviewed QA callback harness, workout benchmark and calendar reproduction script. Earlier file and documentation hashes remain dated evidence. The integration_followup.reviewed_file_overrides entries supersede matching earlier file hashes for the current-main reconciliation. The ui_sync_followup.reviewed_new_files adds one reviewed UI test; apply that addition and the integration overrides for 46 effective reviewed entries. Earlier documentation hashes remain dated evidence.",
+  "unresolved_confirmed_findings": 1,
+  "independent_findings_resolved": [
+    "R1 per-attempt Coach request admission",
+    "R2 bootstrap registry snapshot source epoch"
+  ],
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 277537,
+      "sha256": "003e2fc119138398a17520099f12df8d8ac129caa072302dd3c92157076f75b9"
+    },
+    {
+      "path": "Packages/StrandAnalytics/Sources/StrandAnalytics/WeeklyCoachInsightStore.swift",
+      "bytes": 5224,
+      "sha256": "f229611323df87e1ee56afc5d014ab5ded59f7b8136083547b2b9fa0ea5aa545"
+    },
+    {
+      "path": "Packages/StrandImport/Sources/StrandImport/AppleHealthAggregator.swift",
+      "bytes": 22176,
+      "sha256": "66711fded2c9b81ba865009302ddd64f023c91932d5bdb7eda2b911cfb6331de"
+    },
+    {
+      "path": "Packages/StrandImport/Sources/StrandImport/ImportNumericSafety.swift",
+      "bytes": 781,
+      "sha256": "c6a8ea7d841747d17f6e76436047ca255b4a90e5f41ed5996dca9bb9b3498a35"
+    },
+    {
+      "path": "Packages/StrandImport/Sources/StrandImport/WhoopExportImporter.swift",
+      "bytes": 21655,
+      "sha256": "aac606a52c2b47e151a68105027ba45f8321a9ad0a7df137a3a65978e3cd7602"
+    },
+    {
+      "path": "Packages/StrandImport/Tests/StrandImportTests/ImportNumericSafetyTests.swift",
+      "bytes": 3361,
+      "sha256": "17fdca0dcd1c0311356be1687f8eda3bd55702cd109d8377fc0adc6a4ded4cc7"
+    },
+    {
+      "path": "Packages/WhoopStore/Sources/WhoopStore/SleepRecoveryDailyOverrideStore.swift",
+      "bytes": 11258,
+      "sha256": "641525e43fc6d59574b9aaeaa66d72f0d462a1d044f3be69c3c8ad5e4f04bb4c"
+    },
+    {
+      "path": "Packages/WhoopStore/Sources/WhoopStore/SleepSessionUndoStore.swift",
+      "bytes": 8194,
+      "sha256": "aa84ff403e6280e632d9b980bd17b3c570ac5e6063072204d72f109ccf708240"
+    },
+    {
+      "path": "Packages/WhoopStore/Tests/WhoopStoreTests/SleepSessionUndoTransactionTests.swift",
+      "bytes": 11732,
+      "sha256": "74aa2d7029dc888bd4307a52c97aaf01732cde09687ee1f9d082468fc005b776"
+    },
+    {
+      "path": "Strand/AI/AICoach.swift",
+      "bytes": 46949,
+      "sha256": "4fabd6df09bac37f07ca2d5fbcb760521cd35f10a1ab6df58f7153c09ed615c0"
+    },
+    {
+      "path": "Strand/AI/AIProvider.swift",
+      "bytes": 6453,
+      "sha256": "5dc33da8c1301707d6982bcc1b203282953a1259e24943212104a9b4e0652804"
+    },
+    {
+      "path": "Strand/AI/Providers/Custom.swift",
+      "bytes": 5643,
+      "sha256": "be4e98445344324abddc519149d51fcad079b2d2e9b23a56881489e141909f6e"
+    },
+    {
+      "path": "Strand/BLE/BLEManager.swift",
+      "bytes": 440777,
+      "sha256": "9ca5e429845b45ab42d3615ecfce2577dff835576986eae7af9b1785f7536cad"
+    },
+    {
+      "path": "Strand/BLE/HrBroadcaster.swift",
+      "bytes": 12648,
+      "sha256": "fdb56f04ce8163296ed44d9bc3e511216d17e038ea10af244e3ce4a00c9d0956"
+    },
+    {
+      "path": "Strand/BLE/SourceCoordinator.swift",
+      "bytes": 33782,
+      "sha256": "838164e1dd2f88f44812c8477e20fa3f99f1d6a38b231aa54188d448d3e7690f"
+    },
+    {
+      "path": "Strand/Data/AppleHealthImport.swift",
+      "bytes": 6090,
+      "sha256": "2de8534ef6a50a1b36e9780b80e132f211b45f34c41b724f72b6d07f7f346e9b"
+    },
+    {
+      "path": "Strand/Data/IntelligenceEngine.swift",
+      "bytes": 321610,
+      "sha256": "7582cfcfd843bc035cce4f13ca4efbfaf26a24da216dc2bd0ff32485c6e72652"
+    },
+    {
+      "path": "Strand/Data/Repository.swift",
+      "bytes": 363664,
+      "sha256": "d11641bd3a95d286d3f434404b9b7f37969ab630e71b5e9d82c0221c759bf5e8"
+    },
+    {
+      "path": "Strand/Data/WhoopImporter.swift",
+      "bytes": 15385,
+      "sha256": "2ca199b6467cf6c65ba58e84e46935e2507ec4f8c62226e91ced974c1dbb24c0"
+    },
+    {
+      "path": "Strand/Screens/SleepView.swift",
+      "bytes": 150590,
+      "sha256": "73e5c692738967782ded3714e2689d860f0bbba3eb71faf20ad9eb26f64a094f"
+    },
+    {
+      "path": "Strand/Screens/TrendsView+WeeklyReview.swift",
+      "bytes": 13670,
+      "sha256": "2c063f28bfc3831a97065de5e16401b0fd764c765fd1e8483d491ac7302b1663"
+    },
+    {
+      "path": "Strand/Screens/TrendsView.swift",
+      "bytes": 15397,
+      "sha256": "2745d508dcfe5facc0d334aa8e065501d34ad9de7363d228dc6f70814e4d657d"
+    },
+    {
+      "path": "Strand/System/AppChangelog.swift",
+      "bytes": 247253,
+      "sha256": "e002fe877654f06b5914aff2c22bef7e9629c525aaf86265412bc9d9d0a098ce"
+    },
+    {
+      "path": "StrandiOS/App/HistoricalSyncBackgroundTaskRegistrar.swift",
+      "bytes": 6939,
+      "sha256": "ecbd14b99a9ce12e4c42dbca796f845e8af2b73561d8ec7e918d5f4388385d0e"
+    },
+    {
+      "path": "StrandiOS/Coach/LocalCoachEngine.swift",
+      "bytes": 81310,
+      "sha256": "b3c2af2b31849766dcc1e48b0778a94276aff6d807f38c92eaab99b1020471b8"
+    },
+    {
+      "path": "StrandiOS/Resources/PrivacyInfo.xcprivacy",
+      "bytes": 1474,
+      "sha256": "f50e98dbb9fc9c8d4720838f528cbf3cc7664aa489b85833033380e7a382d88f"
+    },
+    {
+      "path": "StrandiOS/Widgets/WorkoutLiveProjectionCache.swift",
+      "bytes": 7450,
+      "sha256": "9715fb15656aa8737cb4248928fc99d2ce8fe49cfef57ecb66bfd1087267e9a1"
+    },
+    {
+      "path": "StrandiOSTests/AICoachRequestOwnershipTests.swift",
+      "bytes": 23987,
+      "sha256": "1e1555fcc75c522f8bfd7d6c2a03520fe2f24cfeaeab6d67623cc688ecee06a4"
+    },
+    {
+      "path": "StrandiOSTests/BLEBackgroundReconnectHandoffTests.swift",
+      "bytes": 20841,
+      "sha256": "071cd11237b03ed854dfe3df01cd1799af62602de67df7dfdf1ff96414553a2f"
+    },
+    {
+      "path": "StrandiOSTests/BLEConnectionRetirementTests.swift",
+      "bytes": 9349,
+      "sha256": "184bfef9271bc60b9308376efdc02cf81f68f976a1a4b93a3f67695b18fe5e29"
+    },
+    {
+      "path": "StrandiOSTests/BLEFallbackPublicationTests.swift",
+      "bytes": 1569,
+      "sha256": "c344481967e1da90dc8224378de5776db3fc1bc7f3ffd77eb05b2dfce05ef161"
+    },
+    {
+      "path": "StrandiOSTests/BLEStoreBootstrapOwnershipTests.swift",
+      "bytes": 7865,
+      "sha256": "0252741fc8834d30c7de8d91c88a112056f0015c6a64e62176a7028f1534dbb9"
+    },
+    {
+      "path": "StrandiOSTests/HealthImportNumericSafetyTests.swift",
+      "bytes": 3241,
+      "sha256": "8facb14ffde6d6a8076df4a72f5696b9e056081df69c71e5708ac8c95679e256"
+    },
+    {
+      "path": "StrandiOSTests/HistoricalSyncCancellationTests.swift",
+      "bytes": 892,
+      "sha256": "04a5d63305de39743dba6d4288d5c856054dfe4f0938880060844780fb00bf1b"
+    },
+    {
+      "path": "StrandiOSTests/HrBroadcasterRegressionTests.swift",
+      "bytes": 1284,
+      "sha256": "6851960ba5097313d10914806cc1eb0b676ea1cfb8632d9300e759563226b5d7"
+    },
+    {
+      "path": "StrandiOSTests/LocalCoachWeeklyInsightOwnershipTests.swift",
+      "bytes": 9094,
+      "sha256": "3d1471ea5a0ce9d336c7add33517535cec216828c7ca99606afc9a7effc0a84c"
+    },
+    {
+      "path": "StrandiOSTests/PrivacyManifestTests.swift",
+      "bytes": 1901,
+      "sha256": "2aad07fa0a8c08f32187b50e04347fe405b00d23bd838706e9efa70d24f96e4a"
+    },
+    {
+      "path": "StrandiOSTests/RepositorySleepMutationTests.swift",
+      "bytes": 13592,
+      "sha256": "72cc8d963fe86f485c6bef80a3511e5d1f95a8145fb8fcc53d6126f541db79a5"
+    },
+    {
+      "path": "StrandiOSTests/SourceIdentityAdmissionTests.swift",
+      "bytes": 3821,
+      "sha256": "7f5643b2c89e1c8d0ca1443bf510ef699b7d377a3b7aa0c8e5c9fd84fec4f95b"
+    },
+    {
+      "path": "StrandiOSTests/WorkoutLiveProjectionCacheTests.swift",
+      "bytes": 5590,
+      "sha256": "12a7723a13b8636ccc5c61b9815d1411b2b0476e67e51570228e29e5ef6e6b5f"
+    },
+    {
+      "path": "StrandiOSWidgets/PrivacyInfo.xcprivacy",
+      "bytes": 539,
+      "sha256": "c875e5c622807fb631ddef12beedbef4f7399e2e7c4f02fe4e8c003ef0f70a11"
+    },
+    {
+      "path": "Tools/qa/test_ble_connection_result_ownership.py",
+      "bytes": 10410,
+      "sha256": "7d7f99acf59325048db8571907acc4e652e191b17de154e1057304d5fe7d10fd"
+    },
+    {
+      "path": "Tools/qa/workout_projection_benchmark.py",
+      "bytes": 8233,
+      "sha256": "a957accf333bc61b5a1c13f342a92139a0abca299930bdaa6c32d4dca9b2232a"
+    },
+    {
+      "path": "docs/qa/noop-2-release-hardening/calendar-key-probe.py",
+      "bytes": 7490,
+      "sha256": "6a98d1cc1f298613e3dd54832b6ae5c00918891564c8f558c69818094ae65e61"
+    },
+    {
+      "path": "project.yml",
+      "bytes": 8881,
+      "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6"
+    }
+  ],
+  "metadata_followup": {
+    "reviewed_at_utc": "2026-10-23T14:36:00.510850+00:00",
+    "reviewed_since_commit": "b54cadbd4aff7dbd32f9f0618a56a9913bb9cd0e",
+    "draft_pr": 79,
+    "build_before": "249",
+    "build_after": "250",
+    "marketing_version": "2.0.0",
+    "tentative_last_pr": 79,
+    "staging_and_install_publication_holds_preserved": true,
+    "separate_drafts_not_incorporated": [
+      77,
+      78
+    ],
+    "functional_source_changes": false,
+    "original_manifest_entries": 43,
+    "unchanged_original_manifest_entries": 41,
+    "updated_original_entries": [
+      {
+        "path": "CHANGELOG.md",
+        "previous_sha256": "c4f7e6a24dd7f6afbb200704ad809f03f2f36f1b81697fc61673809b667b629a",
+        "sha256": "003e2fc119138398a17520099f12df8d8ac129caa072302dd3c92157076f75b9"
+      },
+      {
+        "path": "project.yml",
+        "previous_sha256": "4bc95b99067fb49f61bbba0d84e569253b35314bcb714ca26645e2963aac2648",
+        "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6"
+      }
+    ],
+    "reviewed_metadata_files": [
+      {
+        "path": "CHANGELOG.md",
+        "bytes": 277537,
+        "sha256": "003e2fc119138398a17520099f12df8d8ac129caa072302dd3c92157076f75b9"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/README.md",
+        "bytes": 30959,
+        "sha256": "30b232fc54554f2f17be5ea7af3c3bf58c4d4a6e377c172aebc26f5bf9fadd56"
+      },
+      {
+        "path": "docs/releases/2.0-batch.json",
+        "bytes": 154,
+        "sha256": "c8b120e93f2c8cf2dcb5b1e49f3ff2e392f9f9a11b8b70888324d9044db42e35"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-23-release-hardening.md",
+        "bytes": 4554,
+        "sha256": "207c4d4571f0328e868c9f7d072e739125fc9a4cad475271627551ef7d2673c7"
+      },
+      {
+        "path": "project.yml",
+        "bytes": 8881,
+        "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6"
+      }
+    ],
+    "diff_check_passed": true,
+    "native_validation_status": "unchanged; no native result inferred or added by metadata review",
+    "unresolved_confirmed_findings": 0
+  },
+  "qualification_status": "NO-GO for release: combined head346 failed UI and aggregate qualification; reviewed test-only synchronization correction needs fresh exact-head native/UI/package and aggregate success. Inherited P1 F16, complete-batch and physical-device gates remain unresolved.",
+  "native_fixture_followup": {
+    "reviewed_at_utc": "2026-10-23T15:16:20.543091+00:00",
+    "reviewed_since_commit": "26e150d2bbd1fcdf14a65de06e834e8b0841d5da",
+    "initial_native_run": 39971271690,
+    "initial_native_tested_commit": "f0fa85d1d8eea0b8564a41df5991398a543ad641",
+    "initial_native_result": "failed; 3321 XCTest cases, 3316 passed, 4 skipped, 1 hold-deadline failure; UI withheld",
+    "failure": "BLEBackgroundReconnectHandoffTests.testTheHoldDeadlineEndsTheBackgroundTask",
+    "diagnosis": "The retained native failure is consistent with the source-traced radio-retirement path: an unsolicited simulator callback can cancel the synthetic held attempt, timer and background task while preserving its reconnect-series deadline. The native log does not directly timestamp the callback; the exact interleaving is not claimed as an instrumented observation. Deterministic retirement controls cover that competing lifecycle, and existing reconnect admission discards expired dates.",
+    "change": "Default-true callback opt-out in the internal testing/preview initializer; existing timer test opts out and keeps its assertions; two explicit radio-retirement controls added.",
+    "changed_files": [
+      {
+        "path": "Strand/BLE/BLEManager.swift",
+        "previous_sha256": "3d2217a0c2ea007c6de43fa596536cb9254ca2069d3f5a1f2b7fe1e334a503dc",
+        "sha256": "9ca5e429845b45ab42d3615ecfce2577dff835576986eae7af9b1785f7536cad"
+      },
+      {
+        "path": "StrandiOSTests/BLEBackgroundReconnectHandoffTests.swift",
+        "previous_sha256": null,
+        "sha256": "071cd11237b03ed854dfe3df01cd1799af62602de67df7dfdf1ff96414553a2f"
+      },
+      {
+        "path": "StrandiOSTests/BLEConnectionRetirementTests.swift",
+        "previous_sha256": "88d804e0d40f678f8b3bfe1b5efa2092bca970d58d664fe706c99a874a5c302f",
+        "sha256": "184bfef9271bc60b9308376efdc02cf81f68f976a1a4b93a3f67695b18fe5e29"
+      }
+    ],
+    "independent_byte_checks": {
+      "public_production_initializer_unchanged": true,
+      "hold_timer_background_release_cancellation_methods_unchanged": true,
+      "connection_retirement_and_radio_handler_unchanged": true,
+      "handshake_hold_admission_unchanged": true,
+      "reconnect_policy_unchanged": true,
+      "original_deadline_test_body_identical_except_setup_and_comments": true
+    },
+    "default_receives_bluetooth_callbacks": true,
+    "nil_central_introduced": false,
+    "fixed_test_native_execution": "pending; parse and source review do not establish a native pass",
+    "independent_diff_check_passed": true,
+    "unresolved_confirmed_source_review_findings": 0
+  },
+  "unresolved_introduced_patch_findings": 0,
+  "known_unresolved_release_findings": [
+    {
+      "id": "F16 / DL-05",
+      "severity": "P1",
+      "status": "confirmed, unfixed, inherited from original base",
+      "title": "Non-Gregorian calendar settings split persisted day identity",
+      "independent_reproduction": "Nine unchanged production helper declarations compile and reproduce the retained five-calendar output; synthetic SQLite checks reproduce missing reads, a journal collision and timestamp-heal deletion.",
+      "introduced_by_reviewed_patch": false,
+      "required_resolution": "Coordinated Gregorian storage-key producers/readers and preservation-aware, restart-safe migration of existing derived and manual records; native integration and existing DL-05 assertion must pass before release qualification.",
+      "limits": "No full native calendar integration, live user database or migration implementation was executed."
+    }
+  ],
+  "documentation_followup": {
+    "reviewed_at_utc": "2026-10-23T15:20:23.119344+00:00",
+    "reviewed_since_commit": "26e150d2bbd1fcdf14a65de06e834e8b0841d5da",
+    "reviewed_documentation_files": [
+      {
+        "path": "docs/qa/noop-2-release-hardening/README.md",
+        "bytes": 38878,
+        "sha256": "6355e88660b42675e0bfd370bed6e68f65bd584ff86a84742bec4d572667eefa"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/native-ci-initial-result.json",
+        "bytes": 6358,
+        "sha256": "7efcbb81c27741617b40d2e35705dfee96b77fd9c5cf8344d8e8c72815e10954"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/source-evidence-index.json",
+        "bytes": 2927,
+        "sha256": "e51fb732def4238c3d146fc1976f9dcfcc450db12e2d941c1b770a923c3b8219"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/changed-swift-parse.json",
+        "bytes": 3989,
+        "sha256": "a2296f09391042444c63db8fc7986289ceca83ef0f723a1bdc79b67b529fa894"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/calendar-key-migration-proposal.md",
+        "bytes": 16784,
+        "sha256": "9385c5bdc9c9bb37fd74555c4f2dca879c0449580b5cd3356aed6e5b441c5dcd"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/calendar-key-probe-results.json",
+        "bytes": 2890,
+        "sha256": "29fdab92c287642da8abcf2e1cb816c663550015c152a90a1007aaca09228027"
+      },
+      {
+        "path": "docs/qa/noop-2-release-hardening/calendar-key-probe-source-manifest.json",
+        "bytes": 1974,
+        "sha256": "3164ebc0602335e01cc12c597232d07573f9a601c66c87a24469b55971248a2a"
+      }
+    ],
+    "historical_metadata_followup_hashes_preserved": true,
+    "source_evidence_index_locations_checked": true,
+    "initial_native_failure_preserved": true,
+    "callback_timing_directly_observed_in_native_log": false,
+    "independent_calendar_probe_exit_code": 0,
+    "independent_calendar_probe_result_matches_recorded_json": true,
+    "independent_calendar_probe_source_manifest_matches_recorded_json": true,
+    "calendar_helper_declarations_unchanged_since_original_base": 9,
+    "calendar_production_or_skip_changes": false,
+    "unresolved_introduced_patch_findings": 0,
+    "unresolved_known_release_findings": [
+      "F16 / DL-05"
+    ],
+    "qualification_limits": "Corrected BLE fixture native execution remains pending. Calendar evidence is extracted-helper execution, synthetic SQLite contracts and inspected production call paths, not native end-to-end migration qualification. External dependency research and native package execution were not independently repeated in this documentation follow-up."
+  },
+  "integration_followup": {
+    "reviewed_at_utc": "2026-10-23T18:16:05.173013+00:00",
+    "reviewed_worktree_based_on_commit": "529adf2f652dcb1b98822665c6c4e895b27f5d32",
+    "integrated_main_commit": "b7ebe85b2a7f5c0d25f2ef5a04b9d8dce8815679",
+    "integrated_pr78_head": "b2e1c0d54e5aad6b993c4117e0ac60b3c161fd2b",
+    "earlier_pr78_overlap_review_head": "859b7f48b1d5de164bf9e018260b737eb79fbf2d",
+    "reviewed_state": "staged integration, not yet committed; no future commit identity or CI result inferred",
+    "reviewed_file_overrides": [
+      {
+        "path": "Strand/Data/WhoopImporter.swift",
+        "bytes": 16176,
+        "sha256": "ad2da60e9d3c12b34e5ce913f7607b143c8c4bbf539a2b9c2c98d7a968067d96",
+        "previous_reviewed_sha256": "2ca199b6467cf6c65ba58e84e46935e2507ec4f8c62226e91ced974c1dbb24c0",
+        "changed_from_previous_review": true
+      },
+      {
+        "path": "Strand/System/AppChangelog.swift",
+        "bytes": 247247,
+        "sha256": "fa29f1cedca76ba8f21d2d5459a7750c0741f52a37873bf83454ac8f77aa2462",
+        "previous_reviewed_sha256": "e002fe877654f06b5914aff2c22bef7e9629c525aaf86265412bc9d9d0a098ce",
+        "changed_from_previous_review": true
+      },
+      {
+        "path": "CHANGELOG.md",
+        "bytes": 279210,
+        "sha256": "4f773dd6c2a87e918d9c99372caa23dca86ffc4db0707bde797447206ff2a8c7",
+        "previous_reviewed_sha256": "003e2fc119138398a17520099f12df8d8ac129caa072302dd3c92157076f75b9",
+        "changed_from_previous_review": true
+      },
+      {
+        "path": "project.yml",
+        "bytes": 8881,
+        "sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6",
+        "previous_reviewed_sha256": "74793fd041ccebcd416a1c770dcf5bd9248a7f9fa820cd00b4271d38db4deba6",
+        "changed_from_previous_review": false
+      }
+    ],
+    "historical_file_and_documentation_hashes_preserved": true,
+    "incoming_main_paths_checked": 47,
+    "incoming_paths_byte_identical_to_main": 43,
+    "incoming_paths_intentionally_different_from_main": [
+      "Strand/Data/WhoopImporter.swift",
+      "Strand/System/AppChangelog.swift",
+      "CHANGELOG.md",
+      "project.yml"
+    ],
+    "final_pr78_tree_equals_new_main_tree": true,
+    "prior_reviewed_entries": 45,
+    "prior_entries_unchanged": 42,
+    "prior_entries_changed": [
+      "CHANGELOG.md",
+      "Strand/Data/WhoopImporter.swift",
+      "Strand/System/AppChangelog.swift"
+    ],
+    "latest_pr78_six_file_delta_read_in_full": true,
+    "latest_pr78_delta_reviewed_files": [
+      {
+        "path": "CHANGELOG.md",
+        "bytes": 279210,
+        "sha256": "4f773dd6c2a87e918d9c99372caa23dca86ffc4db0707bde797447206ff2a8c7"
+      },
+      {
+        "path": "Packages/ReceiptLiftFeature/Sources/ReceiptLiftFeature/LiveReceiptView.swift",
+        "bytes": 9073,
+        "sha256": "0cc02858ea48a21b3c4e13933e3f4a545d11b72884069dab2d54adf6c8f64820"
+      },
+      {
+        "path": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepInterpolationRegressionTests.swift",
+        "bytes": 3295,
+        "sha256": "9d261e4e5db646119f2e08d4bf3fc807c9e03efc08f9cd1dd627ac7c80fccd07"
+      },
+      {
+        "path": "StrandiOSTests/ReceiptLift/LiftReceiptLogicTests.swift",
+        "bytes": 7791,
+        "sha256": "6395520f834de7c331713f7387596fe4f4703a8a40a7383aea448b129e4e96dd"
+      },
+      {
+        "path": "StrandiOSUITests/LiftRoutineSelectionTests.swift",
+        "bytes": 8152,
+        "sha256": "710b645294846e5e1ee6dc98b035e15b01751d5178056c35f1a16f2ebced3132"
+      },
+      {
+        "path": "docs/reviews/2026-10-23-deep-review.md",
+        "bytes": 9393,
+        "sha256": "005189b3ab2a006279853b520c3ddb4c4a952a7e8c3398dfd92d819efdc4f36d"
+      }
+    ],
+    "importer_difference_from_main": "Only roundedImportedHeartRate forwards to the shared exact integer converter with the same nearest/away-from-zero rounding. All strain, metric-series, stress and workout guards remain.",
+    "review_boundaries": [
+      "All three conflict resolutions and cumulative CHANGELOG",
+      "Latest six-file PR78 delta including production receipt label and native/UI regression changes",
+      "Incoming production diffs for numeric/time parsing, analytics, packet bounds, PPG coverage and source ownership interactions",
+      "HealthKit one-shot cancellation, anchored-read and deletion admission",
+      "Oura shared framing, partial-byte cursor admission and teardown epochs",
+      "Coach Brief epoch recovery/clearing versus weekly cache ownership",
+      "Lift history-cache invalidation versus workout projection; summary task lifetime and route authentication"
+    ],
+    "independent_diff_check": {
+      "staged": "passed",
+      "unstaged": "passed"
+    },
+    "root_reported_checks": {
+      "source_audits": "20/20 passed",
+      "resolved_swift_parse": "2/2 passed",
+      "coach_literal_preservation": "32 files passed"
+    },
+    "data_specialist_report": "No combined importer or sleep/data conflict; 14 critical sleep/undo/DST/Apple numeric implementation and test files retain 529 bytes. Existing real CSV-to-store and direct/parser numeric regressions cover the helper forwarding.",
+    "release_metadata": {
+      "marketing_version": "2.0.0",
+      "build": 250,
+      "main_build": 249,
+      "tentative_last_pr": 79,
+      "status": "staging",
+      "phone_installs": "hold",
+      "release_publication": "hold",
+      "pr77_incorporated": false
+    },
+    "historical_ci": {
+      "head_commit": "529adf2f652dcb1b98822665c6c4e895b27f5d32",
+      "tree": "b7365556df1ec6ad8cfdb2fd7dee957c76b6395a",
+      "tested_merge": "3679f704708a8b1a45d3791954b58e2ed610973f",
+      "base": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+      "packages": {
+        "workflow_run": 39977563656,
+        "attempt": 1,
+        "jobs_passed": 9,
+        "tests_passed": 3693,
+        "tests_skipped": 1,
+        "tests_failed": 0
+      },
+      "native": {
+        "workflow_run": 39977563756,
+        "attempt": 1,
+        "xctest_total": 3323,
+        "xctest_passed": 3319,
+        "xctest_skipped": 4,
+        "xctest_failed": 0,
+        "swift_testing_passed": 300,
+        "swift_testing_suites": 41,
+        "swift_testing_known_issues": 3,
+        "target_cases_passed_once": 73,
+        "original_timer_and_two_controls_passed_once": true,
+        "selected_ui_passed_once": 21,
+        "selected_ui_failed": 0,
+        "selected_ui_skipped": 0,
+        "discovered_ui_inventory": 42,
+        "repeated_xctest_starts_or_completions": 0,
+        "test_retry_flags_observed": false,
+        "complete_native_ui_log_sha256": "64ad2d0775c31168777827c45ec5381298ad0bcd0405b825016e2d7fdbfc2699",
+        "aggregate_workflow_result": "failure",
+        "failed_gate_job": 120529594647,
+        "gate_failure": "GitHub package API HTTP 502 for /repos/eastonplace/noop-ios/actions/runs/39977563656/attempts/1/jobs"
+      },
+      "independently_reviewed_complete_logs": true,
+      "qualifies_integrated_candidate": false
+    },
+    "obsolete_retry": {
+      "workflow_run": 39977563756,
+      "attempt": 2,
+      "root_job_rerun": "change-plan and dependents",
+      "retained_plan_uses_original_base_head_merge": true,
+      "source_audit_carried_forward_not_fresh_execution": true,
+      "monitoring_stopped_after_main_advanced": true,
+      "completed_case_level_or_aggregate_success_claimed": false,
+      "qualifies_integrated_candidate": false
+    },
+    "combined_native_ui_package_execution": "pending; earlier test results do not qualify these integrated bytes",
+    "unresolved_confirmed_integration_findings": 0,
+    "unresolved_introduced_patch_findings": 0,
+    "known_unresolved_release_findings": [
+      "F16 / DL-05, inherited P1"
+    ],
+    "limits": "Integration-focused source review, not a new complete PR78 subsystem audit. No new native/package tests, physical device operation or migration qualification performed by this reviewer. PR79 remains draft/unmerged and release/install holds remain."
+  },
+  "ui_sync_followup": {
+    "reviewed_at_utc": "2026-10-23T22:58:07.574165+00:00",
+    "reviewed_worktree_based_on_commit": "346da5302250cdff9b57532f18375e561eb06eeb",
+    "reviewed_state": "Uncommitted UI-test synchronization correction; future commit identity and runtime pass are not inferred.",
+    "reviewed_new_files": [
+      {
+        "path": "StrandiOSUITests/ApprovedDashboardUITests.swift",
+        "bytes": 54726,
+        "sha256": "49dddfd44fc4f3699c42ced976b73f46fc9adf331eaa4b6947a1024a50617f81"
+      }
+    ],
+    "previous_reviewed_entries_preserved": 45,
+    "effective_reviewed_entries_after_integration_overrides_and_addition": 46,
+    "production_code_changed_in_followup": false,
+    "independent_byte_checks": {
+      "prefix_before_wait_unchanged": true,
+      "suffix_from_failure_diagnostics_unchanged": true,
+      "complete_round_trip_method_unchanged": true,
+      "assertion_calls_before": 78,
+      "assertion_calls_after": 78,
+      "timeout_seconds_before": 8,
+      "timeout_seconds_after": 8,
+      "physical_touch_preconditions_post_wait_order_and_row_assertions_retained": true,
+      "relaunch_rendering_restoration_assertions_retained": true,
+      "retry_retap_late_acceptance_or_waiver_added": false,
+      "failed_head_test_and_dashboard_view_identical_to_prior_passing_529adf2": true
+    },
+    "correction": "Exact identifier-and-full-ordered-value query with native waitForExistence replaces separate exists/value reads inside a block predicate; original eight-second deadline and all assertions remain.",
+    "correction_native_runtime_result": "pending fresh exact-head execution",
+    "failed_combined_ci": {
+      "run_id": 40002121607,
+      "run_attempt": 1,
+      "job_id": 120581722324,
+      "head_sha": "346da5302250cdff9b57532f18375e561eb06eeb",
+      "base_sha": "b7ebe85b2a7f5c0d25f2ef5a04b9d8dce8815679",
+      "tested_sha": "e516579ef7da5e30c3674ac627500e1e58ab37a7",
+      "matching_tree": "1ad4789173e00a5cfd7c8592b56c605c0f5dd826",
+      "plan_hash": "cd2fca032070ed644972a4ae25a6ace27d6adfafa6601b51c5d340cd63ad218f",
+      "conclusion": "failure",
+      "completed_at_utc": "2026-10-23T19:41:43Z",
+      "native_xctest": {
+        "executed": 3338,
+        "passed": 3334,
+        "skipped": 4,
+        "failed": 0
+      },
+      "swift_testing": {
+        "passed": 302,
+        "suites": 41,
+        "known_issues": 3
+      },
+      "release_hardening_cases_passed_once": 73,
+      "integrated_main_native_cases_passed_once": 15,
+      "selected_ui": {
+        "executed": 21,
+        "passed": 20,
+        "failed": 1,
+        "skipped": 0,
+        "missing": 0,
+        "unexpected": 0
+      },
+      "unique_paired_xctest_cases": 3359,
+      "repeated_cases": 0,
+      "test_retry_flags_observed": false,
+      "full_log_sha256": "cc329e0ddec6e597af82e93beeb6b9e478f3cdad7f8b10132456a38eb64cdc00",
+      "independently_checked_evidence_hashes": 32,
+      "gate_plan_byte_identical": true,
+      "failed_test": "NOOPCoachUITests/ApprovedDashboardUITests/testDashboardSettingsSelectionPersists",
+      "primary_failure": {
+        "switch": "today.health.sleep",
+        "log_lines": [
+          23762,
+          23774
+        ],
+        "later_saved_and_parsed_values_equal_expected": true
+      },
+      "cleanup_failure": {
+        "switch": "today.health.skinTemp",
+        "log_lines": [
+          24200,
+          24215
+        ],
+        "later_saved_and_parsed_values_equal_expected": true,
+        "native_row_value": "1"
+      },
+      "primary_throw_masked_by_cleanup_xctfail": true,
+      "relaunch_persistence_rendering_assertions_reached": false,
+      "gate_job_id": 120619112529,
+      "gate_errors": [
+        "app job build-and-test: expected success, got failure",
+        "app stage ui: expected success, got failure"
+      ],
+      "classification": "Observed readback synchronization failures; later exact values match. Does not establish lost preferences or a fixture-only/application-latency root cause."
+    },
+    "independently_verified_combined_packages": {
+      "run_id": 40002121569,
+      "run_attempt": 1,
+      "jobs_passed": 9,
+      "xctest_passed": 3605,
+      "xctest_skipped": 1,
+      "swift_testing_passed": 111,
+      "total_passed": 3716,
+      "failed": 0,
+      "unique_paired_xctest_cases": 3606,
+      "raw_log_hashes_checked": 9,
+      "evidence_manifest_entries_checked": 19
+    },
+    "reviewed_root_result_documents": [
+      "docs/qa/noop-2-release-hardening/README.md",
+      "docs/qa/noop-2-release-hardening/native-ci-combined-result.json"
+    ],
+    "unresolved_confirmed_source_patch_findings": 0,
+    "known_unresolved_release_findings": [
+      "F16 / DL-05, inherited P1",
+      "Fresh exact-head UI and aggregate qualification after synchronization correction"
+    ],
+    "limits": "No fresh corrected native runtime execution, physical-device test or app performance measurement performed. Original failed run remains failed; draft/unmerged and install/publication holds remain."
+  }
+}

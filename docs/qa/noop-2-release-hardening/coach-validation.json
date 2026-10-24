@@ -1,0 +1,71 @@
+{
+  "base_commit": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+  "audit_date": "2026-10-23",
+  "toolchain": "Swift 6.4.1, Linux x86_64",
+  "cloud": {
+    "scope": "Complete actual AICoachEngine and all four provider implementations; unavailable platform/domain imports and Keychain replaced with inert test dependencies. No real key, network, model, or health database used.",
+    "original_baseline": {
+      "tests": 26,
+      "failed_cases": 15,
+      "failed_assertions": 21,
+      "exit_code": 1,
+      "log": "cloud/red-all.log"
+    },
+    "retry_baseline": {
+      "tests": 4,
+      "failed_cases": 2,
+      "failed_assertions": 2,
+      "exit_code": 1,
+      "log": "cloud/retry-red.log",
+      "observed": "Custom and OpenAI each sent 2 requests after source retirement; expected 1. Both stable-source retry controls passed."
+    },
+    "final": {
+      "tests": 30,
+      "failed_cases": 0,
+      "failed_assertions": 0,
+      "exit_code": 0,
+      "log": "cloud/green-all.log",
+      "composition": "20 new request ownership tests + 2 existing refresh race tests + 8 existing provider model parser tests"
+    }
+  },
+  "weekly": {
+    "scope": "Exact actual weekly/source/consent engine method bodies and actual model/store/calendar code; unrelated conversation/UI/persistence shell stubbed. This is method-level evidence, not complete LocalCoachEngine compilation.",
+    "baseline": {
+      "tests": 8,
+      "failed_cases": 6,
+      "failed_assertions": 10,
+      "exit_code": 1,
+      "log": "weekly/red.log"
+    },
+    "final": {
+      "tests": 8,
+      "failed_cases": 0,
+      "failed_assertions": 0,
+      "exit_code": 0,
+      "log": "weekly/green.log"
+    }
+  },
+  "prompt_preservation": {
+    "files": 32,
+    "all_original_string_literals_byte_preserved": true,
+    "added_literals": [
+      "Custom.swift: /chat/completions",
+      "Custom.swift: /models"
+    ],
+    "proof": "coach-prompt-literal-proof.json",
+    "command_from_repository_root": "python3 docs/qa/noop-2-release-hardening/check-coach-literals.py ."
+  },
+  "scope_diff_check_passed": true,
+  "native_app_build_executed": false,
+  "native_gate": [
+    "AICoachRequestOwnershipTests",
+    "AICoachRefreshModelsRaceTests",
+    "AIProviderModelListTests",
+    "AICoachPromptAndStressTests",
+    "AICoachPortTests",
+    "LocalCoachWeeklyInsightOwnershipTests",
+    "LocalCoachEngineTests",
+    "WeeklyDigestTests"
+  ],
+  "reproducible_evidence_archive": "/workspace/scratch/fc582a8e42a6/coach-audit-evidence.tar.gz"
+}

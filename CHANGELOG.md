@@ -26,9 +26,25 @@ In development in PR81, stacked on the reviewed PR79 fixes. Merge is authorized 
 - **Sleep takes focus.** The stage chart follows the KPI figures, with alarms directly below the stage section. Sleep values and the score dial are 25% larger; the stage plot is 40% taller with thicker bars. Existing heart-rate row heights and centered text are preserved.
 - **Multiple wake alarms.** Save independent wake times and days. WHOOP 4 stores one endpoint, so the next enabled occurrence is armed and later strap alarms require NOOP to run and reconnect. Each enabled schedule has a phone notification backup, subject to iOS permissions and delivery limits.
 
+- **Trends continuity.** Returning to an unchanged range retains its completed snapshot while refreshing. Navigation keeps older weeks available across gaps in stored history. Profile changes still invalidate calorie calculations.
+- **Sync progress.** Failed transfers publish only already committed history for scoring and preserve replay debt. Shared background requests remain scheduled while either HealthKit journal has pending work. Locked overnight device behavior still requires a real device run.
+- **Bug fixes and improvements.** Unrepresentable Sleep durations no longer trap integer conversion. Replacing phone alarm backups preserves compatible schedules on failure and keeps obsolete operations from restoring deleted alarms.
+
+## 2.0.1
+
+Reviewed PR79 fixes, integrated with current main before the 2.0.2 feature update. Phone installation and release publication remain on hold.
+
+- **Reliable sleep edits and undo.** Edits and deletion find the visible canonical night after re-pairing, repeated saves preserve stage totals, and undo restores recovered Rest/Charge evidence and auxiliary tracks atomically. Conflicting new data retains the undo action for retry. Historical night selection now shares the engine's existing deduplication and daylight-saving handling.
+- **Coach ownership and privacy.** Requests keep their original provider, model, key and server through context loading and retries. Changed consent or data ownership invalidates obsolete work and outbound history. Weekly insights belong to the current source and database. All existing Coach prompts and instructions are unchanged.
+- **Strap and background reliability.** Bluetooth loss and Forget retire the connection's timers, secure state and queued work while preserving received samples under their original owner. Expired background launches cannot start another history transfer. Repeated WHOOP 5/MG fallback notifications publish/log a mode only when it changes; every sensor reading is still processed.
+- **Faster live workout updates.** Correcting the current heart-rate second uses the existing incremental projection operation instead of repeatedly sorting and rebuilding the whole workout. Exact calories, zones and trace outputs are preserved, including pauses and fallback rebuilds.
+- **Safer health imports.** Invalid or out-of-range numeric fields cannot trap integer conversion or contaminate daily heart-rate aggregation. Other valid readings and workout fields continue to import with the existing rounding rules.
+- **Release privacy declarations.** App and widget bundles declare their existing required-reason API usage, with tests that inspect the built resources.
+
+
 ## 2.0.0
 
-Easton approved and installed the combined 2.0.0 candidate as build 252 on October 24. This entry covers merged work from PR68 through PR80 plus the release-copy update in PR81. Open PR79 is not included. Release publication remains on hold; new work targets 2.0.2.
+Easton approved and installed the combined 2.0.0 candidate as build 252 on October 24. This entry covers merged work from PR68 through PR80 plus the release-copy update in PR81. PR79 was not included in that installed candidate. Release publication remains on hold; new work targets 2.0.2.
 
 - **Recent and stable readiness.** Physiology baselines expire by calendar day, non-finite observations cannot crash the readiness view, and extreme imported loads cannot overflow the training-load warmup. Sparse sleep interpolation preserves the same output with one forward neighbor search.
 - **Review and runtime reliability.** Cancelled HealthKit queries release their import work without waiting for late callbacks, and cancellation before an export deletion keeps the existing samples. Anchored reads stop at cancellation boundaries.

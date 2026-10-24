@@ -152,7 +152,9 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
     }
 
     func testTheHoldDeadlineEndsTheBackgroundTask() async throws {
-        let manager = BLEManager(state: LiveState(), collector: nil)
+        // Measure the actual deadline timer on a stable simulated link. A simulator central's initial
+        // unavailable callback is a separate retirement event, covered by BLEConnectionRetirementTests.
+        let manager = BLEManager(state: LiveState(), collector: nil, receiveBluetoothCallbacks: false)
         let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
         manager.holdWhoop5ClientHelloForTesting(session, until: Date().addingTimeInterval(0.2))
         XCTAssertTrue(manager.whoop5HoldBackgroundTaskActiveForTesting)

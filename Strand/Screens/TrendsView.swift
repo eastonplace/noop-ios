@@ -27,6 +27,11 @@ struct TrendsView: View {
     /// and decoded once per change rather than on every render.
     @AppStorage(WeeklyCoachInsightStore.defaultsKey) var coachInsightData: Data?
     @State var coachInsight: WeeklyCoachInsight?
+    var currentCoachInsight: WeeklyCoachInsight? {
+        guard !repo.verifiedExternalSurfaceFenced, let insight = coachInsight,
+              insight.sourceID == repo.todayHealthSnapshotScopeId + "|" + repo.liveSourceState.lineageComponent else { return nil }
+        return insight
+    }
     @State var selectedMetric: ProductionTrendMetric = .recovery
     @State var selectedRange: TrendRange = .month
     /// Zero is the current Monday-Sunday digest; negative values step backward.

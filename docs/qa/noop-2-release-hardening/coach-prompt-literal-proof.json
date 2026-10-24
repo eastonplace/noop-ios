@@ -1,0 +1,265 @@
+{
+  "base": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+  "files": [
+    {
+      "file": "Strand/AI/AICoach.swift",
+      "original_literal_count": 108,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "063d95a3f0ead2a03683797d3c7cdd3936906698f4af43cf22fdb60776054607",
+      "unchanged_entire_file": false
+    },
+    {
+      "file": "Strand/AI/AIProvider.swift",
+      "original_literal_count": 42,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "c258ebb96ec95d03d33bda170ce914d348ac5aa3d9473f68ef30ff2ef20c5c1b",
+      "unchanged_entire_file": false
+    },
+    {
+      "file": "Strand/AI/Providers/Anthropic.swift",
+      "original_literal_count": 20,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "424c1c1fee40d27d6d20c9fb3ab0b2190170c5af383e7ef304eb97d0811b099e",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "Strand/AI/Providers/Custom.swift",
+      "original_literal_count": 33,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {
+        "\"/chat/completions\"": 1,
+        "\"/models\"": 1
+      },
+      "original_literals_sha256": "75992d70be9b6947a9c1f6382b8c9b869d2882cf1dcba2f4c4816d2021b7ec75",
+      "unchanged_entire_file": false
+    },
+    {
+      "file": "Strand/AI/Providers/Gemini.swift",
+      "original_literal_count": 31,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "fb139e65227e24578ae9eee8712a47f771f10f9a8308df9b9042905108d7cbe8",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "Strand/AI/Providers/OpenAI.swift",
+      "original_literal_count": 29,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "b4a5a5f5d97f66771188a3af41f595c59c05bd45b77cd728579962f43cbed8c1",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachChatParts.swift",
+      "original_literal_count": 21,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "c9f45b971478b7c16f6831c924e7ec073fe880a3b8b19ac0de42841318a19dbe",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachConversationView.swift",
+      "original_literal_count": 56,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "5c804f786b1d4bcc6297ecee0e56c7e366d2f5259f00919339d09b0355326393",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachExperiencePolicy.swift",
+      "original_literal_count": 177,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "189f894c6247f833e1fc968994bc50b58e7b4cc093d34d335a43d4dea85f22ad",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachJournalDemo.swift",
+      "original_literal_count": 2,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "94c63fb43b7a464b3b5e1d9c5ef2a4ce7759d09b3b1b32df768fb109925c72e8",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachJournalSession.swift",
+      "original_literal_count": 13,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "e0580395f4d8c27faee29cfcb74c9440af6635da5ff60005fbc70e38046180a1",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachJournalSheet.swift",
+      "original_literal_count": 21,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "9f3e2e9b7f54172e89dff859715f0303ad0837398b058ac692d36ebe3b997d73",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachJournalWidget.swift",
+      "original_literal_count": 41,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "427a8d2ef558b23699167d841811df23dfbdce7373e1083c991ed930644ace55",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachProgressView.swift",
+      "original_literal_count": 13,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "59838db7d1e087a6b64b93ff4c4c92f6b10d060c1c0d670169a466d3a5e2983d",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachShellFixture.swift",
+      "original_literal_count": 5,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "4bb45ea238957bd3d86d31809fa2c84f5864fe34c7ea7f556e3413f67ef13457",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/CoachWelcomeView.swift",
+      "original_literal_count": 48,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "ec28ad7683c2d9619d38b32640dbed718a1109e757a41260f6eb9d9bcad73937",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachAttachment.swift",
+      "original_literal_count": 7,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "353ec3be4e5f741dabc0936ef0114df48ac481831b268f9200dc6ed145cc822e",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachCardViews.swift",
+      "original_literal_count": 134,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "50a66a9de66569da160efbe3457291740eb4a67fd7738c0018fca4cf3e53e90f",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachCards.swift",
+      "original_literal_count": 120,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "114d78767f3d5c090949f18fa61b98520cdca6c1a393acc78bc3151d5c085596",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachDataService.swift",
+      "original_literal_count": 286,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "4fec7a1d0babd896ac3d09c9543c33cd6564da806ea7e3486d932d2039a10aed",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachDiagnostics.swift",
+      "original_literal_count": 54,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "910c779901cce2d79aa4d51228720613b93bf9595057ea1048078f636fb5c1d6",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachDiagnosticsView.swift",
+      "original_literal_count": 50,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "7ddc9d0a84516b7763f0c52dc2d4583f72628ec42da35dda3b42e98d477bdd81",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachEngine.swift",
+      "original_literal_count": 181,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "00324e1939efdc4dab4bc1ef1f3c2451d7cb78a5bd8b42a80a8250da7056f787",
+      "unchanged_entire_file": false
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachIntents.swift",
+      "original_literal_count": 41,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "72ca672e59b86759e24d38bdad2ddd25943206de5f0bf4054828ee73a69c05e0",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachLibraryViews.swift",
+      "original_literal_count": 98,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "347669a5aacc0798ca71abb18eaf1b9949e0ea98d9ad1dbd022fb9987c750b0d",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachModels.swift",
+      "original_literal_count": 28,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "0afed9cac70f73ab46835edec84a58924d65c6986a285de9ca7221fbe358acfc",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachParts.swift",
+      "original_literal_count": 41,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "f0150c38b45a982acda019d1705734b5c3b8b4fe07e1454cd8ccb98cb12d208e",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachPersistence.swift",
+      "original_literal_count": 9,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "b9f5de267463cba3278a8ff5c7429676a378ec408950648c1e31799d03a64984",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachPlanAdapter.swift",
+      "original_literal_count": 247,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "882b5757a17a0a7fbec50620020cbaee90096aee47deb8d4a054c82c3126e2b0",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachPlanView.swift",
+      "original_literal_count": 74,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "b4b141188c47d22cf957a5bb37c1876fc8bf86d2f307ffae5da93d07af5369ff",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachView.swift",
+      "original_literal_count": 158,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "f1ae11621320a43245f0186ceb8d0b6fb616701a25e89a4a1527756012273975",
+      "unchanged_entire_file": true
+    },
+    {
+      "file": "StrandiOS/Coach/LocalCoachVoice.swift",
+      "original_literal_count": 24,
+      "removed_or_changed_original_literals": 0,
+      "added_transport_path_literals": {},
+      "original_literals_sha256": "58636b4c2e9e51d60e6eea7192fd8b499645e16dbbdefaa8fd671b28392c18cb",
+      "unchanged_entire_file": true
+    }
+  ],
+  "result": "PASS: every original cloud/on-device Coach string literal retained byte-for-byte; only two new endpoint path literals."
+}

@@ -52,6 +52,12 @@ enum AppChangelog {
             Feature("bed.double.fill", .sleep, "Sleep takes focus", "Larger figures and stages, with alarms below the chart."),
             Feature("alarm.fill", .sleep, "Multiple wake alarms", "Save wake times with their own days and switches."),
             Feature("checkmark.circle", .accent, "Clear alarm delivery", "See the next strap alarm and phone backup status."),
+            Feature("checkmark.shield.fill", .accent, "Bug fixes and improvements", "Steadier Trends, sync progress and sleep details."),
+        ]),
+        .fork("2.0.1", "More reliable every day", "October 2026", [
+            Feature("bed.double.fill", .sleep, "Safer sleep edits", "Edit and undo nights while preserving recovery history."),
+            Feature("bubble.left.and.bubble.right.fill", .journal, "Coach stays current", "Replies follow your data source and privacy choices."),
+            Feature("checkmark.shield.fill", .accent, "Bug fixes and improvements", "Safer imports, steadier connections and live workouts."),
         ]),
         .fork("2.0.0", "NOOP 2.0", "October 2026", [
             Feature("heart.text.square.fill", .heart, "Heads-Up", "See when your body looks run down, and why."),

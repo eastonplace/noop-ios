@@ -1,0 +1,106 @@
+{
+  "integrated_main": "b7ebe85b2a7f5c0d25f2ef5a04b9d8dce8815679",
+  "previous_audit_head": "529adf2f652dcb1b98822665c6c4e895b27f5d32",
+  "results": [
+    {
+      "audit": "source_contract_audit.py",
+      "exit": 0,
+      "seconds": 5.023
+    },
+    {
+      "audit": "ui_unification_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.028
+    },
+    {
+      "audit": "whoop_ui_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.268
+    },
+    {
+      "audit": "workout_runtime_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.03
+    },
+    {
+      "audit": "workout_persistence_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.031
+    },
+    {
+      "audit": "trends_snapshot_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.029
+    },
+    {
+      "audit": "accessibility_localization_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.035
+    },
+    {
+      "audit": "healthkit_sync_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.166
+    },
+    {
+      "audit": "privacy_artifact_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.045
+    },
+    {
+      "audit": "paper_strings_contract_audit.py",
+      "exit": 0,
+      "seconds": 0.144
+    },
+    {
+      "audit": "project_hygiene_audit.py",
+      "exit": 0,
+      "seconds": 0.166
+    },
+    {
+      "audit": "test_project_hygiene_audit.py",
+      "exit": 0,
+      "seconds": 0.693
+    },
+    {
+      "audit": "test_bug_report_template.py",
+      "exit": 0,
+      "seconds": 0.097
+    },
+    {
+      "audit": "whats_new_release_audit.py",
+      "exit": 0,
+      "seconds": 0.048
+    },
+    {
+      "audit": "test_whats_new_release_audit.py",
+      "exit": 0,
+      "seconds": 2.039
+    },
+    {
+      "audit": "test_ci_change_classifier.py",
+      "exit": 0,
+      "seconds": 4.611
+    },
+    {
+      "audit": "test_ci_gate.py",
+      "exit": 0,
+      "seconds": 0.287
+    },
+    {
+      "audit": "test_ci_packages_workflow.py",
+      "exit": 0,
+      "seconds": 0.055
+    },
+    {
+      "audit": "test_ci_workflow_contract.py",
+      "exit": 0,
+      "seconds": 1.411
+    },
+    {
+      "audit": "test_ci_timings.py",
+      "exit": 0,
+      "seconds": 0.069
+    }
+  ]
+}

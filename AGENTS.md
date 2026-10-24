@@ -10,11 +10,12 @@ open-source NOOP, forked at upstream 9.0.1 in July 2026. Its own version history
 and confirmed bug fixes. Use `2.0.2` for PR81 despite the general minor-version rule below.
 Add a new What's New entry and preserve the cumulative 2.0.0 history. This request authorizes
 reviewing and merging useful PR79 fixes first, then merging PR81 with the requested changes
-after validation. It does not authorize another phone install, tag or release publication.
+after validation. PR79 uses the intermediate patch 2.0.1, build 253; PR81 uses 2.0.2, build 254.
+It does not authorize another phone install, tag or release publication.
 
 The shared 2.0 staging batch is closed in `docs/releases/2.0-batch.json`. Its approved installed
 candidate is `5235f823c719419d9006fab89b750484c20d246e` (build 252, PR81). It includes merged work
-from PR68 through PR80 plus the PR81 release copy; open PR79 is excluded. PR81 remains a branch
+from PR68 through PR80 plus the PR81 release copy; PR79 was excluded from that candidate. PR81 remains a branch
 dependency until merged. Publication remains held. The old same-version staging exception no
 longer applies to new app changes.
 

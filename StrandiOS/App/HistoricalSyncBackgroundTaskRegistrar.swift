@@ -57,7 +57,7 @@ enum HistoricalSyncBackgroundTaskRegistrar {
             let completion = HistoricalSyncBackgroundCompletionGate { success in
                 processingTask.setTaskCompleted(success: success)
             }
-            let operation = Task { @MainActor in
+            let operation = makeOperation {
                 if ActiveSessionGate.isActive() {
                     Self.schedule(after: ActiveSessionGate.retryDelay)
                     completion.complete(success: false)
@@ -84,6 +84,7 @@ enum HistoricalSyncBackgroundTaskRegistrar {
                     break
                 }
 
+                guard !Task.isCancelled else { return }
                 guard requestSync() else {
                     Self.schedule(after: HistoricalSyncBackgroundSchedulingPolicy.minimumRetrySeconds)
                     completion.complete(success: true)
@@ -120,6 +121,16 @@ enum HistoricalSyncBackgroundTaskRegistrar {
         }
         refresh()
         return registered
+    }
+
+    /// A launch can expire before its main-actor operation first executes.
+    static func makeOperation(
+        _ operation: @escaping @MainActor @Sendable () async -> Void
+    ) -> Task<Void, Never> {
+        Task { @MainActor in
+            guard !Task.isCancelled else { return }
+            await operation()
+        }
     }
 
     /// Built `nonisolated` and `@Sendable` so it is safe on whichever queue iOS expires the task from.
