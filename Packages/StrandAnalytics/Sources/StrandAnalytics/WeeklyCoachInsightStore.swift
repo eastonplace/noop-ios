@@ -2,18 +2,21 @@ import Foundation
 
 // WeeklyCoachInsightStore.swift — the one-line weekly takeaway the on-device Coach writes
 // and the Trends weekly readout reads. Foundation-only so both app targets share it.
-// Keyed by the Trends week's Monday ("yyyy-MM-dd", same as `WeeklyDigest.weekStart`),
-// so an insight is only ever shown against the week it was written for.
+// Owned by the source/database scope and the Trends week's Monday ("yyyy-MM-dd", same as
+// `WeeklyDigest.weekStart`), so a replacement database cannot reuse the previous records' insight.
 
 public struct WeeklyCoachInsight: Codable, Equatable, Sendable {
     public let weekStart: String
     public let text: String
     public let generatedAt: Date
+    /// Absent in legacy caches; production readers require an exact current owner before showing text.
+    public let sourceID: String?
 
-    public init(weekStart: String, text: String, generatedAt: Date) {
+    public init(weekStart: String, text: String, generatedAt: Date, sourceID: String? = nil) {
         self.weekStart = weekStart
         self.text = text
         self.generatedAt = generatedAt
+        self.sourceID = sourceID
     }
 }
 
@@ -51,10 +54,10 @@ public enum WeeklyCoachInsightStore {
     }
 
     @discardableResult
-    public static func save(weekStart: String, rawText: String, now: Date = Date(),
+    public static func save(weekStart: String, rawText: String, now: Date = Date(), sourceID: String? = nil,
                             defaults: UserDefaults = .standard) -> Bool {
         guard let text = clean(rawText), !weekStart.isEmpty else { return false }
-        let value = WeeklyCoachInsight(weekStart: weekStart, text: text, generatedAt: now)
+        let value = WeeklyCoachInsight(weekStart: weekStart, text: text, generatedAt: now, sourceID: sourceID)
         guard let data = try? JSONEncoder().encode(value) else { return false }
         defaults.set(data, forKey: defaultsKey)
         return true
@@ -82,8 +85,10 @@ public enum WeeklyCoachInsightStore {
     /// text until the new one is saved.
     public static func needsRefresh(forWeekStart weekStart: String, now: Date = Date(),
                                     calendar: Calendar = .current,
+                                    sourceID: String? = nil,
                                     defaults: UserDefaults = .standard) -> Bool {
         guard let value = load(defaults: defaults), value.weekStart == weekStart, !value.text.isEmpty else { return true }
+        if let sourceID, value.sourceID != sourceID { return true }
         return !calendar.isDate(value.generatedAt, inSameDayAs: now)
     }
 

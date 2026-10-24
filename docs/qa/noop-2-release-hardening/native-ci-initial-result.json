@@ -1,0 +1,166 @@
+{
+  "run_id": 39971271690,
+  "head_sha": "26e150d2bbd1fcdf14a65de06e834e8b0841d5da",
+  "tested_sha": "f0fa85d1d8eea0b8564a41df5991398a543ad641",
+  "xctest_cases": 3321,
+  "case_counts": {
+    "passed": 3316,
+    "failed": 1,
+    "skipped": 4
+  },
+  "repeated_case_completions": [],
+  "regressions": [
+    {
+      "name": "AICoachRequestOwnershipTests",
+      "expected": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T14:52:26.8335230Z \t Executed 20 tests, with 0 failures (0 unexpected) in 10.707 (12.810) seconds"
+    },
+    {
+      "name": "LocalCoachWeeklyInsightOwnershipTests",
+      "expected": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T15:05:11.7070130Z \t Executed 8 tests, with 0 failures (0 unexpected) in 0.670 (0.674) seconds"
+    },
+    {
+      "name": "BLEConnectionRetirementTests",
+      "expected": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T14:53:41.0465450Z \t Executed 6 tests, with 0 failures (0 unexpected) in 0.232 (0.234) seconds"
+    },
+    {
+      "name": "BLEFallbackPublicationTests",
+      "expected": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T14:53:41.0622830Z \t Executed 2 tests, with 0 failures (0 unexpected) in 0.010 (0.010) seconds"
+    },
+    {
+      "name": "BLEStoreBootstrapOwnershipTests",
+      "expected": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T14:53:42.6909350Z \t Executed 9 tests, with 0 failures (0 unexpected) in 1.588 (1.592) seconds"
+    },
+    {
+      "name": "SourceIdentityAdmissionTests",
+      "expected": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T15:05:29.7144470Z \t Executed 4 tests, with 0 failures (0 unexpected) in 0.250 (0.252) seconds"
+    },
+    {
+      "name": "RepositorySleepMutationTests",
+      "expected": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T15:05:22.6043260Z \t Executed 9 tests, with 0 failures (0 unexpected) in 1.302 (1.305) seconds"
+    },
+    {
+      "name": "HistoricalSyncCancellationTests",
+      "expected": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T14:54:00.3267780Z \t Executed 2 tests, with 0 failures (0 unexpected) in 0.005 (0.006) seconds"
+    },
+    {
+      "name": "PrivacyManifestTests",
+      "expected": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T15:05:17.9619560Z \t Executed 2 tests, with 0 failures (0 unexpected) in 0.004 (0.005) seconds"
+    },
+    {
+      "name": "HrBroadcasterRegressionTests",
+      "expected": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T14:54:00.3287470Z \t Executed 3 tests, with 0 failures (0 unexpected) in 0.010 (0.011) seconds"
+    },
+    {
+      "name": "WorkoutLiveProjectionCacheTests",
+      "expected": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T15:05:47.7478630Z \t Executed 4 tests, with 0 failures (0 unexpected) in 0.156 (0.157) seconds"
+    },
+    {
+      "name": "HealthImportNumericSafetyTests",
+      "expected": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "summary": "2026-10-23T14:53:59.0645980Z \t Executed 2 tests, with 0 failures (0 unexpected) in 0.183 (0.184) seconds"
+    }
+  ],
+  "status": "failed; retained as initial native qualification evidence, not accepted as passing",
+  "native_workflow_url": "https://github.com/eastonplace/noop-ios/actions/runs/39971271690",
+  "package_workflow_url": "https://github.com/eastonplace/noop-ios/actions/runs/39971271696",
+  "tree_sha": "ad0892b78ef9af71990623773ac658e2ede511a4",
+  "xcode": "26.6 (17F113)",
+  "apple_swift": "6.3.3",
+  "source_audits": "passed",
+  "native_safety_harnesses": {
+    "passed": 9,
+    "failed": 0
+  },
+  "app_widget_test_products_compiled": true,
+  "ui_execution": "withheld after native test failure",
+  "failure": {
+    "test": "BLEBackgroundReconnectHandoffTests.testTheHoldDeadlineEndsTheBackgroundTask",
+    "file": "StrandiOSTests/BLEBackgroundReconnectHandoffTests.swift",
+    "line": 163,
+    "message": "XCTAssertNil failed: a deadline that has passed is cleared",
+    "diagnosis": "The test creates a real simulator central, arms a synthetic hold and yields. An unsolicited radio-unavailable callback can retire the attempt and its background task/timer while preserving the reconnect-series deadline. The test stops waiting after retirement and incorrectly treats that lifecycle path as timer expiry. The native log does not timestamp the internal callback; its observed state is consistent with this source-traced path, exercised by deterministic controls. Production consumers reject expired hold dates. Preserve the real timer assertions, isolate only the timer fixture from unsolicited delegate callbacks, and test radio retirement separately."
+  },
+  "swift_testing": {
+    "cases": 300,
+    "suites": 41,
+    "known_preexisting_artwork_issues": [
+      "SidePlank",
+      "FacePull",
+      "DeadHang"
+    ]
+  },
+  "preexisting_xctest_skips": [
+    {
+      "test": "IntelligenceTimestampSafetyTests.testCivilDayWindowsUseGregorianKeysUnderABuddhistCalendar",
+      "reason": "DL-05 deferred calendar-key migration; investigated as a remaining correctness finding"
+    },
+    {
+      "test": "LocalCoachDiagnosticsTests.testSyntheticModelGenerationWhenAvailable",
+      "reason": "Simulator model assets not downloaded"
+    },
+    {
+      "test": "LocalCoachEngineTests.testLiveModelCallsSyntheticReadToolAndKeepsEvidence",
+      "reason": "Simulator model assets not downloaded"
+    },
+    {
+      "test": "XiaomiImporterIntegrationTests.testRealExportRoundTripsIntoStore",
+      "reason": "Optional XIAOMI_REAL_DB fixture unavailable"
+    }
+  ],
+  "packages": {
+    "jobs_passed": 9,
+    "tests_passed": 3693,
+    "tests_skipped": 1,
+    "failures": 0,
+    "skip": "XiaomiBandImporterTests.testRealExportIfAvailable requires XIAOMI_REAL_DB"
+  },
+  "new_or_extended_regression_suite_cases_passed": 71,
+  "final_validation": "Read the exact final PR head checks and PR description; this file intentionally preserves the earlier failed run and is not a final-pass claim."
+}

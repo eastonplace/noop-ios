@@ -1,0 +1,102 @@
+[
+  {
+    "audit": "source_contract_audit.py",
+    "exit": 0,
+    "seconds": 5.33
+  },
+  {
+    "audit": "ui_unification_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.04
+  },
+  {
+    "audit": "whoop_ui_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.24
+  },
+  {
+    "audit": "workout_runtime_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.03
+  },
+  {
+    "audit": "workout_persistence_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.03
+  },
+  {
+    "audit": "trends_snapshot_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.02
+  },
+  {
+    "audit": "accessibility_localization_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.03
+  },
+  {
+    "audit": "healthkit_sync_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.18
+  },
+  {
+    "audit": "privacy_artifact_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.04
+  },
+  {
+    "audit": "paper_strings_contract_audit.py",
+    "exit": 0,
+    "seconds": 0.13
+  },
+  {
+    "audit": "project_hygiene_audit.py",
+    "exit": 0,
+    "seconds": 0.14
+  },
+  {
+    "audit": "test_project_hygiene_audit.py",
+    "exit": 0,
+    "seconds": 0.72
+  },
+  {
+    "audit": "test_bug_report_template.py",
+    "exit": 0,
+    "seconds": 0.11
+  },
+  {
+    "audit": "whats_new_release_audit.py",
+    "exit": 0,
+    "seconds": 0.04
+  },
+  {
+    "audit": "test_whats_new_release_audit.py",
+    "exit": 0,
+    "seconds": 2.08
+  },
+  {
+    "audit": "test_ci_change_classifier.py",
+    "exit": 0,
+    "seconds": 4.03
+  },
+  {
+    "audit": "test_ci_gate.py",
+    "exit": 0,
+    "seconds": 0.27
+  },
+  {
+    "audit": "test_ci_packages_workflow.py",
+    "exit": 0,
+    "seconds": 0.06
+  },
+  {
+    "audit": "test_ci_workflow_contract.py",
+    "exit": 0,
+    "seconds": 1.33
+  },
+  {
+    "audit": "test_ci_timings.py",
+    "exit": 0,
+    "seconds": 0.06
+  }
+]

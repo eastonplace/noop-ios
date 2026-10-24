@@ -10,7 +10,7 @@ enum AppChangelog {
     /// MARKETING_VERSION) instead of a third hand-maintained copy that drifted; the literal is only the
     /// fallback outside an app bundle. Add the matching entry to `releases` when the version changes.
     static let currentVersion: String =
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.0.0"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.0.1"
 
     struct Release: Identifiable {
         let version: String
@@ -48,16 +48,21 @@ enum AppChangelog {
 
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
+        .fork("2.0.1", "More reliable every day", "October 2026", [
+            Feature("bed.double.fill", .sleep, "Safer sleep edits", "Edit and undo nights while preserving recovery history."),
+            Feature("bubble.left.and.bubble.right.fill", .journal, "Coach stays current", "Replies follow your data source and privacy choices."),
+            Feature("checkmark.shield.fill", .accent, "Bug fixes and improvements", "Safer imports, steadier connections and live workouts."),
+        ]),
         .fork("2.0.0", "NOOP 2.0", "October 2026", [
             Feature("heart.text.square.fill", .heart, "Heads-Up", "See when your body looks run down, and why."),
-            Feature("book.closed.fill", .journal, "Journal and Insights", "Tap or dictate notes; see sleep and training patterns."),
+            Feature("book.closed.fill", .journal, "Journal, Coach and Insights", "Log notes, explore patterns and add a Coach brief widget."),
             Feature("flame.fill", .strain, "Training load and targets", "Preview daily targets and see your training load mix."),
             Feature("dumbbell.fill", .strain, "Lift plans and imports", "Review progression or import CSV and Excel routines."),
             Feature("figure.walk", .accent, "Workout review and export", "Review detected types and share measured GPX or FIT routes."),
             Feature("waveform.path.ecg", .stress, "Your stress baseline", "Compare hourly stress with your own normal."),
-            Feature("heart.fill", .hrv, "Reliable daily data", "Cleaner scores, protected history, faster workout review."),
             Feature("bed.double.fill", .sleep, "Sleep and alarms", "Sleep need and stages; alarms check your strap."),
             Feature("info.circle", .accent, "Score guides everywhere", "See what each metric means and how to read yours."),
+            Feature("checkmark.shield.fill", .hrv, "Bug fixes and improvements", "Cleaner scores, filtered steps, safer sync and history."),
         ]),
         .fork("1.8.1", "Steadier readings and scores", "October 2026", [
             Feature("antenna.radiowaves.left.and.right", .accent, "Connection control", "Disconnect and Forget keep your strap released."),
