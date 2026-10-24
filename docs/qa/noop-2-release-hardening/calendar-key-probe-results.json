@@ -1,0 +1,95 @@
+{
+  "swiftc": "Swift version 6.4.1 (swift-6.4.1-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+  "helper_declarations_extracted_without_body_edits": 9,
+  "helper_cases": [
+    {
+      "calendar": "gregorian",
+      "engine_keys": [
+        "2026-10-12",
+        "2026-10-11"
+      ],
+      "engine_next_start": 1791824400,
+      "engine_start": 1791738000,
+      "gregorian_key_parsed_with_input_calendar": 1791738000,
+      "repository_local": "2026-10-12",
+      "repository_logical": "2026-10-12",
+      "repository_refresh": "2026-10-12",
+      "store_local": "2026-10-12"
+    },
+    {
+      "calendar": "buddhist",
+      "engine_keys": [
+        "2569-10-12",
+        "2569-10-11"
+      ],
+      "engine_next_start": 1791824400,
+      "engine_start": 1791738000,
+      "gregorian_key_parsed_with_input_calendar": -15342936124,
+      "repository_local": "2569-10-12",
+      "repository_logical": "2569-10-12",
+      "repository_refresh": "2026-10-12",
+      "store_local": "2026-10-12"
+    },
+    {
+      "calendar": "japanese",
+      "engine_keys": [
+        "0008-10-12",
+        "0008-10-11"
+      ],
+      "engine_next_start": 1791824400,
+      "engine_start": 1791738000,
+      "gregorian_key_parsed_with_input_calendar": 65473722000,
+      "repository_local": "0008-10-12",
+      "repository_logical": "0008-10-12",
+      "repository_refresh": "2026-10-12",
+      "store_local": "2026-10-12"
+    },
+    {
+      "calendar": "hebrew",
+      "engine_keys": [
+        "5787-02-01",
+        "5787-01-30"
+      ],
+      "engine_next_start": 1791824400,
+      "engine_start": 1791738000,
+      "gregorian_key_parsed_with_input_calendar": -116874945724,
+      "repository_local": "5787-02-01",
+      "repository_logical": "5787-02-01",
+      "repository_refresh": "2026-10-12",
+      "store_local": "2026-10-12"
+    },
+    {
+      "calendar": "islamic-civil",
+      "engine_keys": [
+        "1448-04-29",
+        "1448-04-28"
+      ],
+      "engine_next_start": 1791824400,
+      "engine_start": 1791738000,
+      "gregorian_key_parsed_with_input_calendar": 19502269200,
+      "repository_local": "1448-04-29",
+      "repository_logical": "1448-04-29",
+      "repository_refresh": "2026-10-12",
+      "store_local": "2026-10-12"
+    }
+  ],
+  "synthetic_sql_checks": {
+    "scope": "synthetic SQLite schemas and exact production heal predicate; no live store",
+    "gregorian_refresh_visible_daily_rows": [
+      [
+        "my-whoop",
+        "2026-10-12"
+      ]
+    ],
+    "hydration_at_gregorian_key_after_helper_only_change": [],
+    "naive_journal_rekey_error": "UNIQUE constraint failed: journal.deviceId, journal.day, journal.question",
+    "heal_sql": "DELETE FROM dailyMetric WHERE day > ? OR (day < ? AND deviceId LIKE '%-noop')",
+    "heal_deleted_non_gregorian_computed_rows": 1,
+    "remaining_daily_rows": [
+      [
+        "my-whoop",
+        "2026-10-12"
+      ]
+    ]
+  }
+}

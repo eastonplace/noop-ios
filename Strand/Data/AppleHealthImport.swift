@@ -9,7 +9,7 @@ enum AppleHealthImport {
 
     /// The Apple Health mapping revision, stamped into the Import test-mode parser line. Bump when this
     /// importer's aggregate->store mapping changes.
-    static let importerVersion = 2
+    static let importerVersion = 3
 
     @discardableResult
     static func importExport(url: URL, into store: WhoopStore, deviceId: String,
@@ -25,11 +25,11 @@ enum AppleHealthImport {
         // Apple-specific daily aggregates (steps/energy/vo2/hr/weight).
         let appleRows = daily.map { d in
             AppleDaily(day: d.day,
-                       steps: d.steps.map { Int($0) },
+                       steps: ImportNumericSafety.integer(d.steps),
                        activeKcal: d.activeKcal, basalKcal: d.basalKcal, vo2max: d.vo2max,
-                       avgHr: d.avgHr.map { Int($0.rounded()) },
-                       maxHr: d.maxHr.map { Int($0.rounded()) },
-                       walkingHr: d.walkingHr.map { Int($0.rounded()) },
+                       avgHr: ImportNumericSafety.integer(d.avgHr, rounding: .toNearestOrAwayFromZero),
+                       maxHr: ImportNumericSafety.integer(d.maxHr, rounding: .toNearestOrAwayFromZero),
+                       walkingHr: ImportNumericSafety.integer(d.walkingHr, rounding: .toNearestOrAwayFromZero),
                        weightKg: d.weightKg)
         }
         // Capture the rows the store actually wrote (summed SQLite changes) for the Import test mode; the
@@ -41,13 +41,13 @@ enum AppleHealthImport {
                         totalSleepMin: d.asleepMin, efficiency: nil,
                         deepMin: d.deepMin, remMin: d.remMin, lightMin: d.coreMin,
                         disturbances: nil,
-                        restingHr: d.restingHr.map { Int($0.rounded()) },
+                        restingHr: ImportNumericSafety.integer(d.restingHr, rounding: .toNearestOrAwayFromZero),
                         avgHrv: d.hrvSDNN, recovery: nil, strain: nil, exerciseCount: nil,
                         spo2Pct: d.spo2Pct, skinTempDevC: nil, respRateBpm: d.respRate,
                         // #89: Apple Health steps must land in DailyMetric.steps too — the sourced-daily
                         // arbitration resolves "steps" via metricValue(d) = d.steps, so leaving it nil (the
                         // pre-fix state) meant imported Apple steps never surfaced there.
-                        steps: d.steps.map { Int($0) })
+                        steps: ImportNumericSafety.integer(d.steps))
         }
         // Explicit exports can be fragments. In-bed/awake-only data is not an observed slept zero;
         // preserve absent sleep and other metric fields while updating values this import contains.
@@ -67,8 +67,8 @@ enum AppleHealthImport {
                        endTs: Int(w.end.timeIntervalSince1970),
                        sport: w.activityType, source: WorkoutSource.appleHealthSource,
                        durationS: w.durationS, energyKcal: w.energyKcal,
-                       avgHr: w.avgHr.map { Int($0.rounded()) },
-                       maxHr: w.maxHr.map { Int($0.rounded()) }, strain: nil,
+                       avgHr: ImportNumericSafety.integer(w.avgHr, rounding: .toNearestOrAwayFromZero),
+                       maxHr: ImportNumericSafety.integer(w.maxHr, rounding: .toNearestOrAwayFromZero), strain: nil,
                        distanceM: w.distanceM, zonesJSON: nil, notes: nil)
         }
         let workoutsWritten = try await store.upsertWorkouts(workouts, deviceId: deviceId)
@@ -83,8 +83,8 @@ enum AppleHealthImport {
                 ImportTrace.stageLine(category: "appleDaily", rowsIn: appleRows.count, rowsOut: appleWritten),
                 ImportTrace.stageLine(category: "dailyMetric", rowsIn: dm.count, rowsOut: dmWritten),
                 ImportTrace.stageLine(category: "workouts", rowsIn: workouts.count, rowsOut: workoutsWritten),
-                // Apple Health is tolerant: skippedSpans counts XML spans the sanitizer scrubbed / a partial
-                // parse. The aggregator drops nothing further, so droppedRows is 0 here.
+                // skippedSpans counts XML spans the sanitizer scrubbed / a partial parse. Invalid
+                // numeric measurements are omitted separately; this legacy row trace does not count them.
                 ImportTrace.rejectLine(droppedRows: 0, skippedSpans: result.summary.skippedSpans),
                 ImportTrace.dayDeltaLine(category: "appleDaily", daysMapped: daysMapped, daysPersisted: appleWritten),
             ]

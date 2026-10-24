@@ -364,6 +364,18 @@ public struct AppleDailySampleAccumulator {
     /// reduction rules as `AppleHealthAggregator.daily(samples:)`.
     public mutating func add(_ s: HealthSample) {
         let type = AppleHealthAggregator.normalizedType(s.type)
+        if let value = s.value {
+            // A malformed XML number must not poison a day's means or trap an integer-backed
+            // heart-rate/step projection. Valid fractional readings keep the same reduction rules.
+            guard value.isFinite else { return }
+            switch type {
+            case AppleHealthAggregator.restingHR, AppleHealthAggregator.walkingHR, AppleHealthAggregator.heartRate:
+                guard ImportNumericSafety.integer(value, rounding: .toNearestOrAwayFromZero) != nil else { return }
+            case AppleHealthAggregator.stepCount:
+                guard ImportNumericSafety.integer(value) != nil else { return }
+            default: break
+            }
+        }
         let day = AppleHealthAggregator.localDay(s.start, tzOffsetMin: s.tzOffsetMin)
         if byDay[day] == nil {
             byDay[day] = DayAcc()
@@ -469,7 +481,9 @@ public struct AppleDailySampleAccumulator {
                 avgHr: mean(a.hrSum, a.hrN),
                 maxHr: a.hrMax,
                 walkingHr: mean(a.walkingSum, a.walkingN),
-                steps: a.stepsBySource.isEmpty ? nil : a.stepsBySource.values.max(),   // #589 max source, not cross-source sum
+                // #589: maximum source, not cross-source sum. Individually representable entries
+                // may still overflow the integer-backed daily total when combined.
+                steps: ImportNumericSafety.integerValue(a.stepsBySource.values.max(), rounding: .towardZero),
                 activeKcal: a.hasActive ? a.active : nil,
                 basalKcal: a.hasBasal ? a.basal : nil,
                 vo2max: a.vo2,

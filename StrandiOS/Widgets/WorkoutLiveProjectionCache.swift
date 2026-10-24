@@ -128,8 +128,16 @@ final class WorkoutLiveProjectionCache {
         }
         if snapshot.sampleCount > 0 {
             let cachedTail = samples[snapshot.sampleCount - 1]
-            guard cachedTail.ts == snapshot.lastTimestamp,
-                  cachedTail.bpm == snapshot.lastBPM else {
+            guard cachedTail.ts == snapshot.lastTimestamp else {
+                rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet,
+                        pauses: pauses)
+                return
+            }
+            // ActiveWorkout may replace its canonical last reading within the same second. Only that
+            // reading's representative second changes; the existing accumulator already corrects it
+            // exactly and uses the corrected rate for the next interval, including after a pause.
+            if cachedTail.bpm != snapshot.lastBPM,
+               !accumulator.replaceCurrentSecond(with: cachedTail) {
                 rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet,
                         pauses: pauses)
                 return

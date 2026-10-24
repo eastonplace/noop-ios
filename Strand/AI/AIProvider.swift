@@ -98,8 +98,8 @@ enum AIProvider: String, CaseIterable, Identifiable {
     /// Build a Custom endpoint by appending `path` to the user's base URL (trailing slashes tolerated).
     /// Falls back to a loopback placeholder when unset — the request then fails with a clear network
     /// error until the user sets a URL.
-    static func customURL(path: String) -> URL {
-        var base = customBaseURL
+    static func customURL(path: String, baseURL: String = AIProvider.customBaseURL) -> URL {
+        var base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         while base.hasSuffix("/") { base.removeLast() }
         return URL(string: base + path) ?? URL(string: "http://localhost" + path)!
     }
@@ -107,7 +107,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
 
 // MARK: - Provider protocol
 
-protocol AIProviderClient {
+protocol AIProviderClient: Sendable {
     /// Send a chat turn and return the assistant reply text.
     func send(
         key: String,
@@ -123,8 +123,20 @@ protocol AIProviderClient {
 
 // MARK: - Shared HTTP helpers
 
+/// A Coach request keeps its ownership check through the provider's asynchronous calls and retries.
+/// Direct provider calls have no engine owner; task cancellation still applies to every attempt.
+enum AIRequestAdmission {
+    @TaskLocal static var isCurrent: (@MainActor @Sendable () -> Bool)? = nil
+}
+
 /// Execute a request, map HTTP status codes to `AICoachError`, return the decoded JSON object.
 func performRequest(_ req: URLRequest, session: URLSession) async throws -> [String: Any] {
+    try Task.checkCancellation()
+    if let isCurrent = AIRequestAdmission.isCurrent, !(await isCurrent()) {
+        throw CancellationError()
+    }
+    // The actor hop above can suspend, so cancellation must be checked again before transmission.
+    try Task.checkCancellation()
     let data: Data
     let response: URLResponse
 

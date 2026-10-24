@@ -43,12 +43,14 @@ enum TestCentre { static func active(_ domain: Domain) -> Bool { false } }
 enum Family { case whoop4, whoop5 }
 struct Model { var deviceFamily: Family = .whoop4 }
 enum RadioState { case connected, connecting, disconnected, disconnecting }
+enum CentralState { case poweredOn, poweredOff, resetting }
 @MainActor final class CBPeripheral {
     let identifier: UUID
     var state: RadioState
     init(_ id: UUID, _ state: RadioState = .connected) { identifier = id; self.state = state }
 }
 @MainActor final class CBCentralManager {
+    var state = CentralState.poweredOn
     var canceled: [UUID] = []
     func cancelPeripheralConnection(_ p: CBPeripheral) { canceled.append(p.identifier) }
 }
@@ -184,7 +186,21 @@ do {
     h.centralManager(c, didFailToConnect: h.peripheral!, error: nil)
     check(h.reconnects == 0 && h.reconnectPolicy.attempts == 0, "late same-target failure cannot replace a newer connecting attempt")
 }
-print("BLE connection ownership: 11 scenarios, \(failures) failed assertions")
+for radioState in [CentralState.poweredOff, .resetting] {
+    do {
+        let h = prepared(a); let c = CBCentralManager(); c.state = radioState
+        h.centralManager(c, didConnect: h.peripheral!)
+        check(h.admissions == 0 && h.discoveries == 0 && !h.state.connected,
+              "unavailable radio cannot admit a late successful connection")
+    }
+    do {
+        let h = prepared(a, radio: .disconnected); let c = CBCentralManager(); c.state = radioState
+        h.centralManager(c, didFailToConnect: h.peripheral!, error: nil)
+        check(h.reconnects == 0 && h.reconnectPolicy.attempts == 0,
+              "unavailable radio cannot schedule a retry from a late failure")
+    }
+}
+print("BLE connection ownership: 15 scenarios, \(failures) failed assertions")
 if failures != 0 { exit(1) }
 '''.replace("__METHODS__", methods)
     fixture = policy_sources + "\n" + fixture
@@ -193,7 +209,7 @@ if failures != 0 { exit(1) }
         swift = directory / "main.swift"
         swift.write_text(fixture)
         binary = directory / "BLEConnectionOwnership"
-        compile_result = subprocess.run(["swiftc", "-swift-version", "6", "-module-cache-path", "/private/tmp/noop-review-ble-module-cache", str(swift), "-o", str(binary)])
+        compile_result = subprocess.run(["swiftc", "-swift-version", "6", "-module-cache-path", str(directory / "module-cache"), str(swift), "-o", str(binary)])
         return compile_result.returncode or subprocess.run([str(binary)]).returncode
 
 

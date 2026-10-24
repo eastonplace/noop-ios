@@ -1,0 +1,113 @@
+{
+  "original_audit_base": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+  "previous_audit_head": "529adf2f652dcb1b98822665c6c4e895b27f5d32",
+  "integrated_main": "b7ebe85b2a7f5c0d25f2ef5a04b9d8dce8815679",
+  "integrated_pr_78_head": "b2e1c0d54e5aad6b993c4117e0ac60b3c161fd2b",
+  "pr_78_merged_at": "2026-10-23T17:57:42Z",
+  "draft_pr": 79,
+  "conflicts_resolved": [
+    "Strand/Data/WhoopImporter.swift",
+    "Strand/System/AppChangelog.swift",
+    "project.yml"
+  ],
+  "resolution": "Preserve all incoming main guards/tests; delegate retained HR helper to shared exact conversion; retain build250 and cumulative release history.",
+  "source_audits": {
+    "passed": 20,
+    "failed": 0,
+    "evidence": "current-main-source-audits.json"
+  },
+  "resolved_swift_syntax": {
+    "command": "swiftc -frontend -parse Strand/Data/WhoopImporter.swift Strand/System/AppChangelog.swift",
+    "exit": 0,
+    "compiler": "Swift 6.4.1, Linux"
+  },
+  "coach_literal_preservation": {
+    "files": 32,
+    "exit": 0,
+    "evidence": "coach-prompt-literal-proof.json"
+  },
+  "benchmark_source_identity": [
+    {
+      "path": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRZones.swift",
+      "unchanged_from_measured_after_source": true,
+      "sha256": "9703aa7b087f2b3274803affb7b7b90c35f2275b38464e960b4150a0f9e2dae2"
+    },
+    {
+      "path": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "unchanged_from_measured_after_source": true,
+      "sha256": "8406a76aca2475cc1ffc7bd187d379f7dd2a3d3165c636c85af6a1940ecc05f1"
+    },
+    {
+      "path": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutLiveProjectionAccumulator.swift",
+      "unchanged_from_measured_after_source": true,
+      "sha256": "df517d155108abe0b6028455e5270f47a58a935ee7db9c9f34451f9f1ecf9a86"
+    },
+    {
+      "path": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutPauseLedger.swift",
+      "unchanged_from_measured_after_source": true,
+      "sha256": "f4a3d09e577c93df763a7ba5be691fa6d1bdb307e6978ec7b1cd6a164185ad69"
+    },
+    {
+      "path": "Packages/StrandDesign/Sources/StrandDesign/StrainScale.swift",
+      "unchanged_from_measured_after_source": true,
+      "sha256": "3d8986a7c7c495cce979ff408bc65efa0f679e9d3832df72c96df6f24eaadba3"
+    },
+    {
+      "path": "Packages/WhoopProtocol/Sources/WhoopProtocol/Streams.swift",
+      "unchanged_from_measured_after_source": true,
+      "sha256": "4bb5ec2fd23f1ad71c0fa371221c4b8f3392a570f9c35f900cb6e3aab880a390"
+    },
+    {
+      "path": "StrandiOS/Widgets/LiveActivityController.swift",
+      "unchanged_from_measured_after_source": true,
+      "sha256": "898c719af2b4ce4ac583c5e99233c4318816fb1c773c1ba888377c01cac631fd"
+    },
+    {
+      "path": "StrandiOS/Widgets/WorkoutLiveProjectionCache.swift",
+      "unchanged_from_measured_after_source": true,
+      "sha256": "9715fb15656aa8737cb4248928fc99d2ce8fe49cfef57ecb66bfd1087267e9a1"
+    }
+  ],
+  "previous_commit_ci": {
+    "native_workflow_id": 39977563756,
+    "attempt": 1,
+    "tested_merge": "3679f704708a8b1a45d3791954b58e2ed610973f",
+    "xctest": {
+      "executed": 3323,
+      "passed": 3319,
+      "skipped": 4,
+      "failed": 0
+    },
+    "swift_testing": {
+      "passed": 300,
+      "suites": 41,
+      "known_issues": 3
+    },
+    "selected_ui": {
+      "passed": 21,
+      "skipped": 0,
+      "failed": 0
+    },
+    "targeted_regression_suites": {
+      "passed": 73,
+      "skipped": 0,
+      "failed": 0
+    },
+    "aggregate": "failed: GitHub HTTP502 fetching successful package attempt job inventory",
+    "package_workflow_id": 39977563656,
+    "package_attempt": 1,
+    "package_jobs_passed": 9,
+    "package_tests_passed": 3693,
+    "package_tests_skipped": 1,
+    "infrastructure_retry": {
+      "attempt": 2,
+      "run_started_at": "2026-10-23T18:08:50Z",
+      "source": "original head and tested merge; not combined main",
+      "no_combined_validation_credit": true
+    }
+  },
+  "combined_native_ui_package_ci": "Required on the new pushed head; see PR79 checks/body for current result.",
+  "remaining_confirmed_issue": "F16 calendar/storage-key migration; not fixed by incoming PR78",
+  "phone_installs": "hold",
+  "release_publication": "hold"
+}

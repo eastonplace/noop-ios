@@ -195,6 +195,7 @@ struct SleepView: View {
     /// the snapshot needed to restore the deleted night into its ORIGINAL namespace and the window text
     /// for the message. A user-created/edited delete writes no tombstone but still offers undo (restore).
     @State private var sleepUndo: SleepUndoBanner?
+    @State private var sleepUndoInFlight: UUID?
     /// The pending auto-dismiss task for `sleepUndo`, cancelled when a new delete replaces the banner or
     /// the user hits Undo, so a stale timer can't clear a fresh banner.
     @State private var sleepUndoTask: Task<Void, Never>?
@@ -512,31 +513,43 @@ struct SleepView: View {
     private func presentSleepUndo(_ snapshot: SleepDeletionSnapshot, displayStart: Int, windowEnd: Int) {
         SleepUndoTaskControl.cancelAndClear(&sleepUndoTask)
         withAnimation(.easeOut(duration: 0.2)) {
-            sleepUndo = SleepUndoBanner(snapshot: snapshot, identityStart: snapshot.session.startTs,
+            sleepUndo = SleepUndoBanner(snapshot: snapshot,
                                         displayStart: displayStart, windowEnd: windowEnd)
         }
-        let armed = snapshot.session.startTs
+        let armed = sleepUndo?.id
         sleepUndoTask = Task {
             try? await Task.sleep(nanoseconds: 7_000_000_000)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 // Only clear if this is still the banner we armed (a newer delete would have replaced it).
-                if sleepUndo?.identityStart == armed {
+                if sleepUndo?.id == armed {
                     withAnimation(.easeOut(duration: 0.2)) { sleepUndo = nil }
+                    sleepUndoTask = nil
                 }
-                sleepUndoTask = nil
             }
         }
     }
 
     /// Undo the most recent suppressing delete: restore the row into its ORIGINAL namespace, lift the
-    /// tombstone, re-score, then dismiss the banner.
+    /// tombstone, re-score, then dismiss the banner. A failed/conflicting write keeps its snapshot and
+    /// offers a retry; an older completion cannot clear a newer deletion's banner.
     private func undoSleepDelete(_ banner: SleepUndoBanner) async {
+        guard sleepUndo?.id == banner.id, sleepUndoInFlight != banner.id else { return }
+        sleepUndoInFlight = banner.id
+        defer {
+            if sleepUndoInFlight == banner.id { sleepUndoInFlight = nil }
+        }
         SleepUndoTaskControl.cancelAndClear(&sleepUndoTask)
-        await repo.undoDeleteSleepSession(banner.snapshot)
+        guard await repo.undoDeleteSleepSession(banner.snapshot) else {
+            if sleepUndo?.id == banner.id { sleepUndo?.undoFailed = true }
+            return
+        }
         await intelligence.analyzeRecent()
         _ = await repo.refresh(.currentDay)
-        await MainActor.run { withAnimation(.easeOut(duration: 0.2)) { sleepUndo = nil } }
+        await MainActor.run {
+            guard sleepUndo?.id == banner.id else { return }
+            withAnimation(.easeOut(duration: 0.2)) { sleepUndo = nil }
+        }
     }
 
     /// Locale-formatted clock time (no date) for the banner's window range.
@@ -552,14 +565,19 @@ struct SleepView: View {
         // Branch the copy on userEdited: a hand-edited/added night writes NO tombstone (it is never
         // re-detected), so the suppression promise would be false for it. Only a DETECTED delete writes a
         // tombstone, so only it gets the "won't detect ... again" wording. (#65 banner honesty.)
-        let message = banner.snapshot.session.userEdited
-            ? String(localized: "Sleep deleted.")
-            : String(localized: "Sleep deleted. NOOP won't detect sleep between \(clockTime(banner.displayStart)) and \(clockTime(banner.windowEnd)) again.")
+        let message: String
+        if banner.undoFailed {
+            message = String(localized: "Couldn't restore this sleep. Try again.")
+        } else {
+            message = banner.snapshot.session.userEdited
+                ? String(localized: "Sleep deleted.")
+                : String(localized: "Sleep deleted. NOOP won't detect sleep between \(clockTime(banner.displayStart)) and \(clockTime(banner.windowEnd)) again.")
+        }
         return PaperToast(
             LocalizedStringKey(message),
-            systemImage: "moon.zzz",
+            systemImage: banner.undoFailed ? "exclamationmark.triangle" : "moon.zzz",
             tint: StrandPalette.restColor,
-            actionTitle: "Undo",
+            actionTitle: banner.undoFailed ? "Try again" : "Undo",
             announcement: message,
             dismissesOnAction: false
         ) {
@@ -2293,14 +2311,15 @@ enum SleepUndoTaskControl {
 
 /// Identifies the night being edited for `.sheet(item:)`. A night's `startTs` is its stable natural
 /// key (wake-time edits never move it), so it doubles as the sheet identity.
-/// The transient UNDO banner state after a suppressing delete (#65). `identityStart` is the immutable
-/// detected key so a stale auto-dismiss task can tell whether it still owns the current banner;
+/// The transient UNDO banner state after a suppressing delete (#65). A unique presentation ID lets a
+/// stale task distinguish even a second deletion of the same session from the banner it originally owned;
 /// `displayStart` is the effective (shown) onset for the message clock.
 private struct SleepUndoBanner {
+    let id = UUID()
     let snapshot: SleepDeletionSnapshot
-    let identityStart: Int
     let displayStart: Int
     let windowEnd: Int
+    var undoFailed = false
 }
 
 private struct WakeEdit: Identifiable {
