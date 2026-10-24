@@ -245,12 +245,17 @@ public struct FactStrip: View {
 
     private let facts: [Fact]
     private let labelStyle: LabelStyle
+    private let columnSpacing: CGFloat
     @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = WidgetMetrics.statValueSize
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    public init(facts: [Fact], labelStyle: LabelStyle = .caption) {
+    public init(facts: [Fact], labelStyle: LabelStyle = .caption,
+                valueSize: CGFloat = WidgetMetrics.statValueSize,
+                columnSpacing: CGFloat = NoopMetrics.space3) {
         self.facts = facts
         self.labelStyle = labelStyle
+        self.columnSpacing = columnSpacing
+        self._valueSize = ScaledMetric(wrappedValue: valueSize, relativeTo: .title3)
     }
 
     @ViewBuilder private func columnLabel(_ fact: Fact) -> some View {
@@ -295,8 +300,8 @@ public struct FactStrip: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
-                .padding(.trailing, index == facts.count - 1 ? 0 : NoopMetrics.space3)
+                .padding(.leading, index == 0 ? 0 : columnSpacing)
+                .padding(.trailing, index == facts.count - 1 ? 0 : columnSpacing)
                 .modifier(SpokenFact(fact: fact))
             }
         }

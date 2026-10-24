@@ -65,12 +65,8 @@ enum SleepAlarmEditorSupport {
         behavior: BehaviorStore,
         calendar: Calendar = .current
     ) -> SchedulePresentation? {
-        schedule(
-            at: now,
-            minutes: behavior.smartAlarmMinutes,
-            weekdays: behavior.smartAlarmWeekdays,
-            calendar: calendar
-        )
+        guard let next = WakeAlarmPlan.next(in: behavior.wakeAlarms, after: now, calendar: calendar) else { return nil }
+        return schedule(at: now, minutes: next.alarm.minutes, weekdays: next.alarm.weekdays, calendar: calendar)
     }
 
     nonisolated static func schedule(
@@ -281,10 +277,14 @@ struct SleepAlarmEditorSection: View {
                     TimelineView(.periodic(from: .now, by: 60)) { context in
                         let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
                         let clockText = schedule?.wakeClock() ?? SleepAlarmTime.clock(behavior.smartAlarmMinutes)
-                        let status = behavior.smartAlarmEnabled
-                            ? (schedule?.dayLabel ?? String(localized: "No enabled day"))
+                        let enabledCount = behavior.wakeAlarms.filter(\.enabled).count
+                        let status = behavior.hasEnabledWakeAlarms
+                            ? "\(enabledCount) on · \(schedule?.dayLabel ?? String(localized: "No enabled day"))"
                             : String(localized: "Off")
-                        let weekdays = SmartAlarmView.alarmWeekdaySummary(behavior.smartAlarmWeekdays)
+                        let next = WakeAlarmPlan.next(in: behavior.wakeAlarms, after: context.date)
+                        let weekdays = SmartAlarmView.alarmWeekdaySummary(next?.alarm.weekdays ?? behavior.smartAlarmWeekdays)
+                        let more = max(0, behavior.wakeAlarms.count - 1)
+                        let extra = more > 0 ? " · +\(more) alarms" : ""
                         HStack(spacing: NoopMetrics.space3) {
                             Image(systemName: "alarm.fill")
                                 .font(.system(size: 16, weight: .semibold))
@@ -295,7 +295,7 @@ struct SleepAlarmEditorSection: View {
                                 : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: NoopMetrics.space2))
                             layout {
                                 UnitValueText(value: clockText, size: clockSize, weight: .bold)
-                                Text("Wake alarm · \(status) · \(weekdays)")
+                                Text("Wake alarm · \(status) · \(weekdays)\(extra)")
                                     .font(StrandFont.footnote)
                                     .foregroundStyle(StrandPalette.textSecondary)
                                     .lineLimit(2)
@@ -305,14 +305,17 @@ struct SleepAlarmEditorSection: View {
                         .frame(minHeight: 44)
                         .contentShape(Rectangle())
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Edit wake alarm")
-                        .accessibilityValue("\(clockText), \(status), \(weekdays)")
+                        .accessibilityLabel("Edit wake alarms")
+                        .accessibilityIdentifier("sleep.alarm")
+                        .accessibilityValue("\(clockText), \(status), \(weekdays), \(behavior.wakeAlarms.filter(\.enabled).count) enabled alarms")
                     }
                 }
                 .buttonStyle(.plain)
-                Toggle("Wake alarm", isOn: $behavior.smartAlarmEnabled).labelsHidden()
+                Image(systemName: "chevron.right")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                    .accessibilityHidden(true)
             }
-            if behavior.smartAlarmEnabled {
+            if behavior.hasEnabledWakeAlarms {
                 Text(alarmRuntime.deliveryStatus)
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)

@@ -10,6 +10,8 @@ struct TrendsLoadedData: Equatable, Sendable {
     let revision: Int
     let anchorDay: String
     let timeZoneIdentifier: String
+    /// Full-history navigation metadata. The metric rows below remain a bounded sparse window.
+    let earliestHistoryDay: String?
     let canonicalDays: [DailyMetric]
     let canonicalByDay: [String: DailyMetric]
     let sleepPerfByDay: [String: Double]
@@ -42,12 +44,14 @@ struct TrendsLoadedData: Equatable, Sendable {
         stressByDay: [String: Double],
         appleDays: [AppleDaily],
         strapWornSecondsByDay: [String: Double] = [:],
-        bmrKcalPerDay: Double? = nil
+        bmrKcalPerDay: Double? = nil,
+        earliestHistoryDay: String? = nil
     ) {
         self.loadIdentity = loadIdentity
         self.revision = revision
         self.anchorDay = anchorDay
         self.timeZoneIdentifier = timeZoneIdentifier
+        self.earliestHistoryDay = earliestHistoryDay
         self.canonicalDays = canonicalDays.sorted { $0.day < $1.day }
         canonicalByDay = Dictionary(
             self.canonicalDays.map { ($0.day, $0) },

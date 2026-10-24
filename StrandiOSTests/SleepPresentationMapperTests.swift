@@ -3,6 +3,32 @@ import StrandDesign
 @testable import NOOP
 
 final class SleepPresentationMapperTests: XCTestCase {
+    func testUnrepresentableSleepDurationsStayUnavailable() {
+        for value in [Double.nan, .infinity, -.infinity, 1e100, Double(Int.max)] {
+            XCTAssertEqual(SleepStageRowPresentation.durationText(value), WidgetMetrics.missingValue)
+            let row = SleepStageRowPresentation(stage: .light, minutes: value, total: value)
+            XCTAssertEqual(row.duration, WidgetMetrics.missingValue)
+            XCTAssertEqual(row.fraction, 0)
+            XCTAssertEqual(row.percent, 0)
+            XCTAssertTrue(row.minutes.isFinite)
+        }
+    }
+
+    func testInvalidTypicalDoesNotCreateAStageComparison() {
+        for value in [Double.nan, .infinity, 1e100] {
+            let row = SleepStageRowPresentation(stage: .deep, minutes: 60, total: 420, typical: value)
+            XCTAssertNil(row.delta)
+            XCTAssertNil(row.deltaTone)
+            XCTAssertEqual(row.duration, "1h 0m")
+        }
+    }
+
+    func testOverflowingRecordedWindowStaysUnavailable() {
+        let window = SleepWindowPresentation(hasStageData: false, asleepMinutes: 0,
+            stagedInBedMinutes: 0, sessionStartTs: Int.min, sessionEndTs: Int.max)
+        XCTAssertEqual(window.inBedDuration, WidgetMetrics.missingValue)
+    }
+
     func testStageRowMapsResolvedTotalsToFractionPercentAndExistingDurationFormat() {
         let row = SleepStageRowPresentation(
             stage: .rem,

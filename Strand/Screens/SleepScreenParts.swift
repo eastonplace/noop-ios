@@ -1,5 +1,8 @@
 import SwiftUI
 import StrandDesign
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - Sleep tab building blocks
 //
@@ -35,10 +38,10 @@ extension FlatSectionSeparator {
 /// state words ("Fair", "Good", "Optimal") come from. With no score the arc is a row of quiet dots and a dash.
 struct SleepScoreDial: View {
     let score: Double?
-    /// The hero's small ring: 76pt with a 6pt line, so it sits beside the headline instead of above it.
+    /// The hero's ring: 95pt with a 6pt line, so it sits beside the headline instead of above it.
     var compact = false
     @ScaledMetric(relativeTo: .title) private var side: CGFloat = 112
-    @ScaledMetric(relativeTo: .title) private var compactSide: CGFloat = 76
+    @ScaledMetric(relativeTo: .title) private var compactSide: CGFloat = 95
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
@@ -141,7 +144,8 @@ struct SleepHeroSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            FactStrip(facts: facts)
+            FactStrip(facts: facts, valueSize: 25, columnSpacing: 8)
+                .accessibilityIdentifier("sleep.kpis")
                 .padding(.top, NoopMetrics.space1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -201,10 +205,55 @@ struct SleepStageTimeline {
     }
 }
 
+/// Reads the same displayed intervals and clock domain as the chart; gaps have no stage.
+enum SleepStageInspection {
+    static func interval(in timeline: SleepStageTimeline, atX x: CGFloat, width: CGFloat) -> SleepInterval? {
+        guard x.isFinite, width.isFinite, width > 0, x >= 0, x <= width,
+              timeline.origin.isFinite, timeline.span.isFinite, timeline.span > 0 else { return nil }
+        let seconds = timeline.origin + Double(x / width) * timeline.span
+        guard seconds.isFinite else { return nil }
+        return timeline.intervals.first { interval in
+            guard interval.start.isFinite, interval.end.isFinite, interval.end > interval.start else { return false }
+            // Shared seams belong to the next period. Only the chart's final edge includes its end.
+            return interval.start <= seconds && (seconds < interval.end
+                || (x == width && seconds == interval.end))
+        }
+    }
+
+    static func hit(in timeline: SleepStageTimeline, at point: CGPoint, size: CGSize,
+                    barThickness: CGFloat) -> SleepInterval? {
+        guard point.y.isFinite, size.height.isFinite, size.height > 0, point.y >= 0, point.y <= size.height,
+              barThickness.isFinite, barThickness > 0,
+              let interval = interval(in: timeline, atX: point.x, width: size.width) else { return nil }
+        let laneHeight = size.height / 4
+        let center = laneHeight * (CGFloat(interval.stage.bandRank) + 0.5)
+        return abs(point.y - center) <= barThickness / 2 ? interval : nil
+    }
+
+    static func detail(for interval: SleepInterval, nightStart: Date, hasRecordedStageTiming: Bool,
+                       locale: Locale = .autoupdatingCurrent,
+                       timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        guard hasRecordedStageTiming, interval.start.isFinite, interval.end.isFinite, interval.end > interval.start,
+              nightStart.timeIntervalSinceReferenceDate.isFinite else {
+            return String(localized: "Timing unavailable")
+        }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        // Both ends carry their day period, including a window that crosses midnight.
+        formatter.dateFormat = "h:mm a"
+        let from = formatter.string(from: nightStart.addingTimeInterval(interval.start))
+        let to = formatter.string(from: nightStart.addingTimeInterval(interval.end))
+        return String(localized: "\(from) to \(to)")
+    }
+}
+
 /// Durations as they are said aloud ("1 hour, 38 minutes"), in the user's language.
 enum SleepSpokenDuration {
     static func text(minutes: Double, locale: Locale = .autoupdatingCurrent) -> String {
-        let total = max(0, Int(minutes.rounded()))
+        guard let total = SleepDurationPresentation.roundedMinutes(minutes) else {
+            return String(localized: "Duration unavailable")
+        }
         let allowed: Set<Duration.UnitsFormatStyle.Unit> = total < 60 ? [.minutes] : [.hours, .minutes]
         let style = Duration.UnitsFormatStyle.units(
             allowed: allowed, width: .wide,
@@ -224,17 +273,20 @@ struct SleepStageChart: View {
     private let timeline: SleepStageTimeline
     private let start: Date
     private let highlighted: SleepStage?
+    private let hasRecordedStageTiming: Bool
+    @State private var inspectedInterval: SleepInterval?
 
     @ScaledMetric(relativeTo: .caption2) private var gutter: CGFloat = 40
-    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 70
+    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 140
 
     private static let laneOrder: [SleepStage] = [.awake, .rem, .light, .deep]
     private static let barThickness: CGFloat = 10
 
-    init(timeline: SleepStageTimeline, start: Date, highlighted: SleepStage?) {
+    init(timeline: SleepStageTimeline, start: Date, highlighted: SleepStage?, hasRecordedStageTiming: Bool = false) {
         self.timeline = timeline
         self.start = start
         self.highlighted = highlighted
+        self.hasRecordedStageTiming = hasRecordedStageTiming
     }
 
     private func clock(_ seconds: TimeInterval) -> String {
@@ -286,6 +338,57 @@ struct SleepStageChart: View {
         .environment(\.layoutDirection, .leftToRight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary)
+        .accessibilityIdentifier("sleep.stageChart")
+        .accessibilityValue(inspectedInterval.map {
+            "\($0.stage.label), \(SleepStageInspection.detail(for: $0, nightStart: start, hasRecordedStageTiming: hasRecordedStageTiming))"
+        } ?? "")
+        .accessibilityHint("Touch and hold a stage bar, then drag to inspect nearby periods. Tap the chart to dismiss details.")
+        .accessibilityAdjustableAction { direction in
+            let current = inspectedInterval.flatMap { selected in timeline.intervals.firstIndex { $0.id == selected.id } }
+            let next: Int
+            switch direction {
+            case .increment: next = min((current ?? -1) + 1, timeline.intervals.count - 1)
+            case .decrement: next = max((current ?? timeline.intervals.count) - 1, 0)
+            default: return
+            }
+            guard timeline.intervals.indices.contains(next) else { return }
+            inspectedInterval = timeline.intervals[next]
+        }
+        .overlay(alignment: .topTrailing) {
+            GeometryReader { proxy in
+                if let inspectedInterval {
+                    inspectionTooltip(inspectedInterval)
+                        .frame(width: min(206, proxy.size.width))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+        .onChange(of: start) { _, _ in inspectedInterval = nil }
+        .onChange(of: timeline.intervals.map(\.id)) { _, _ in inspectedInterval = nil }
+        .onDisappear { inspectedInterval = nil }
+    }
+
+    private func inspectionTooltip(_ interval: SleepInterval) -> some View {
+        let detail = SleepStageInspection.detail(for: interval, nightStart: start,
+            hasRecordedStageTiming: hasRecordedStageTiming)
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Circle().fill(StrandPalette.sleepStageColor(interval.stage)).frame(width: 7, height: 7)
+                Text(interval.stage.label).font(StrandFont.captionNumber.weight(.semibold))
+            }
+            .foregroundStyle(StrandPalette.textPrimary)
+            Text(detail).font(StrandFont.footnote).monospacedDigit()
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(StrandPalette.card))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(StrandPalette.hairlineStrong, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(interval.stage.label), \(detail)")
+        .accessibilityIdentifier("sleep.stageInspection")
     }
 
     private var plot: some View {
@@ -320,11 +423,108 @@ struct SleepStageChart: View {
                 let dimmed = highlighted != nil && highlighted != interval.stage
                 context.fill(Path(roundedRect: rect, cornerRadius: min(Self.barThickness / 2, width / 2)),
                              with: .color(StrandPalette.sleepStageColor(interval.stage).opacity(dimmed ? 0.18 : 1)))
+                if interval.id == inspectedInterval?.id {
+                    context.stroke(Path(roundedRect: rect.insetBy(dx: -1, dy: -1), cornerRadius: 4),
+                                   with: .color(StrandPalette.textPrimary), lineWidth: 1.5)
+                }
             }
         }
         .animation(.easeOut(duration: 0.18), value: highlighted)
+        .overlay {
+            #if os(iOS)
+            SleepStageInspectionSurface(
+                canBegin: { point, size in
+                    SleepStageInspection.hit(in: timeline, at: point, size: size,
+                        barThickness: Self.barThickness) != nil
+                },
+                onBegin: { point, size in
+                    inspectedInterval = SleepStageInspection.hit(in: timeline, at: point, size: size,
+                        barThickness: Self.barThickness)
+                },
+                onMove: { point, size in
+                    inspectedInterval = SleepStageInspection.interval(in: timeline, atX: point.x, width: size.width)
+                },
+                onTap: { inspectedInterval = nil })
+            #else
+            GeometryReader { proxy in
+                Color.clear.contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        if case .active(let point) = phase {
+                            inspectedInterval = SleepStageInspection.hit(in: timeline, at: point,
+                                size: proxy.size, barThickness: Self.barThickness)
+                        }
+                    }
+                    .onTapGesture { inspectedInterval = nil }
+            }
+            #endif
+        }
     }
 }
+
+#if os(iOS)
+/// Native hold coordinates are available at recognition, even before the finger starts moving.
+/// The scroll view retains ordinary pans until the stationary hold has been recognized.
+private struct SleepStageInspectionSurface: UIViewRepresentable {
+    let canBegin: (CGPoint, CGSize) -> Bool
+    let onBegin: (CGPoint, CGSize) -> Void
+    let onMove: (CGPoint, CGSize) -> Void
+    let onTap: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isAccessibilityElement = false
+        let hold = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.hold(_:)))
+        hold.minimumPressDuration = 0.3
+        hold.allowableMovement = 8
+        hold.delegate = context.coordinator
+        view.addGestureRecognizer(hold)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap))
+        tap.require(toFail: hold)
+        view.addGestureRecognizer(tap)
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        context.coordinator.canBegin = canBegin
+        context.coordinator.onBegin = onBegin
+        context.coordinator.onMove = onMove
+        context.coordinator.onTap = onTap
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var canBegin: (CGPoint, CGSize) -> Bool = { _, _ in false }
+        var onBegin: (CGPoint, CGSize) -> Void = { _, _ in }
+        var onMove: (CGPoint, CGSize) -> Void = { _, _ in }
+        var onTap: () -> Void = {}
+
+        @MainActor @objc func hold(_ recognizer: UILongPressGestureRecognizer) {
+            guard let view = recognizer.view else { return }
+            switch recognizer.state {
+            case .began: onBegin(recognizer.location(in: view), view.bounds.size)
+            case .changed: onMove(recognizer.location(in: view), view.bounds.size)
+            default: break // Keep the selection after release for reading and accessibility.
+            }
+        }
+
+        @MainActor @objc func tap() { onTap() }
+
+        nonisolated func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            MainActor.assumeIsolated {
+                guard let view = gestureRecognizer.view else { return false }
+                return canBegin(gestureRecognizer.location(in: view), view.bounds.size)
+            }
+        }
+
+        nonisolated func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                                          shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            MainActor.assumeIsolated { gestureRecognizer.state == .possible }
+        }
+    }
+}
+#endif
 
 // MARK: - Stage rows
 

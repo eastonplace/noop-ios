@@ -43,17 +43,56 @@ final class BehaviorStore: ObservableObject {
     }
 
     // MARK: Smart alarm
-    @Published var smartAlarmEnabled: Bool { didSet { d.set(smartAlarmEnabled, forKey: K.alarmOn) } }
-    /// Target wake time, minutes since local midnight.
-    @Published var smartAlarmMinutes: Int { didSet { d.set(smartAlarmMinutes, forKey: K.alarmTime) } }
-    /// Exact is firmware-only. Conditional modes may wake up to 30 minutes early when iOS is running;
-    /// their configured latest endpoint is still armed on the strap as the fail-safe.
-    @Published var smartAlarmMode: SmartAlarmEvaluator.Mode {
-        didSet { d.set(smartAlarmMode.rawValue, forKey: K.alarmMode) }
+    @Published private(set) var wakeAlarms: [WakeAlarm] {
+        didSet { WakeAlarmPersistence.save(wakeAlarms, to: d) }
     }
-    /// Calendar weekday numbers: 1 = Sun … 7 = Sat. Empty means every day.
-    @Published var smartAlarmWeekdays: Set<Int> {
-        didSet { d.set(Array(smartAlarmWeekdays).sorted(), forKey: K.alarmWeekdays) }
+
+    // Existing callers edit the first saved alarm. Runtime and list UI use the full collection.
+    var smartAlarmEnabled: Bool {
+        get { wakeAlarms.first?.enabled ?? false }
+        set { updatePrimaryAlarm { $0.enabled = newValue } }
+    }
+    var smartAlarmMinutes: Int {
+        get { wakeAlarms.first?.minutes ?? 420 }
+        set { updatePrimaryAlarm { $0.minutes = newValue } }
+    }
+    var smartAlarmMode: SmartAlarmEvaluator.Mode {
+        get { wakeAlarms.first?.mode ?? .exactTime }
+        set { updatePrimaryAlarm { $0.mode = newValue } }
+    }
+    var smartAlarmWeekdays: Set<Int> {
+        get { wakeAlarms.first?.weekdays ?? [] }
+        set { updatePrimaryAlarm { $0.weekdays = newValue } }
+    }
+    var hasEnabledWakeAlarms: Bool { wakeAlarms.contains(where: \.enabled) }
+
+    @discardableResult
+    func saveWakeAlarm(_ alarm: WakeAlarm) -> Bool {
+        var updated = wakeAlarms
+        if let index = updated.firstIndex(where: { $0.id == alarm.id }) {
+            updated[index] = alarm.normalized
+        } else {
+            guard updated.count < WakeAlarmPlan.maximumAlarms else { return false }
+            updated.append(alarm.normalized)
+        }
+        wakeAlarms = updated
+        return true
+    }
+
+    func deleteWakeAlarm(id: UUID) {
+        wakeAlarms = wakeAlarms.filter { $0.id != id }
+    }
+
+    func setWakeAlarmEnabled(id: UUID, enabled: Bool) {
+        guard var alarm = wakeAlarms.first(where: { $0.id == id }) else { return }
+        alarm.enabled = enabled
+        saveWakeAlarm(alarm)
+    }
+
+    private func updatePrimaryAlarm(_ edit: (inout WakeAlarm) -> Void) {
+        var first = wakeAlarms.first ?? WakeAlarm(id: WakeAlarmPersistence.legacyID, enabled: false)
+        edit(&first)
+        saveWakeAlarm(first)
     }
 
     // MARK: Illness early-warning
@@ -72,7 +111,7 @@ final class BehaviorStore: ObservableObject {
         set { objectWillChange.send(); NotificationPreferences.shared.batteryPredictiveAlerts = newValue }
     }
 
-    private let d = UserDefaults.standard
+    private let d: UserDefaults
     private var phonePreferenceObservation: AnyCancellable?
 
     private enum K {
@@ -86,16 +125,22 @@ final class BehaviorStore: ObservableObject {
         static let stressAutoNudge = "biofeedback.stressAutoNudge"
         static let stressQuietHours = "biofeedback.stressQuietHours"
         static let stressUseResonance = "biofeedback.stressUseResonancePace"
-        static let alarmOn = "behavior.smartAlarmEnabled"
-        static let alarmTime = "behavior.smartAlarmMinutes"
-        static let alarmMode = "behavior.smartAlarmMode"
-        static let alarmWeekdays = "behavior.smartAlarmWeekdays"
         static let illness = "behavior.illnessWatch"
         static let batteryAlerts = "behavior.batteryAlerts"
         static let batteryPredictiveAlerts = "behavior.batteryPredictiveAlerts"
     }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        d = defaults
+        #if DEBUG
+        // Reset before loading the store. The asynchronous demo seeder runs after AppModel construction.
+        if defaults === UserDefaults.standard, AppleDemoSeeder.requested,
+           !CommandLine.arguments.contains("--noop-qa-preserve-preferences") {
+            WakeAlarmPersistence.save([WakeAlarm(id: WakeAlarmPersistence.legacyID, enabled: false)], to: defaults)
+            defaults.set(SmartAlarmEvaluator.Mode.exactTime.rawValue, forKey: "smartAlarm.runtime.adaptiveMode")
+        }
+        #endif
+        wakeAlarms = WakeAlarmPersistence.load(from: defaults)
         doubleTapAction = DeviceActionKind(rawValue: d.string(forKey: K.dtAction) ?? "") ?? .none
         doubleTapShortcut = d.string(forKey: K.dtShortcut) ?? ""
         autoLockOnWristOff = d.object(forKey: K.autoLock) as? Bool ?? false
@@ -106,12 +151,6 @@ final class BehaviorStore: ObservableObject {
         stressAutoNudge = d.object(forKey: K.stressAutoNudge) as? Bool ?? false
         stressQuietHours = d.object(forKey: K.stressQuietHours) as? Bool ?? true
         stressUseResonancePace = d.object(forKey: K.stressUseResonance) as? Bool ?? true
-        smartAlarmEnabled = d.object(forKey: K.alarmOn) as? Bool ?? false
-        smartAlarmMinutes = d.object(forKey: K.alarmTime) as? Int ?? 7 * 60
-        smartAlarmMode = SmartAlarmEvaluator.Mode(rawValue: d.string(forKey: K.alarmMode) ?? "") ?? .exactTime
-        smartAlarmWeekdays = Set(
-            (d.array(forKey: K.alarmWeekdays) as? [Int] ?? []).filter { (1...7).contains($0) }
-        )
         phonePreferenceObservation = NotificationPreferences.shared.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }

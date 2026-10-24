@@ -2177,20 +2177,13 @@ final class AppModel: ObservableObject {
 
         #if os(iOS)
         if !hasBackgroundGrant {
-            // Receipt work and the versioned history rescore share this request. A drained receipt pipeline
-            // must not cancel the wake while the current main or settle pass still has durable work.
+            // Receipt work, HealthKit import/scoring, and versioned history rescoring share this request.
+            // Cancel the wake only after the registrar confirms that every durable owner has drained.
             let effortPending = await intelligence.effortRescoreIsPending()
-            switch HistoricalScoringBackgroundTaskRegistrar.completionDisposition(
+            HistoricalScoringBackgroundTaskRegistrar.refreshRequestAfterHistoricalPipeline(
                 for: result,
-                healthImportPending: false,
-                healthScoringPending: false,
                 effortRescorePending: effortPending
-            ) {
-            case .complete:
-                HistoricalScoringBackgroundTaskRegistrar.cancelPendingRequest()
-            case .retry:
-                HistoricalScoringBackgroundTaskRegistrar.schedule()
-            }
+            )
         }
         #endif
         return result

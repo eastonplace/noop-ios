@@ -19,6 +19,18 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 2.0.2
+
+In development in PR81, stacked on the reviewed PR79 fixes. Merge is authorized after validation; phone installation and release publication are not.
+
+- **Sleep takes focus.** The stage chart follows the KPI figures, with alarms directly below the stage section. Sleep values and the score dial are 25% larger; the stage plot is twice its original height, with the original slim bars and unchanged compact stage totals. Existing heart-rate row heights and centered text are preserved.
+- **Explore sleep stages.** Hold a stage bar to see its stage and time window, then slide across the chart to inspect neighboring periods.
+- **Multiple wake alarms.** Save independent wake times and days. WHOOP 4 stores one endpoint, so the next enabled occurrence is armed and later strap alarms require NOOP to run and reconnect. Each enabled schedule has a phone notification backup, subject to iOS permissions and delivery limits.
+
+- **Trends continuity.** Returning to an unchanged range retains its completed snapshot while refreshing. Navigation keeps older weeks available across gaps in stored history. Profile changes still invalidate calorie calculations.
+- **Sync progress.** Failed transfers publish only already committed history for scoring and preserve replay debt. Shared background requests remain scheduled while either HealthKit journal has pending work. Locked overnight device behavior still requires a real device run.
+- **Bug fixes and improvements.** Unrepresentable Sleep durations no longer trap integer conversion. Replacing phone alarm backups preserves compatible schedules on failure and keeps obsolete operations from restoring deleted alarms.
+
 ## 2.0.1
 
 Reviewed PR79 fixes, integrated with current main before the 2.0.2 feature update. Phone installation and release publication remain on hold.
