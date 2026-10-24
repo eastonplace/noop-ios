@@ -2,11 +2,9 @@ import Foundation
 
 // These types own no platform resources. Production methods below are inserted
 // verbatim by smart_alarm_backup_ownership_harness.py from the chosen checkout.
-enum SmartAlarmEvaluator {
-    static let adaptiveWindowMinutes = 30
-    enum Mode: String, Codable, Sendable { case exactTime, sleepGoal, inTheGreen }
-    enum Trigger: Sendable { case configured, foreground }
-}
+// Real alarm models, calendar math and replacement transactions are imported from the
+// production StrandAnalytics dependency module; only platform resources are doubled here.
+import StrandAnalytics
 
 /* PRODUCTION_TYPES */
 
@@ -20,14 +18,23 @@ final class UNMutableNotificationContent {
     var body = ""
     var sound: UNNotificationSound?
 }
-struct UNCalendarNotificationTrigger: Sendable {
-    var dateMatching: DateComponents
-    var repeats: Bool
+protocol FixtureNotificationTrigger: Sendable {
+    var dateMatching: DateComponents { get }
+    var repeats: Bool { get }
+}
+struct UNCalendarNotificationTrigger: FixtureNotificationTrigger {
+    let dateComponents: DateComponents
+    let repeats: Bool
+    var dateMatching: DateComponents { dateComponents }
+    init(dateMatching: DateComponents, repeats: Bool) {
+        dateComponents = dateMatching
+        self.repeats = repeats
+    }
 }
 struct UNNotificationRequest: Sendable {
     var identifier: String
     var content: UNMutableNotificationContent
-    var trigger: UNCalendarNotificationTrigger
+    var trigger: any FixtureNotificationTrigger
 }
 
 @MainActor
@@ -43,6 +50,9 @@ final class UNUserNotificationCenter {
     var authorizationStatus = UNAuthorizationStatus.authorized
     var permissionRequests = 0
     var holdNextPending = false
+    // The real runtime now checks capacity before adding. Hold its post-add readback so the
+    // original stale-callback assertions still exercise cleanup of an accepted old request.
+    var minimumAcceptedAddsBeforePendingHold = 1
     var pendingWaiter: CheckedContinuation<[UNNotificationRequest], Never>?
     var pendingSnapshot: [UNNotificationRequest] = []
     var holdNextAdd = false
@@ -65,7 +75,7 @@ final class UNUserNotificationCenter {
     }
     func pendingNotificationRequests() async -> [UNNotificationRequest] {
         let snapshot = stored.values.map(\.request)
-        if holdNextPending {
+        if holdNextPending && ordinal >= minimumAcceptedAddsBeforePendingHold {
             holdNextPending = false
             pendingSnapshot = snapshot
             return await withCheckedContinuation { pendingWaiter = $0 }
@@ -89,9 +99,24 @@ final class UNUserNotificationCenter {
 
 @MainActor
 final class BehaviorStore {
-    var smartAlarmEnabled = true
-    var smartAlarmMinutes = 420
-    var smartAlarmWeekdays: Set<Int> = []
+    var wakeAlarms = [WakeAlarm(id: WakeAlarmPersistence.legacyID, enabled: true, minutes: 420)]
+    var hasEnabledWakeAlarms: Bool { wakeAlarms.contains(where: \.enabled) }
+    var smartAlarmEnabled: Bool {
+        get { wakeAlarms[0].enabled }
+        set { wakeAlarms[0].enabled = newValue }
+    }
+    var smartAlarmMinutes: Int {
+        get { wakeAlarms[0].minutes }
+        set { wakeAlarms[0].minutes = newValue }
+    }
+    var smartAlarmWeekdays: Set<Int> {
+        get { wakeAlarms[0].weekdays }
+        set { wakeAlarms[0].weekdays = newValue }
+    }
+    var smartAlarmMode: SmartAlarmEvaluator.Mode {
+        get { wakeAlarms[0].mode }
+        set { wakeAlarms[0].mode = newValue }
+    }
 }
 @MainActor
 final class SmartAlarmAdaptiveModeStore { var mode = SmartAlarmEvaluator.Mode.exactTime }
@@ -102,11 +127,6 @@ final class FixtureBLE {
 }
 @MainActor
 final class AppModel { let ble = FixtureBLE() }
-enum SmartAlarmSchedule {
-    static func nextDate(minutes: Int, weekdays: Set<Int>, after: Date, calendar: Calendar) -> Date? {
-        after.addingTimeInterval(3600)
-    }
-}
 @MainActor
 enum SmartAlarmRuntimeBackgroundScheduler {
     static func cancel() {}
@@ -127,6 +147,7 @@ final class SmartAlarmRuntimeController {
     var backupStatusTask: Task<Void, Never>?
     var evaluationTask: Task<Void, Never>?
     var evidenceTask: Task<Void, Never>?
+    var endpointTask: Task<Void, Never>?
     var deliveryStatus = "Off"
     var backupStatus = "Off"
     var evidence: String?
@@ -194,7 +215,7 @@ final class Checks {
         expect(center.stored.keys.sorted() == accepted.keys.sorted(),
                "stale pending callback cannot delete the replacement backup")
         await runtime.refreshFixtureStatus()
-        expect(runtime.backupStatus == "Scheduled", "status still finds the replacement backup after stale callback")
+        expect(runtime.backupStatus == "Scheduled for all enabled alarms", "status still finds the replacement backup after stale callback")
         expect(center.permissionRequests == 0, "authorized race fixture makes no permission request")
     }
 
@@ -239,7 +260,7 @@ final class Checks {
         expect(Set(dates.compactMap(\.weekday)) == [2, 6] && dates.allSatisfy { $0.hour == 8 && $0.minute == 0 },
                "reconfigured backups retain chosen weekday and time semantics")
         await runtime.refreshFixtureStatus()
-        expect(runtime.backupStatus == "Scheduled", "status recognizes current reconfigured backups")
+        expect(runtime.backupStatus == "Scheduled for all enabled alarms", "status recognizes current reconfigured backups")
         runtime.change(enabled: false)
         await runtime.notificationTask?.value
         expect(center.stored.isEmpty && runtime.backupStatus == "Off", "disable removes all owned backup requests")
@@ -283,11 +304,11 @@ final class Checks {
         UNUserNotificationCenter.fixture = center
         let content = UNMutableNotificationContent()
         let unrelated = UNNotificationRequest(identifier: "noop.notifications.unrelated", content: content,
-            trigger: .init(dateMatching: DateComponents(hour: 10), repeats: true))
+            trigger: UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: 10), repeats: true))
         try! await center.add(unrelated)
         let legacyID = "smart-alarm-wake-backup-00000000-0000-0000-0000-000000000001-d2"
         try! await center.add(.init(identifier: legacyID, content: content,
-            trigger: .init(dateMatching: DateComponents(hour: 7), repeats: true)))
+            trigger: UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: 7), repeats: true)))
         let runtime = SmartAlarmRuntimeController()
         runtime.reconcileImmediately(trigger: .foreground)
         await runtime.notificationTask?.value
