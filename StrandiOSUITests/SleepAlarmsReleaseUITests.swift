@@ -51,15 +51,21 @@ final class SleepAlarmsReleaseUITests: XCTestCase {
         capture(app, "alarms-202-three-wake-times")
         let lastToggleID = toggles.element(boundBy: 2).identifier
         let lastRowID = rows.element(boundBy: 2).identifier
-        toggles.element(boundBy: 2).tap()
+        let lastToggleMatches = app.switches.matching(identifier: lastToggleID)
+        XCTAssertEqual(lastToggleMatches.count, 1)
+        let lastToggle = lastToggleMatches.firstMatch
+        XCTAssertTrue(lastToggle.isHittable)
+        XCTAssertEqual(lastToggle.value as? String, "1")
+        // Hit the visible on-state thumb rather than the midpoint of the track. This is one action.
+        lastToggle.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)).tap()
+        assertAlarmSwitchValue(lastToggleID, equals: "0", in: app)
         XCTAssertEqual(toggles.element(boundBy: 0).value as? String, "1")
         XCTAssertEqual(toggles.element(boundBy: 1).value as? String, "1")
-        XCTAssertEqual(element(lastToggleID, in: app).value as? String, "0")
         app.terminate()
         launch(app, route: "sleep", preservePreferences: true)
         openAlarms(in: app)
         XCTAssertEqual(rows.count, 3)
-        XCTAssertEqual(element(lastToggleID, in: app).value as? String, "0")
+        assertAlarmSwitchValue(lastToggleID, equals: "0", in: app)
         element(lastRowID, in: app).tap()
         XCTAssertTrue(element("alarm.editor.save", in: app).waitForExistence(timeout: 5))
         capture(app, "alarms-202-edit-wake-time")
@@ -73,6 +79,36 @@ final class SleepAlarmsReleaseUITests: XCTestCase {
         XCTAssertTrue(element("alarm.add", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(rows.count, 2)
         XCTAssertFalse(element(lastRowID, in: app).exists)
+    }
+
+    private func assertAlarmSwitchValue(_ id: String, equals expected: String, in app: XCUIApplication,
+                                        file: StaticString = #filePath, line: UInt = #line) {
+        let toggle = app.switches.matching(identifier: id).firstMatch
+        let value = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
+        let result = XCTWaiter.wait(for: [value], timeout: 5)
+        if result != .completed { captureSwitchDiagnostics(id, in: app, phase: "state-mismatch") }
+        XCTAssertEqual(result, .completed,
+                       "Alarm switch \(id) must become \(expected); actual value is \(String(describing: toggle.value))",
+                       file: file, line: line)
+        XCTAssertEqual(toggle.value as? String, expected, file: file, line: line)
+    }
+
+    private func captureSwitchDiagnostics(_ id: String, in app: XCUIApplication, phase: String) {
+        let matches = app.descendants(matching: .any).matching(identifier: id).allElementsBoundByIndex
+        let typed = app.switches.matching(identifier: id).allElementsBoundByIndex
+        let rows = matches.enumerated().map { index, item in
+            "any[\(index)] type=\(item.elementType.rawValue) value=\(String(describing: item.value)) label=\(item.label) frame=\(item.frame) hittable=\(item.isHittable)"
+        }
+        let switches = typed.enumerated().map { index, item in
+            "switch[\(index)] value=\(String(describing: item.value)) frame=\(item.frame) hittable=\(item.isHittable)"
+        }
+        let text = (["phase=\(phase) id=\(id) anyMatches=\(matches.count) switchMatches=\(typed.count)"]
+                    + rows + switches + [app.debugDescription]).joined(separator: "\n")
+        let attachment = XCTAttachment(string: text)
+        attachment.name = "alarm-switch-\(phase)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        capture(app, "alarm-switch-\(phase)")
     }
 
     private func openAlarms(in app: XCUIApplication) {
