@@ -93,4 +93,40 @@ final class WakeAlarmBackupReplacementTests: XCTestCase {
         pending.removeAll { $0.id == "old-a" }
         XCTAssertEqual(pending, [new[0]], "Fallback must belong to this generation before old work cleans up")
     }
+    @MainActor
+    func testRelaunchWithSameRequestIDsKeepsSuccessfullyReplacedBackups() async {
+        // A persisted configuration plus a reset generation counter can recreate the exact IDs.
+        let requests = [Request(id: "same-a", minutes: 420), Request(id: "same-b", minutes: 430)]
+        var pending = requests
+        let outcome = await WakeAlarmBackupReplacement.replace(
+            existing: requests, proposed: requests, otherCount: 0, identifier: { $0.id },
+            matches: { $0.minutes == $1.minutes }, isCurrent: { true },
+            remove: { ids in pending.removeAll { ids.contains($0.id) } },
+            add: { request in
+                // UNUserNotificationCenter replaces an existing request with the same identifier.
+                pending.removeAll { $0.id == request.id }
+                pending.append(request)
+            })
+        XCTAssertEqual(outcome, .scheduled)
+        XCTAssertEqual(pending, requests, "Success must not delete the requests that add just replaced")
+    }
+
+    @MainActor
+    func testRelaunchWithSameIDsRestoresCompatibleBackupsAfterPartialAddFailure() async {
+        let old = [Request(id: "same-a", minutes: 420), Request(id: "same-b", minutes: 430)]
+        let proposed = old + [Request(id: "new-c", minutes: 440)]
+        var pending = old
+        var failedOnce = false
+        let outcome = await WakeAlarmBackupReplacement.replace(
+            existing: old, proposed: proposed, otherCount: 0, identifier: { $0.id },
+            matches: { $0.minutes == $1.minutes }, isCurrent: { true },
+            remove: { ids in pending.removeAll { ids.contains($0.id) } },
+            add: { request in
+                if request.id == "same-b", !failedOnce { failedOnce = true; throw Failure.rejected }
+                pending.removeAll { $0.id == request.id }
+                pending.append(request)
+            })
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(pending, old, "Partial replacement must retain only compatible current times")
+    }
 }

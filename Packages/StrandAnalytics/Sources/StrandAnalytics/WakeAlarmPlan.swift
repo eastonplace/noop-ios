@@ -154,7 +154,10 @@ public enum WakeAlarmBackupReplacement {
             guard await adoptCompatibleFallback() else { return .superseded }
             return .failed
         }
-        remove(compatible.map(identifier))
+        // A relaunch can reuse the persisted configuration and generation-scoped IDs. Adding a
+        // same-ID request replaces it in place; only retire IDs absent from the installed proposal.
+        let installedIDs = Set(proposedIDs)
+        remove(compatible.map(identifier).filter { !installedIDs.contains($0) })
         return .scheduled
     }
 }
