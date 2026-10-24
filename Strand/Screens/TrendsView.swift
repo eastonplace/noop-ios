@@ -69,7 +69,8 @@ struct TrendsView: View {
             metric: selectedMetric.rawValue,
             range: selectedRange.rawValue,
             weekOffset: TrendsBounds.clampWeekOffset(weekOffset),
-            completedLoadIdentity: loadedData.loadIdentity
+            completedLoadIdentity: loadedData.loadIdentity,
+            earliestHistoryDay: loadedData.earliestHistoryDay
         )
     }
 
@@ -167,7 +168,7 @@ struct TrendsView: View {
         // A rescore can replace values without changing the number of day rows. `refreshSeq`, not count,
         // is the revision contract. `.task(id:)` cancels a superseded load; one assignment below prevents
         // Sleep, Stress, and Apple fallback data from briefly describing different revisions.
-        .task(id: "\(repo.refreshSeq)-\(repo.canonicalHealth.trendsRevision)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)-\(selectedRange.rawValue)-\(weekOffset)") {
+        .task(id: "\(repo.refreshSeq)-\(repo.canonicalHealth.trendsRevision)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)-\(selectedRange.rawValue)-\(weekOffset)-\(repo.historyExtent.earliestDay?.key ?? "")") {
             await loadDataForCurrentRevision()
         }
         .task(id: screenSnapshotKey) {
@@ -238,9 +239,13 @@ struct TrendsView: View {
                     )
                 }.sorted { $0.day < $1.day },
                 strapWornSecondsByDay: repo.strapWornSecondsByDay,
-                bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay()
+                bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay(),
+                earliestHistoryDay: repo.historyExtent.earliestDay?.key
             )
-            if provisional != loadedData { loadedData = provisional }
+            let firstPaint = TrendsSnapshotHandoff.firstPaintData(
+                loaded: loadedData, provisional: provisional,
+                rangeDays: rangeDays, weekOffset: offset)
+            if firstPaint != loadedData { loadedData = firstPaint }
         }
 
         guard let next = await repo.loadCanonicalTrendsData(
@@ -279,7 +284,8 @@ struct TrendsView: View {
             stressByDay: next.stressByDay,
             appleDays: next.appleDays,
             strapWornSecondsByDay: next.strapWornSecondsByDay,
-            bmrKcalPerDay: next.bmrKcalPerDay
+            bmrKcalPerDay: next.bmrKcalPerDay,
+            earliestHistoryDay: next.earliestHistoryDay
         )
         if revisionAdjusted != loadedData { loadedData = revisionAdjusted }
         _ = loadState.finish(
@@ -339,7 +345,8 @@ struct TrendsView: View {
                 requestID: requestID)
         }
         guard !Task.isCancelled, key == screenSnapshotKey, let next else { return }
-        guard loadState.owns(requestID) else { return }
+        // This task is owned by the render key. A same-key data revalidation can begin while it builds,
+        // but that separate request must not discard a still-current render without scheduling another.
         screenSnapshot = next
     }
 }

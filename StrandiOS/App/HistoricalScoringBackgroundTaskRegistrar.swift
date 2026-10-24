@@ -241,6 +241,33 @@ enum HistoricalScoringBackgroundTaskRegistrar {
         return result
     }
 
+    /// Update the request shared by receipt processing, HealthKit recovery, and effort rescoring.
+    /// The scheduler operations are injectable so journal ownership can be tested without OS timing.
+    static func refreshRequestAfterHistoricalPipeline(
+        for result: HistoricalPipelineRuntimeResult?,
+        effortRescorePending: Bool,
+        healthImportPending: HealthImportPending? = nil,
+        healthScoringPending: HealthScoringPending? = nil,
+        scheduleRequest: (() -> Void)? = nil,
+        cancelRequest: (() -> Void)? = nil
+    ) {
+        switch completionDisposition(
+            for: result,
+            // The request is shared. A receipt drain cannot cancel a locked HealthKit retry; before
+            // launch finishes installing its readers, unknown journal ownership also keeps it armed.
+            healthImportPending: (healthImportPending ?? Self.healthImportPending)?() ?? true,
+            healthScoringPending: (healthScoringPending ?? Self.healthScoringPending)?() ?? true,
+            effortRescorePending: effortRescorePending
+        ) {
+        case .complete:
+            if let cancelRequest { cancelRequest() }
+            else { cancelPendingRequest() }
+        case .retry:
+            if let scheduleRequest { scheduleRequest() }
+            else { schedule() }
+        }
+    }
+
     /// Keep one best-effort request armed. The durable pipeline remains authoritative if iOS discards it.
     static func schedule(after delay: TimeInterval = 0) {
         submitRequest(identifier: identifier, after: delay)

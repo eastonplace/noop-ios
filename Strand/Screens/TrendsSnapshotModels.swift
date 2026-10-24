@@ -304,6 +304,7 @@ struct TrendsScreenSnapshotKey: Hashable, Sendable {
     let range: String
     let weekOffset: Int
     let completedLoadIdentity: TrendsLoadIdentity?
+    let earliestHistoryDay: String?
 
     init(
         revision: Int,
@@ -312,7 +313,8 @@ struct TrendsScreenSnapshotKey: Hashable, Sendable {
         metric: String,
         range: String,
         weekOffset: Int,
-        completedLoadIdentity: TrendsLoadIdentity? = nil
+        completedLoadIdentity: TrendsLoadIdentity? = nil,
+        earliestHistoryDay: String? = nil
     ) {
         self.revision = revision
         self.anchorDay = anchorDay
@@ -321,6 +323,7 @@ struct TrendsScreenSnapshotKey: Hashable, Sendable {
         self.range = range
         self.weekOffset = TrendsBounds.clampWeekOffset(weekOffset)
         self.completedLoadIdentity = completedLoadIdentity
+        self.earliestHistoryDay = earliestHistoryDay
     }
 }
 
@@ -464,7 +467,7 @@ struct TrendsScreenSnapshot: Sendable {
         }
 
         let minimumWeekOffset: Int = {
-            guard let earliest = data.canonicalDays.first?.day,
+            guard let earliest = data.earliestHistoryDay ?? data.canonicalDays.first?.day,
                   let earliestMonday = WeeklyDigestEngine.mondayOfWeek(containing: earliest),
                   let thisMonday = WeeklyDigestEngine.mondayOfWeek(containing: data.anchorDay),
                   let earliestDate = calendar.date(from: Self.components(for: earliestMonday)),
@@ -614,6 +617,29 @@ struct TrainingLoadSnapshot: Sendable {
 }
 
 enum TrendsSnapshotHandoff {
+    nonisolated static func firstPaintData(
+        loaded: TrendsLoadedData,
+        provisional: TrendsLoadedData,
+        rangeDays: Int,
+        weekOffset: Int
+    ) -> TrendsLoadedData {
+        // Tab returns revalidate the same request. Downgrading its completed range to dashboard-only
+        // inputs invalidates the rendered snapshot and collapses a lazy page at its retained offset.
+        // Keep the completed input until a changed request or its authoritative replacement arrives.
+        guard let identity = loaded.loadIdentity,
+              loaded.revision == provisional.revision,
+              loaded.anchorDay == provisional.anchorDay,
+              loaded.timeZoneIdentifier == provisional.timeZoneIdentifier,
+              loaded.earliestHistoryDay == provisional.earliestHistoryDay,
+              loaded.bmrKcalPerDay == provisional.bmrKcalPerDay,
+              identity.anchorDay == provisional.anchorDay,
+              identity.timeZoneIdentifier == provisional.timeZoneIdentifier,
+              identity.rangeDays == TrendsBounds.clampRangeDays(rangeDays),
+              identity.weekOffset == TrendsBounds.clampWeekOffset(weekOffset)
+        else { return provisional }
+        return loaded
+    }
+
     nonisolated static func canonicalDays(
         loaded: TrendsLoadedData,
         fallback: [DailyMetric]

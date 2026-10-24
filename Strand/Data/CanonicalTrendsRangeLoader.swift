@@ -125,7 +125,8 @@ extension Repository {
                            maxHr: $0.maxHr, walkingHr: $0.walkingHr, weightKg: $0.weightKg)
             }.sorted { $0.day < $1.day },
             strapWornSecondsByDay: Self.strapWornSecondsByDay(read, computedReadIds: computedReadIds),
-            bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay()
+            bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay(),
+            earliestHistoryDay: historyExtent.earliestDay?.key
         )
     }
 

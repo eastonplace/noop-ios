@@ -215,6 +215,12 @@ final class SleepScreenPartsTests: XCTestCase {
 
     // MARK: Spoken durations
 
+    func testSpokenDurationRejectsInvalidAndOverflowingSeconds() {
+        for value in [Double.nan, .infinity, -.infinity, 1e100, Double(Int.max)] {
+            XCTAssertEqual(SleepSpokenDuration.text(minutes: value), String(localized: "Duration unavailable"))
+        }
+    }
+
     func testSpokenDurationIsWordsInTheUsersLanguage() {
         let en = Locale(identifier: "en_US")
         let long = SleepSpokenDuration.text(minutes: 125, locale: en)

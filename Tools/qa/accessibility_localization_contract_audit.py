@@ -59,15 +59,17 @@ try:
     )
     require(
         "Strand/Screens/SmartAlarmView.swift",
-        "LazyVGrid(columns: alarmWeekdayColumns",
-        "GridItem(.flexible(minimum: 44)",
-        "count: dynamicTypeSize.isAccessibilitySize ? 4 : 7",
-        ".frame(maxWidth: .infinity, minHeight: 44)",
-        ".accessibilityAddTraits(selected ? .isSelected : [])",
-        ".accessibilityHint(\"Double-tap to",
+        # Alarm days now use native Form Toggle rows; the multi-alarm list stacks at large sizes.
+        "private struct WakeAlarmEditor: View",
+        "Form {",
+        'Section("Repeat")',
+        "Toggle(Calendar.current.weekdaySymbols[weekday - 1]",
+        "dynamicTypeSize.isAccessibilitySize",
+        "AnyLayout(VStackLayout(alignment: .leading",
+        ".frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)",
+        '.accessibilityLabel("Edit alarm ',
         "static func windDownTimeLabel",
         "SleepAlarmTime.clock(minutes, locale: locale, calendar: calendar, timeZone: timeZone)",
-        "ViewThatFits(in: .horizontal)",
     )
     forbid(
         "Strand/Screens/SmartAlarmView.swift",

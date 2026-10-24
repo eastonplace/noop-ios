@@ -15,16 +15,18 @@ final class SmartAlarmAdaptiveModeStore: ObservableObject {
     private static let migratedKey = "smartAlarm.runtime.adaptiveModeMigrated"
 
     private weak var legacy: BehaviorStore?
+    private let defaults: UserDefaults
 
     @Published var mode: SmartAlarmEvaluator.Mode {
         didSet {
-            UserDefaults.standard.set(mode.rawValue, forKey: Self.modeKey)
+            defaults.set(mode.rawValue, forKey: Self.modeKey)
             synchronizeBehaviorMode()
         }
     }
 
     init(legacy: BehaviorStore, defaults: UserDefaults = .standard) {
         self.legacy = legacy
+        self.defaults = defaults
         let migrated = defaults.bool(forKey: Self.migratedKey)
         let stored = defaults.string(forKey: Self.modeKey).flatMap(SmartAlarmEvaluator.Mode.init(rawValue:))
         let resolved = migrated ? (stored ?? .exactTime) : legacy.smartAlarmMode
@@ -35,7 +37,7 @@ final class SmartAlarmAdaptiveModeStore: ObservableObject {
     }
 
     func synchronizeBehaviorMode() {
-        guard let legacy, legacy.smartAlarmMode != mode else { return }
+        guard let legacy, !legacy.wakeAlarms.isEmpty, legacy.smartAlarmMode != mode else { return }
         legacy.smartAlarmMode = mode
     }
 }
@@ -45,15 +47,30 @@ struct SmartAlarmRuntimeSnapshot: Codable, Equatable, Sendable {
     let mode: SmartAlarmEvaluator.Mode
     let minutes: Int
     let weekdays: [Int]
+    /// Optional for backward-compatible decoding of existing single-alarm background payloads.
+    let alarms: [WakeAlarm]?
 
-    init(enabled: Bool, mode: SmartAlarmEvaluator.Mode, minutes: Int, weekdays: Set<Int>) {
+    init(enabled: Bool, mode: SmartAlarmEvaluator.Mode, minutes: Int, weekdays: Set<Int>, alarms: [WakeAlarm]? = nil) {
         self.enabled = enabled
         self.mode = mode
         self.minutes = ((minutes % 1_440) + 1_440) % 1_440
         self.weekdays = weekdays.filter { (1...7).contains($0) }.sorted()
+        self.alarms = alarms.map(WakeAlarmPlan.normalized)
     }
 
     var weekdaySet: Set<Int> { Set(weekdays) }
+    var schedules: [WakeAlarm] {
+        alarms ?? [WakeAlarm(id: WakeAlarmPersistence.legacyID, enabled: enabled,
+                            minutes: minutes, weekdays: weekdaySet, mode: mode)]
+    }
+    func next(after now: Date, calendar: Calendar = .current) -> WakeAlarmPlan.Occurrence? {
+        WakeAlarmPlan.next(in: schedules, after: now, calendar: calendar)
+    }
+    func mode(for endpoint: Date) -> SmartAlarmEvaluator.Mode {
+        next(after: endpoint.addingTimeInterval(-1))?.alarm.mode ?? mode
+    }
+    var backupEntries: [WakeAlarmPlan.Backup] { WakeAlarmPlan.backups(for: schedules) }
+
 }
 
 /// Persisted payload for iOS's payload-less BGTask request. Without this, a late BG execution recomputed
@@ -66,6 +83,7 @@ struct SmartAlarmBackgroundRequest: Codable, Equatable, Sendable {
     let modeRawValue: String
     let minutes: Int
     let weekdays: [Int]
+    let alarms: [WakeAlarm]?
 
     init(configurationID: UUID, endpoint: Date, snapshot: SmartAlarmRuntimeSnapshot) {
         self.configurationID = configurationID
@@ -74,6 +92,7 @@ struct SmartAlarmBackgroundRequest: Codable, Equatable, Sendable {
         modeRawValue = snapshot.mode.rawValue
         minutes = snapshot.minutes
         weekdays = snapshot.weekdays
+        alarms = snapshot.alarms
     }
 
     var snapshot: SmartAlarmRuntimeSnapshot? {
@@ -82,7 +101,8 @@ struct SmartAlarmBackgroundRequest: Codable, Equatable, Sendable {
             enabled: enabled,
             mode: mode,
             minutes: minutes,
-            weekdays: Set(weekdays)
+            weekdays: Set(weekdays),
+            alarms: alarms
         )
     }
 }
@@ -126,6 +146,12 @@ final class SmartAlarmRuntimeController: ObservableObject {
         return [generationBase] + (1...7).map { "\(generationBase)-d\($0)" }
     }
 
+    private static func backupIdentifiers(snapshot: SmartAlarmRuntimeSnapshot,
+                                          configurationID: UUID, generation: UInt64) -> [String] {
+        let base = backupIdentifiers(configurationID: configurationID, generation: generation)[0]
+        return snapshot.backupEntries.map { "\(base)-a\($0.suffix)" }
+    }
+
     @Published private(set) var deliveryStatus = String(localized: "Off")
     @Published private(set) var backupStatus = String(localized: "Off")
     @Published private(set) var evidence: SmartAlarmEvidence?
@@ -147,16 +173,18 @@ final class SmartAlarmRuntimeController: ObservableObject {
     private var evaluationTask: Task<Void, Never>?
     private var evidenceTask: Task<Void, Never>?
     private var dailyTask: Task<Void, Never>?
+    private var endpointTask: Task<Void, Never>?
 
     init(model: AppModel, modeStore: SmartAlarmAdaptiveModeStore) {
         self.model = model
         behavior = model.behavior
         self.modeStore = modeStore
         let initialSnapshot = SmartAlarmRuntimeSnapshot(
-            enabled: model.behavior.smartAlarmEnabled,
+            enabled: model.behavior.hasEnabledWakeAlarms,
             mode: modeStore.mode,
             minutes: model.behavior.smartAlarmMinutes,
-            weekdays: model.behavior.smartAlarmWeekdays
+            weekdays: model.behavior.smartAlarmWeekdays,
+            alarms: model.behavior.wakeAlarms
         )
         configurationID = SmartAlarmRuntimeBackgroundScheduler.configurationID(for: initialSnapshot)
         // A BLE-restoration relaunch has no scene to run `.task`, so the strap hooks are live from construction.
@@ -170,6 +198,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         evaluationTask?.cancel()
         evidenceTask?.cancel()
         dailyTask?.cancel()
+        endpointTask?.cancel()
     }
 
     /// Strap-driven edges: a reconnect re-arms the firmware alarm, and a strap-fired event correlates evidence,
@@ -273,7 +302,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
               request.configurationID == configurationID,
               requestedSnapshot == currentSnapshot,
               requestedSnapshot.enabled,
-              requestedSnapshot.mode != .exactTime
+              requestedSnapshot.mode(for: request.endpoint) != .exactTime
         else {
             reconcileImmediately(trigger: .backgroundRefresh)
             return request != nil
@@ -302,10 +331,11 @@ final class SmartAlarmRuntimeController: ObservableObject {
 
     private var currentSnapshot: SmartAlarmRuntimeSnapshot {
         SmartAlarmRuntimeSnapshot(
-            enabled: behavior.smartAlarmEnabled,
-            mode: modeStore.mode,
+            enabled: behavior.hasEnabledWakeAlarms,
+            mode: behavior.smartAlarmMode,
             minutes: behavior.smartAlarmMinutes,
-            weekdays: behavior.smartAlarmWeekdays
+            weekdays: behavior.smartAlarmWeekdays,
+            alarms: behavior.wakeAlarms
         )
     }
 
@@ -361,11 +391,13 @@ final class SmartAlarmRuntimeController: ObservableObject {
         backupStatusTask?.cancel()
         evaluationTask?.cancel()
         evidenceTask?.cancel()
+        endpointTask?.cancel()
         debounceTask = nil
         notificationTask = nil
         backupStatusTask = nil
         evaluationTask = nil
         evidenceTask = nil
+        endpointTask = nil
     }
 
     private func applyDisabled(snapshot: SmartAlarmRuntimeSnapshot, token: UInt64) {
@@ -390,12 +422,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         trigger: SmartAlarmEvaluator.Trigger
     ) {
         guard generation.accepts(token, request: snapshot, current: currentSnapshot),
-              let endpoint = SmartAlarmSchedule.nextDate(
-                minutes: snapshot.minutes,
-                weekdays: snapshot.weekdaySet,
-                after: Date(),
-                calendar: .current
-              )
+              let occurrence = snapshot.next(after: Date())
         else {
             model.ble.disableStrapAlarm()
             removeAllBackupNotifications(snapshot: snapshot, token: token)
@@ -405,13 +432,16 @@ final class SmartAlarmRuntimeController: ObservableObject {
             return
         }
 
+        let endpoint = occurrence.date
         let arm = model.ble.armStrapAlarm(at: endpoint)
-        persistEndpointEvidence(endpoint: endpoint, mode: snapshot.mode, arm: arm)
+        persistEndpointEvidence(endpoint: endpoint, mode: occurrence.alarm.mode, arm: arm)
         updateDeliveryStatus(endpoint: endpoint, arm: arm, snapshot: snapshot)
         scheduleBackupNotifications(snapshot: snapshot, token: token)
         scheduleEvidenceRefresh(snapshot: snapshot, endpoint: endpoint, token: token)
 
-        if snapshot.mode == .exactTime {
+        scheduleEndpointRearm(snapshot: snapshot, endpoint: endpoint, token: token)
+
+        if snapshot.mode(for: endpoint) == .exactTime {
             SmartAlarmRuntimeBackgroundScheduler.cancel()
         } else {
             scheduleBackgroundRequest(endpoint: endpoint, snapshot: snapshot)
@@ -421,6 +451,18 @@ final class SmartAlarmRuntimeController: ObservableObject {
             if Date() >= windowStart {
                 beginEvaluation(snapshot: snapshot, endpoint: endpoint, token: token, trigger: trigger)
             }
+        }
+    }
+
+    private func scheduleEndpointRearm(snapshot: SmartAlarmRuntimeSnapshot, endpoint: Date, token: UInt64) {
+        endpointTask?.cancel()
+        endpointTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(max(1, endpoint.timeIntervalSinceNow + 1))) }
+            catch { return }
+            guard let self, !Task.isCancelled,
+                  self.generation.accepts(token, request: snapshot, current: self.currentSnapshot)
+            else { return }
+            self.reconcileImmediately(trigger: .configured)
         }
     }
 
@@ -444,12 +486,8 @@ final class SmartAlarmRuntimeController: ObservableObject {
         snapshot: SmartAlarmRuntimeSnapshot
     ) {
         guard generation.accepts(generation.value, request: snapshot, current: currentSnapshot),
-              let next = SmartAlarmSchedule.nextDate(
-                minutes: snapshot.minutes,
-                weekdays: snapshot.weekdaySet,
-                after: endpoint.addingTimeInterval(1),
-                calendar: .current
-              )
+              let next = snapshot.next(after: endpoint.addingTimeInterval(1))?.date,
+              snapshot.mode(for: next) != .exactTime
         else {
             SmartAlarmRuntimeBackgroundScheduler.cancel()
             return
@@ -460,18 +498,13 @@ final class SmartAlarmRuntimeController: ObservableObject {
     private func currentEndpoint(now: Date = Date()) -> Date? {
         let snapshot = currentSnapshot
         guard snapshot.enabled else { return nil }
-        return SmartAlarmSchedule.nextDate(
-            minutes: snapshot.minutes,
-            weekdays: snapshot.weekdaySet,
-            after: now,
-            calendar: .current
-        )
+        return snapshot.next(after: now)?.date
     }
 
     private func evaluateIfInsideWindow(trigger: SmartAlarmEvaluator.Trigger) {
         let snapshot = currentSnapshot
-        guard snapshot.enabled, snapshot.mode != .exactTime,
-              let endpoint = currentEndpoint() else { return }
+        guard snapshot.enabled, let endpoint = currentEndpoint(),
+              snapshot.mode(for: endpoint) != .exactTime else { return }
         let windowStart = endpoint.addingTimeInterval(
             -Double(SmartAlarmEvaluator.adaptiveWindowMinutes * 60)
         )
@@ -506,7 +539,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         )
         guard let store = await model.repo.storeHandle() else {
             guard generation.accepts(token, request: snapshot, current: currentSnapshot) else { return false }
-            persistUnavailableEvidence(mode: snapshot.mode, trigger: trigger, endpoint: endpoint,
+            persistUnavailableEvidence(mode: snapshot.mode(for: endpoint), trigger: trigger, endpoint: endpoint,
                                        reason: "storeUnavailable", evaluatedAt: now)
             refreshEvidence(for: endpoint)
             return false
@@ -549,7 +582,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             return false
         } catch {
             guard generation.accepts(token, request: snapshot, current: currentSnapshot) else { return false }
-            persistUnavailableEvidence(mode: snapshot.mode, trigger: trigger, endpoint: endpoint,
+            persistUnavailableEvidence(mode: snapshot.mode(for: endpoint), trigger: trigger, endpoint: endpoint,
                                        reason: "analysisUnavailable", evaluatedAt: now)
             refreshEvidence(for: endpoint)
             return false
@@ -572,12 +605,12 @@ final class SmartAlarmRuntimeController: ObservableObject {
                 reuseEarlyWake = previous?.actuation == .sentToConnectedStrap
             } else if let previous, let source = model.ble.connectedPeripheralUUID {
                 reuseEarlyWake = previous.matchesEarlyWakeAttempt(
-                    endpoint: endpoint, mode: snapshot.mode, sourceID: source)
+                    endpoint: endpoint, mode: snapshot.mode(for: endpoint), sourceID: source)
             } else {
                 reuseEarlyWake = false
             }
             if previous?.windowEndpoint == endpoint,
-               previous?.mode == snapshot.mode,
+               previous?.mode == snapshot.mode(for: endpoint),
                reuseEarlyWake {
                 actuation = previous?.actuation ?? .notRequested
                 requestedWake = previous?.requestedWakeAt ?? endpoint
@@ -613,7 +646,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         }
 
         var evaluationEvidence = SmartAlarmEvidence(
-            mode: snapshot.mode,
+            mode: snapshot.mode(for: endpoint),
             trigger: trigger,
             decision: computation.evaluation.decision,
             reason: computation.evaluation.reason,
@@ -646,7 +679,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             scheduleEvidenceRefresh(snapshot: snapshot, endpoint: endpoint, token: token)
         }
         model.live.append(
-            log: "Smart alarm: mode=\(snapshot.mode.rawValue) decision=\(computation.evaluation.decision.rawValue) reason=\(computation.evaluation.reason) actuation=\(actuation.rawValue)"
+            log: "Smart alarm: mode=\(snapshot.mode(for: endpoint).rawValue) decision=\(computation.evaluation.decision.rawValue) reason=\(computation.evaluation.reason) actuation=\(actuation.rawValue)"
         )
         return true
     }
@@ -700,7 +733,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         }
         try Task.checkCancellation()
         let evaluation = SmartAlarmEvaluator.evaluate(.init(
-            mode: snapshot.mode,
+            mode: snapshot.mode(for: endpoint),
             now: now,
             windowStart: windowStart,
             windowEnd: endpoint,
@@ -722,7 +755,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             guard let self else { return }
             let center = UNUserNotificationCenter.current()
             let operationID = self.configurationID
-            let operationIdentifiers = Self.backupIdentifiers(configurationID: operationID, generation: token)
+            let operationIdentifiers = Self.backupIdentifiers(snapshot: snapshot, configurationID: operationID, generation: token)
 
             let settings = await center.notificationSettings()
             guard !Task.isCancelled,
@@ -758,47 +791,42 @@ final class SmartAlarmRuntimeController: ObservableObject {
             content.title = String(localized: "Smart alarm")
             content.body = String(localized: "Backup wake: your smart alarm time is here.")
             content.sound = .default
-            let hour = snapshot.minutes / 60
-            let minute = snapshot.minutes % 60
-
-            do {
-                if snapshot.weekdays.isEmpty {
-                    let trigger = UNCalendarNotificationTrigger(
-                        dateMatching: DateComponents(hour: hour, minute: minute),
-                        repeats: true
-                    )
-                    try await center.add(UNNotificationRequest(
-                        identifier: operationIdentifiers[0],
-                        content: content,
-                        trigger: trigger
-                    ))
-                } else {
-                    for weekday in snapshot.weekdays {
-                        guard !Task.isCancelled,
-                              self.generation.accepts(token, request: snapshot, current: self.currentSnapshot),
-                              operationID == self.configurationID
-                        else { throw CancellationError() }
-                        var components = DateComponents()
-                        components.weekday = weekday
-                        components.hour = hour
-                        components.minute = minute
-                        let trigger = UNCalendarNotificationTrigger(
-                            dateMatching: components,
-                            repeats: true
-                        )
-                        try await center.add(UNNotificationRequest(
-                            identifier: operationIdentifiers[weekday],
-                            content: content,
-                            trigger: trigger
-                        ))
-                    }
-                }
-            } catch {
-                // Generation-scoped IDs make cleanup non-destructive even if this task became stale.
-                center.removePendingNotificationRequests(withIdentifiers: operationIdentifiers)
-                if self.generation.accepts(token, request: snapshot, current: self.currentSnapshot),
-                   operationID == self.configurationID {
-                    self.backupStatus = String(localized: "Not scheduled")
+            let existing = await center.pendingNotificationRequests()
+            guard !Task.isCancelled,
+                  self.generation.accepts(token, request: snapshot, current: self.currentSnapshot),
+                  operationID == self.configurationID else { return }
+            let oldAlarms = existing.filter { $0.identifier.hasPrefix(Self.backupBaseIdentifier) }
+            let proposed = zip(snapshot.backupEntries, operationIdentifiers).map { entry, identifier in
+                var components = DateComponents()
+                components.weekday = entry.weekday
+                components.hour = entry.minutes / 60
+                components.minute = entry.minutes % 60
+                return UNNotificationRequest(identifier: identifier, content: content,
+                    trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: true))
+            }
+            let replacement = await WakeAlarmBackupReplacement.replace(
+                existing: oldAlarms, proposed: proposed, otherCount: existing.count - oldAlarms.count,
+                identifier: { $0.identifier },
+                matches: { old, new in
+                    guard let a = old.trigger as? UNCalendarNotificationTrigger,
+                          let b = new.trigger as? UNCalendarNotificationTrigger else { return false }
+                    return a.repeats == b.repeats && a.dateComponents.hour == b.dateComponents.hour
+                        && a.dateComponents.minute == b.dateComponents.minute
+                        && a.dateComponents.weekday == b.dateComponents.weekday
+                },
+                isCurrent: {
+                    !Task.isCancelled && operationID == self.configurationID
+                        && self.generation.accepts(token, request: snapshot, current: self.currentSnapshot)
+                },
+                remove: { center.removePendingNotificationRequests(withIdentifiers: $0) },
+                add: { try await center.add($0) }
+            )
+            guard replacement == .scheduled else {
+                if !Task.isCancelled, operationID == self.configurationID,
+                   self.generation.accepts(token, request: snapshot, current: self.currentSnapshot) {
+                    self.backupStatus = replacement == .insufficientCapacity
+                        ? String(localized: "Not updated · too many reminders")
+                        : String(localized: "Not all alarms scheduled")
                 }
                 return
             }
@@ -824,7 +852,10 @@ final class SmartAlarmRuntimeController: ObservableObject {
                 $0.hasPrefix(Self.backupBaseIdentifier) && !keep.contains($0)
             }
             center.removePendingNotificationRequests(withIdentifiers: superseded)
-            self.backupStatus = String(localized: "Scheduled")
+            let installed = Set(pending.map(\.identifier))
+            self.backupStatus = operationIdentifiers.allSatisfy(installed.contains)
+                ? String(localized: "Scheduled for all enabled alarms")
+                : String(localized: "Not all alarms scheduled")
         }
     }
 
@@ -855,11 +886,11 @@ final class SmartAlarmRuntimeController: ObservableObject {
             guard !Task.isCancelled,
                   self.generation.accepts(token, request: snapshot, current: self.currentSnapshot),
                   operationID == self.configurationID else { return }
-            let currentIdentifiers = Set(Self.backupIdentifiers(configurationID: operationID, generation: token))
-            let scheduled = pending.contains { currentIdentifiers.contains($0.identifier) }
+            let currentIdentifiers = Set(Self.backupIdentifiers(snapshot: snapshot, configurationID: operationID, generation: token))
+            let scheduled = !currentIdentifiers.isEmpty && currentIdentifiers.isSubset(of: Set(pending.map(\.identifier)))
             self.backupStatus = scheduled
-                ? String(localized: "Scheduled")
-                : String(localized: "Not scheduled")
+                ? String(localized: "Scheduled for all enabled alarms")
+                : String(localized: "Not all alarms scheduled")
         }
     }
 
@@ -910,7 +941,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         guard let endpoint,
               let latest = SmartAlarmEvidenceStore.latest,
               latest.windowEndpoint == endpoint,
-              latest.mode == currentSnapshot.mode
+              latest.mode == currentSnapshot.mode(for: endpoint)
         else {
             evidence = nil
             return
@@ -962,7 +993,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
                 ? String(localized: "Experimental arm sent · unconfirmed")
                 : String(localized: "Arming…")
         }
-        if snapshot.mode == .exactTime,
+        if snapshot.mode(for: endpoint) == .exactTime,
            model.whoop5Detected,
            !PuffinExperiment.isEnabled {
             deliveryStatus = String(localized: "Not armed · Experimental required")

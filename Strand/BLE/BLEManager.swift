@@ -172,6 +172,7 @@ struct BackfillBurstPublication: Equatable {
     /// Only scopes with productive rows are refresh scopes. Empty receipts can still advance those
     /// scopes, but an empty-only burst must never arm a later publication with a stale coordinate.
     private var productiveScopes: Set<HistoricalReceiptWatermark.Scope> = []
+    var hasProductiveReceipts: Bool { !productiveScopes.isEmpty }
 
     /// Record the durable receipt identity. The display/session source is not allowed to relabel it.
     mutating func record(receipt: HistoricalDataCommitReceipt) {
@@ -1095,23 +1096,28 @@ public final class BLEManager: NSObject, ObservableObject {
         return true
     }
 
-    /// Designated initializer for testing and preview use: accepts a pre-built Collector.
-    init(state: LiveState, deviceId: String = "my-whoop", collector: Collector?) {
+    /// Designated initializer for testing and preview use: accepts pre-built ingestion components.
+    /// Tests can disable unsolicited radio callbacks while exercising a local historical transfer.
+    init(state: LiveState, deviceId: String = "my-whoop", collector: Collector?,
+         backfiller: Backfiller? = nil, receiveBluetoothCallbacks: Bool = true) {
         self.state = state
         self.deviceId = deviceId
         self.router = FrameRouter(state: state)
         self.collector = collector
+        self.backfiller = backfiller
+        self.backfilling = backfiller?.isBackfilling ?? false
         super.init()
         state.lastSyncedAt = UserDefaults.standard.object(forKey: "lastSyncedAt") as? Double
         // Restore identifier + background-capable central (mirrors the production initializer
         // so a restored manager matches by identifier; only exercised by tests/previews).
         #if os(iOS)
         UIDevice.current.isBatteryMonitoringEnabled = true
-        central = CBCentralManager(delegate: self, queue: .main,
-                                   options: [CBCentralManagerOptionRestoreIdentifierKey: BLEManager.restoreID])
+        central = CBCentralManager(delegate: receiveBluetoothCallbacks ? self : nil, queue: .main,
+                                   options: receiveBluetoothCallbacks
+                                    ? [CBCentralManagerOptionRestoreIdentifierKey: BLEManager.restoreID] : nil)
         #else
         // Strand (macOS desktop): no state-restoration identifier (iOS background feature).
-        central = CBCentralManager(delegate: self, queue: .main)
+        central = CBCentralManager(delegate: receiveBluetoothCallbacks ? self : nil, queue: .main)
         #endif
         // Strap-as-clock: an incoming EVENT packet kicks a rate-limited catch-up sync.
         router.onSyncTrigger = { [weak self] in self?.requestSync(.strap) }
@@ -2910,8 +2916,11 @@ public final class BLEManager: NSObject, ObservableObject {
         exitBackfilling(reason: "HISTORY_COMPLETE")
     }
 
-    private func handleBackfillFailure(_ failure: BackfillFailure) {
+    func handleBackfillFailure(_ failure: BackfillFailure) {
         guard backfilling else { return }
+        // Receipt publication precedes ACK confirmation. Session tallies can still be zero when the
+        // first ACK fails, even though its sensor rows are already durable and need exact scoring.
+        let madeDurableProgress = backfillBurstPublication.hasProductiveReceipts
         backfilling = false
         state.backfilling = false
         backfillTimeout?.cancel()
@@ -2919,10 +2928,13 @@ public final class BLEManager: NSObject, ObservableObject {
         backfillFrameQueue.removeAll()
         invalidateHistoricalBackfill(reason: "historical backfill failed")
         state.historicalSyncSessionState = .failed
-        historicalEmptyBackoff.record(freshProgress: false)
+        historicalEmptyBackoff.record(freshProgress: madeDurableProgress)
         historicalRadioDeadline = nil
         historicalBurstPasses.reset()
-        releaseDeferredHistoricalMaterializationIfNeeded()
+        if madeDurableProgress,
+           !BackfillContinuation.isFutureDatedNewest(strapNewestTs, wallNowUnix: Int(Date().timeIntervalSince1970)) {
+            setHistoricalBacklogRemains(true, reason: "a failed transfer left productive committed receipts for safe replay")
+        }
         startBackfillTimer()
         switch failure {
         case .acknowledgment:
@@ -2934,6 +2946,10 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "sync.lastWriteStalledAt")
         log("Backfill: session failed — \(failure)")
+        // A terminal failure ends this burst just as a disconnect does. Publish only its committed
+        // receipt scopes; keep the failure state and leave formal HISTORY_COMPLETE time unchanged.
+        publishBackfillBurstIfNeeded()
+        notifyHistoricalSyncBackgroundStateDidChange()
     }
 
     /// True when a frame is part of the historical offload (HISTORICAL_DATA=47, EVENT=48,
@@ -3235,7 +3251,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Emit a data-availability edge only after the full burst stops. `lastSyncedAt` remains reserved for
     /// formal `HISTORY_COMPLETE`, so an idle-timeout with durable rows refreshes the dashboard without
     /// lying that the strap finished syncing.
-    private func recordHistoricalCommit(_ context: HistoricalCommitContext) {
+    func recordHistoricalCommit(_ context: HistoricalCommitContext) {
         backfillBurstPublication.record(receipt: context.receipt)
         if context.receipt.decodedRows.total > 0 {
             // `onHistoricalCommitContext` fires only for a newly inserted receipt. Therefore a new

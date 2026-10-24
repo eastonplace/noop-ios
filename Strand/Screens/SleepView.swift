@@ -7,6 +7,17 @@ import WhoopProtocol
 
 // MARK: - Sleep presentation mapping
 
+/// Rendering accepts only durations whose rounded minutes and seconds are representable.
+/// Stored/imported history is left unchanged; invalid values render as unavailable.
+enum SleepDurationPresentation {
+    static func roundedMinutes(_ minutes: Double) -> Int? {
+        guard minutes.isFinite,
+              let rounded = Int(exactly: max(0, minutes).rounded()),
+              rounded <= Int.max / 60 else { return nil }
+        return rounded
+    }
+}
+
 /// Pure, view-only formatting for the two stage-row treatments on the Sleep screen.
 /// Inputs are the already-resolved `SleepModel` stage totals; this mapper never reads
 /// repository state or changes the engine's stage/debt calculations.
@@ -30,13 +41,15 @@ struct SleepStageRowPresentation: Equatable {
     /// `percent` overrides the rounded share when the caller has already shared 100% out across the stages
     /// (see `SleepStageShares`), so the rows add up.
     init(stage: SleepStage, minutes: Double, total: Double, typical: Double? = nil, percent: Int? = nil) {
-        let clampedMinutes = max(0, minutes)
+        let validMinutes = SleepDurationPresentation.roundedMinutes(minutes) != nil
+        let clampedMinutes = validMinutes ? max(0, minutes) : 0
         self.minutes = clampedMinutes
-        fraction = total > 0 ? min(1, max(0, clampedMinutes / total)) : 0
-        self.percent = percent ?? Int((fraction * 100).rounded())
-        duration = Self.durationText(clampedMinutes)
+        fraction = total.isFinite && total > 0 ? min(1, max(0, clampedMinutes / total)) : 0
+        self.percent = validMinutes ? (percent ?? Int((fraction * 100).rounded())) : 0
+        duration = Self.durationText(minutes)
 
-        guard let typical, typical > 0 else {
+        guard validMinutes, let typical, typical > 0,
+              SleepDurationPresentation.roundedMinutes(typical) != nil else {
             delta = nil
             shortDelta = nil
             deltaTone = nil
@@ -57,7 +70,9 @@ struct SleepStageRowPresentation: Equatable {
     }
 
     static func durationText(_ minutes: Double) -> String {
-        let rounded = max(0, Int(minutes.rounded()))
+        guard let rounded = SleepDurationPresentation.roundedMinutes(minutes) else {
+            return WidgetMetrics.missingValue
+        }
         if rounded < 60 { return String(localized: "\(rounded)m") }
         return String(localized: "\(rounded / 60)h \(rounded % 60)m")
     }
@@ -80,7 +95,8 @@ struct SleepWindowPresentation: Equatable {
         asleepDuration = hasStageData
             ? SleepStageRowPresentation.durationText(asleepMinutes)
             : "—"
-        let recordedMinutes = max(0, Double(sessionEndTs - sessionStartTs) / 60.0)
+        let span = sessionEndTs.subtractingReportingOverflow(sessionStartTs)
+        let recordedMinutes = span.overflow ? Double.nan : max(0, Double(span.partialValue) / 60.0)
         inBedDuration = SleepStageRowPresentation.durationText(
             hasStageData ? stagedInBedMinutes : recordedMinutes
         )
@@ -257,16 +273,16 @@ struct SleepView: View {
                         )
                         .staggeredAppear(index: 0)
                         FlatSectionSeparator.sleep
-                        // Full editor, bound to the same BehaviorStore and actuation lane as Alarms.
-                        SleepAlarmEditorSection()
-                            .staggeredAppear(index: 2)
-                        FlatSectionSeparator.sleep
                         paperSleepStages(
                             resolved,
                             night: displayedNight.night,
                             hasStageData: displayedNight.hasStageData
                         )
-                        .staggeredAppear(index: 2)
+                        .staggeredAppear(index: 1)
+                        FlatSectionSeparator.sleep
+                        // Keep the night's chart directly below its KPIs, then the wake controls.
+                        SleepAlarmEditorSection()
+                            .staggeredAppear(index: 2)
                         FlatSectionSeparator(above: SleepRhythm.airAbove, below: 0)
                         // Keep each row's existing divider-to-divider height, with its former outer
                         // separator air split evenly around the content instead of on just one side.
@@ -1814,9 +1830,7 @@ struct SleepView: View {
     }
 
     private func durationText(_ minutes: Double) -> String {
-        let m = Swift.max(0, Int(minutes.rounded()))
-        if m < 60 { return String(localized: "\(m)m") }
-        return String(localized: "\(m / 60)h \(m % 60)m")
+        SleepStageRowPresentation.durationText(minutes)
     }
 
     /// A sparkline needs at least two points; otherwise return nil so the tile stays clean.

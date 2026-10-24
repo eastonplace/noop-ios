@@ -2,314 +2,126 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 
-/// Alarm controls: a strap-firmware endpoint plus best-effort adaptive evaluation and phone backup.
-/// The UI owns no BLE/notification side effects; every editor writes shared state and the app-root
-/// `SmartAlarmRuntimeController` reconciles one generation-safe configuration.
+/// Saved schedules share one generation-safe runtime and one physical strap endpoint.
 struct SmartAlarmView: View {
     @Environment(\.screenScaffoldPresentation) private var presentation
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var behavior: BehaviorStore
-    @EnvironmentObject private var repo: Repository
-    @EnvironmentObject private var intelligence: IntelligenceEngine
-    @EnvironmentObject private var alarmMode: SmartAlarmAdaptiveModeStore
     @EnvironmentObject private var alarmRuntime: SmartAlarmRuntimeController
+    @State private var editingAlarm: WakeAlarm?
 
-    /// Calendar weekday numbers laid out Monday-first (Mon…Sun → 2,3,4,5,6,7,1), matching AutomationsView.
     nonisolated private static let weekdayOrder = [2, 3, 4, 5, 6, 7, 1]
-
-    // MARK: - Promoted SleepAlarmModuleCard hero
-
-    @State private var needMinutes: Double = SleepNeedV2.Config.production.defaultBaselineMinutes
-    @State private var needIsStartingEstimate = true
-    @State private var scheduleToolsExpanded = false
 
     var body: some View {
         Group {
             if presentation == .settingsDetail {
-                nativeSettingsBody
+                NativeSettingsList {
+                    Section("Wake alarms") { alarmRows; addButton }
+                    Section("Delivery") { deliveryDetails; Button("Test alarm") { model.buzzStrapOnce() } }
+                    Section { Text(Self.deliveryExplanation).font(.footnote).foregroundStyle(.secondary) }
+                    Section { notificationsLink }
+                }
+                .navigationTitle("Alarms")
             } else {
-                ScreenScaffold(title: "Alarms",
-                               subtitle: "Wake alarm controls.") {
+                ScreenScaffold(title: "Alarms", subtitle: "Your wake schedule.") {
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                        alarmHeroSection
-                        scheduleAndStrapTools
+                        PaperCard {
+                            VStack(alignment: .leading, spacing: 0) {
+                                alarmRows
+                                addButton.padding(.top, 12)
+                            }
+                        }
+                        PaperCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                deliveryDetails
+                                Button("Test alarm") { model.buzzStrapOnce() }
+                            }
+                        }
+                        Text(Self.deliveryExplanation)
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                         notificationsLink
-                        honestyCard
                     }
                 }
                 .toolbar(.hidden, for: .navigationBar)
             }
         }
-        .task(id: repo.refreshSeq) {
-            await resolveCanonicalNeed()
-            alarmRuntime.refreshStatus()
-        }
-
+        .sheet(item: $editingAlarm) { alarm in WakeAlarmEditor(alarm: alarm) }
+        .task { alarmRuntime.refreshStatus() }
     }
 
-    private var nativeSettingsBody: some View {
-        NativeSettingsList {
-            Section {
-                Toggle("Strap alarm", isOn: $behavior.smartAlarmEnabled)
-                Picker("Wake mode", selection: SleepAlarmEditorSupport.modeBinding(alarmMode)) {
-                    ForEach(wakeModes) { mode in
-                        Text(mode.title).tag(mode.id).disabled(!mode.isAvailable)
+    @ViewBuilder private var alarmRows: some View {
+        if behavior.wakeAlarms.isEmpty {
+            Text("No wake alarms").font(StrandFont.body).foregroundStyle(.secondary).padding(.vertical, 12)
+        }
+        ForEach(behavior.wakeAlarms) { alarm in
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+                : AnyLayout(HStackLayout(spacing: 16))
+            layout {
+                Button { editingAlarm = alarm } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(SleepAlarmTime.clock(alarm.minutes))
+                            .font(.system(.largeTitle, design: .default, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(alarm.enabled ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+                        Text(Self.alarmWeekdaySummary(alarm.weekdays))
+                            .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                        if alarm.mode != .exactTime {
+                            Text(alarm.mode == .sleepGoal ? "Sleep goal" : "In the green")
+                                .font(StrandFont.caption).foregroundStyle(DomainTint.sleep.accent)
+                        }
                     }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
-                LabeledContent("Backup notification", value: alarmRuntime.backupStatus)
-                Button("Test Strap Alarm") { model.buzzStrapOnce() }
-            } header: {
-                Text("Wake alarm")
-            } footer: {
-                Text("The primary alarm is a silent strap vibration. Keep a Clock alarm as a dependable backup because notification delivery can be limited by Focus or permissions.")
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit alarm \(SleepAlarmTime.clock(alarm.minutes))")
+                .accessibilityIdentifier("alarm.row.\(alarm.id.uuidString)")
+                Toggle("Alarm \(SleepAlarmTime.clock(alarm.minutes))", isOn: Binding(
+                    get: { behavior.wakeAlarms.first(where: { $0.id == alarm.id })?.enabled ?? false },
+                    set: { behavior.setWakeAlarmEnabled(id: alarm.id, enabled: $0) }
+                ))
+                .labelsHidden()
+                .accessibilityIdentifier("alarm.toggle.\(alarm.id.uuidString)")
             }
+            .padding(.vertical, 14)
+            if alarm.id != behavior.wakeAlarms.last?.id { Divider() }
+        }
+    }
 
-            Section {
-                ForEach(Self.weekdayOrder, id: \.self) { weekday in
-                    Toggle(
-                        Self.weekdayName(weekday),
-                        isOn: Binding(
-                            get: { Self.alarmWeekdayIsSelected(weekday, in: behavior.smartAlarmWeekdays) },
-                            set: { _ in
-                                behavior.smartAlarmWeekdays = Self.alarmToggledWeekday(
-                                    weekday,
-                                    in: behavior.smartAlarmWeekdays
-                                )
-                            }
-                        )
-                    )
-                }
-            } header: {
-                Text("Alarm days")
-            } footer: {
-                Text(Self.alarmWeekdaySummary(behavior.smartAlarmWeekdays))
-            }
+    private var addButton: some View {
+        Button {
+            let minutes = ((behavior.wakeAlarms.last?.minutes ?? 410) + 10) % 1440
+            editingAlarm = WakeAlarm(minutes: minutes)
+        } label: { Label("Add alarm", systemImage: "plus.circle.fill") }
+        .disabled(behavior.wakeAlarms.count >= WakeAlarmPlan.maximumAlarms)
+        .accessibilityIdentifier("alarm.add")
+        .accessibilityHint("Save up to five wake alarms")
+    }
 
-            Section {
-                notificationsLink
-            } footer: {
-                Text("Wind-down and other reminders are managed in Notifications.")
-            }
-
-            if let evidence = alarmRuntime.evidence {
-                Section("Last evaluation") {
-                    LabeledContent("Decision", value: Self.decisionWord(evidence.decision))
-                    Text(evidence.reason)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+    private var deliveryDetails: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(alarmRuntime.deliveryStatus).font(StrandFont.subhead)
+            Text("Phone backup: \(alarmRuntime.backupStatus)")
+                .font(StrandFont.footnote).foregroundStyle(.secondary)
+            if behavior.wakeAlarms.count >= WakeAlarmPlan.maximumAlarms {
+                Text("Five alarms saved. Edit or delete an alarm to add another.")
+                    .font(StrandFont.footnote).foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("Sleep & alarm")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 
     private var notificationsLink: some View {
         NavigationLink("Notifications") {
             NotificationSettingsView()
-                #if os(iOS)
-                .modifier(SettingsSheetDoneToolbar())
-                #endif
                 .environment(\.screenScaffoldPresentation, .settingsDetail)
         }
     }
 
-    private var recoveryHistoryCount: Int {
-        intelligence.results.compactMap(\.recovery).count
-    }
-
-    private var wakeModes: [SleepAlarmWakeMode] {
-        SleepAlarmEditorSupport.wakeModes(recoveryHistoryCount: recoveryHistoryCount)
-    }
-
-    /// Resolve tonight's canonical dynamic Sleep Need, three tiers, honest about which one landed.
-    private func resolveCanonicalNeed() async {
-        let today = Repository.localDayKey(Date())
-        let plan = await repo.canonicalSleepNeedPlan(onOrBefore: today)
-        needMinutes = plan.minutes
-        needIsStartingEstimate = plan.isStartingEstimate
-        WindDownNudge.updateCanonicalNeedMinutes(needMinutes)
-    }
-
-    /// The promoted module plus last-evaluation evidence and tonight's real plan timeline.
-    private var alarmHeroSection: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 16) {
-                Toggle("Wake alarm", isOn: $behavior.smartAlarmEnabled)
-                    .font(StrandFont.headline)
-                ViewThatFits(in: .horizontal) {
-                    DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Wake time")
-                        DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                            .accessibilityLabel("Wake time")
-                    }
-                }
-                .font(StrandFont.subhead)
-                Divider()
-                Picker("Wake mode", selection: SleepAlarmEditorSupport.modeBinding(alarmMode)) {
-                    ForEach(wakeModes) { mode in
-                        Text(mode.title).tag(mode.id).disabled(!mode.isAvailable)
-                    }
-                }
-                .font(StrandFont.subhead)
-                if let mode = wakeModes.first(where: { $0.id == alarmMode.mode.rawValue }) {
-                    Text(mode.explanation)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                Text(alarmRuntime.deliveryStatus)
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-        }
-    }
-
-    /// Read-only diagnostic trace of the exact runtime generation that produced the current endpoint.
-    private func evaluationEvidenceRow(_ e: SmartAlarmEvidence) -> some View {
-        PaperCard(padding: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text("Last evaluation".uppercased())
-                        .font(StrandFont.overline)
-                        .tracking(StrandFont.overlineTracking)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                    Spacer(minLength: 8)
-                    Text(e.evaluatedAt, format: .relative(presentation: .named))
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                Text("\(Self.decisionWord(e.decision)) · \(e.reason)")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                if let armed = e.strapReportedArmedAt {
-                    Text("Strap confirmed armed at \(armed.formatted(date: .omitted, time: .shortened))")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                if let fired = e.observedStrapWakeAt {
-                    Text("Strap fired at \(fired.formatted(date: .omitted, time: .shortened))")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-        }
-    }
-
-    private static func decisionWord(_ d: SmartAlarmEvaluator.Decision) -> String {
-        switch d {
-        case .wait:        return String(localized: "Waiting")
-        case .wakeNow:     return String(localized: "Woke early")
-        case .endpoint:    return String(localized: "Endpoint reached")
-        case .unavailable: return String(localized: "Unavailable")
-        }
-    }
-
-    /// The exact time picker, weekday schedule, test buzz, and actual backup-notification status.
-    private var scheduleAndStrapTools: some View {
-        PaperCard(padding: 14) {
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    withAnimation(StrandMotion.interactive) {
-                        scheduleToolsExpanded.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(StrandPalette.sleepAccent)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(StrandPalette.surfaceInset)
-                            )
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Schedule & strap tools")
-                                .font(StrandFont.caption.weight(.semibold))
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Text("Exact-time picker, weekdays, test buzz, and backup status")
-                                .font(StrandFont.micro)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .rotationEffect(.degrees(scheduleToolsExpanded ? 180 : 0))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Schedule and strap tools")
-                .accessibilityValue(scheduleToolsExpanded ? "Expanded" : "Collapsed")
-
-                if scheduleToolsExpanded {
-                    Divider().overlay(StrandPalette.hairline)
-                        .padding(.vertical, 12)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Exact wake time")
-                                .font(StrandFont.body)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Spacer(minLength: 12)
-                            DatePicker("", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
-                                .labelsHidden()
-                                .datePickerStyle(.compact)
-                                .accessibilityLabel("Exact wake time")
-                        }
-
-                        Divider().overlay(StrandPalette.hairline)
-                        alarmWeekdayPicker
-                        Divider().overlay(StrandPalette.hairline)
-
-                        SettingsRow(icon: "iphone", title: "Backup notification",
-                                    subtitle: "Phone fallback when the strap alarm is armed",
-                                    showsChevron: false) {
-                            Text(alarmRuntime.backupStatus)
-                        }
-
-                        NoteCard("Alarms use your strap's vibration. Keep it charged and within range.",
-                                 style: .warning)
-                        PrimaryButton("Test alarm") { model.buzzStrapOnce() }
-                    }
-                }
-            }
-        }
-    }
-
-    private var honestyCard: some View {
-        StrandCard(padding: 20) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "bell.slash")
-                    .foregroundStyle(StrandPalette.statusWarning)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("The strap alarm is a silent buzz, not a sound")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("The wake alarm can buzz your wrist from the strap's firmware after the strap confirms it is armed. A phone backup notification is best-effort: Focus, silent mode, or denied notification permission can prevent it from alerting you. Keep your phone's built-in Clock alarm as your dependable backup.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    private static func weekdayName(_ dow: Int) -> String {
-        let names = [String(localized: "Sunday"), String(localized: "Monday"), String(localized: "Tuesday"),
-                     String(localized: "Wednesday"), String(localized: "Thursday"), String(localized: "Friday"),
-                     String(localized: "Saturday")]
-        return (1...7).contains(dow) ? names[dow - 1] : String(localized: "Day \(dow)")
-    }
+    private static let deliveryExplanation = String(localized: "The strap stores the next alarm only. To arm later strap alarms, Noop must run with the strap connected after each wake. Later alarms may not buzz while disconnected. Phone backup notifications are best effort and can be silenced by Focus or permissions. Keep a Clock alarm as your dependable backup.")
 
     nonisolated static func windDownTimeLabel(
         _ minutes: Int,
@@ -318,59 +130,6 @@ struct SmartAlarmView: View {
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> String {
         SleepAlarmTime.clock(minutes, locale: locale, calendar: calendar, timeZone: timeZone)
-    }
-
-    private var alarmWeekdayPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            LazyVGrid(columns: alarmWeekdayColumns, spacing: 6) {
-                ForEach(Self.weekdayOrder, id: \.self) { dow in
-                    let selected = Self.alarmWeekdayIsSelected(dow, in: behavior.smartAlarmWeekdays)
-                    Button {
-                            behavior.smartAlarmWeekdays = Self.alarmToggledWeekday(
-                                dow, in: behavior.smartAlarmWeekdays
-                            )
-                    } label: {
-                        Text(Self.alarmWeekdayInitial(dow))
-                            .font(StrandFont.caption)
-                            .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(selected ? StrandPalette.accent : StrandPalette.surfaceInset,
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Self.weekdayName(dow))
-                        .accessibilityValue(selected ? "Selected" : "Not selected")
-                        .accessibilityAddTraits(selected ? .isSelected : [])
-                        .accessibilityHint("Double-tap to \(selected ? "exclude" : "include") this day")
-                }
-            }
-            Text(Self.alarmWeekdaySummary(behavior.smartAlarmWeekdays))
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var alarmWeekdayColumns: [GridItem] {
-        Array(
-            repeating: GridItem(.flexible(minimum: 44), spacing: 6),
-            count: dynamicTypeSize.isAccessibilitySize ? 4 : 7
-        )
-    }
-
-    private var alarmTimeBinding: Binding<Date> {
-        Binding(
-            get: {
-                var c = DateComponents()
-                c.hour = behavior.smartAlarmMinutes / 60
-                c.minute = behavior.smartAlarmMinutes % 60
-                return Calendar.current.date(from: c) ?? Date()
-            },
-            set: { date in
-                let c = Calendar.current.dateComponents([.hour, .minute], from: date)
-                behavior.smartAlarmMinutes = (c.hour ?? 7) * 60 + (c.minute ?? 0)
-            }
-        )
     }
 
     nonisolated static func alarmWeekdayIsSelected(_ dow: Int, in days: Set<Int>) -> Bool {
@@ -383,6 +142,7 @@ struct SmartAlarmView: View {
             next = Set(1...7)
             next.remove(dow)
         } else if days.contains(dow) {
+            guard days.count > 1 else { return days }
             next = days
             next.remove(dow)
         } else {
@@ -399,11 +159,6 @@ struct SmartAlarmView: View {
         return weekdayOrder.filter { days.contains($0) }.map { alarmWeekdayShort($0) }.joined(separator: ", ")
     }
 
-    private static func alarmWeekdayInitial(_ dow: Int) -> String {
-        let short = alarmWeekdayShort(dow)
-        return short == "?" ? "?" : String(short.prefix(1))
-    }
-
     nonisolated private static func alarmWeekdayShort(_ dow: Int) -> String {
         switch dow {
         case 1: return String(localized: "Sun")
@@ -414,6 +169,87 @@ struct SmartAlarmView: View {
         case 6: return String(localized: "Fri")
         case 7: return String(localized: "Sat")
         default: return "?"
+        }
+    }
+}
+
+/// The draft stays local until Save. Closing the sheet leaves the saved schedule unchanged.
+private struct WakeAlarmEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var behavior: BehaviorStore
+    @EnvironmentObject private var intelligence: IntelligenceEngine
+    @EnvironmentObject private var modeStore: SmartAlarmAdaptiveModeStore
+    @State private var draft: WakeAlarm
+
+    init(alarm: WakeAlarm) { _draft = State(initialValue: alarm) }
+
+    private var isExisting: Bool { behavior.wakeAlarms.contains { $0.id == draft.id } }
+    private var modes: [SleepAlarmWakeMode] {
+        SleepAlarmEditorSupport.wakeModes(recoveryHistoryCount: intelligence.results.compactMap(\.recovery).count)
+    }
+    private var time: Binding<Date> {
+        Binding(get: {
+            Calendar.current.date(from: DateComponents(year: 2001, month: 1, day: 1,
+                                                       hour: draft.minutes / 60, minute: draft.minutes % 60)) ?? Date()
+        }, set: {
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: $0)
+            draft.minutes = (parts.hour ?? 7) * 60 + (parts.minute ?? 0)
+        })
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    DatePicker("Wake time", selection: time, displayedComponents: .hourAndMinute)
+                        .datePickerStyle(.wheel)
+                        .accessibilityIdentifier("alarm.editor.time")
+                    Toggle("Enabled", isOn: $draft.enabled)
+                }
+                Section("Repeat") {
+                    ForEach([2, 3, 4, 5, 6, 7, 1], id: \.self) { weekday in
+                        Toggle(Calendar.current.weekdaySymbols[weekday - 1], isOn: Binding(
+                            get: { SmartAlarmView.alarmWeekdayIsSelected(weekday, in: draft.weekdays) },
+                            set: { _ in draft.weekdays = SmartAlarmView.alarmToggledWeekday(weekday, in: draft.weekdays) }
+                        ))
+                    }
+                }
+                Section {
+                    Picker("Wake mode", selection: Binding(get: { draft.mode.rawValue }, set: {
+                        if let mode = SmartAlarmEvaluator.Mode(rawValue: $0) { draft.mode = mode }
+                    })) {
+                        ForEach(modes) { mode in Text(mode.title).tag(mode.id).disabled(!mode.isAvailable) }
+                    }
+                    if let selected = modes.first(where: { $0.id == draft.mode.rawValue }) {
+                        Text(selected.explanation).font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                if isExisting {
+                    Section {
+                        Button("Delete alarm", role: .destructive) {
+                            behavior.deleteWakeAlarm(id: draft.id)
+                            if !behavior.wakeAlarms.isEmpty { modeStore.mode = behavior.smartAlarmMode }
+                            dismiss()
+                        }
+                        .accessibilityIdentifier("alarm.editor.delete")
+                    }
+                }
+            }
+            .navigationTitle(isExisting ? "Edit alarm" : "Add alarm")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.accessibilityIdentifier("alarm.editor.cancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save alarm") {
+                        if behavior.saveWakeAlarm(draft) {
+                            if behavior.wakeAlarms.first?.id == draft.id { modeStore.mode = draft.mode }
+                            dismiss()
+                        }
+                    }
+                    .accessibilityIdentifier("alarm.editor.save")
+                }
+            }
         }
     }
 }

@@ -35,10 +35,10 @@ extension FlatSectionSeparator {
 /// state words ("Fair", "Good", "Optimal") come from. With no score the arc is a row of quiet dots and a dash.
 struct SleepScoreDial: View {
     let score: Double?
-    /// The hero's small ring: 76pt with a 6pt line, so it sits beside the headline instead of above it.
+    /// The hero's ring: 95pt with a 6pt line, so it sits beside the headline instead of above it.
     var compact = false
     @ScaledMetric(relativeTo: .title) private var side: CGFloat = 112
-    @ScaledMetric(relativeTo: .title) private var compactSide: CGFloat = 76
+    @ScaledMetric(relativeTo: .title) private var compactSide: CGFloat = 95
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
@@ -141,7 +141,8 @@ struct SleepHeroSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            FactStrip(facts: facts)
+            FactStrip(facts: facts, valueSize: 25, columnSpacing: 8)
+                .accessibilityIdentifier("sleep.kpis")
                 .padding(.top, NoopMetrics.space1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -204,7 +205,9 @@ struct SleepStageTimeline {
 /// Durations as they are said aloud ("1 hour, 38 minutes"), in the user's language.
 enum SleepSpokenDuration {
     static func text(minutes: Double, locale: Locale = .autoupdatingCurrent) -> String {
-        let total = max(0, Int(minutes.rounded()))
+        guard let total = SleepDurationPresentation.roundedMinutes(minutes) else {
+            return String(localized: "Duration unavailable")
+        }
         let allowed: Set<Duration.UnitsFormatStyle.Unit> = total < 60 ? [.minutes] : [.hours, .minutes]
         let style = Duration.UnitsFormatStyle.units(
             allowed: allowed, width: .wide,
@@ -226,10 +229,10 @@ struct SleepStageChart: View {
     private let highlighted: SleepStage?
 
     @ScaledMetric(relativeTo: .caption2) private var gutter: CGFloat = 40
-    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 70
+    @ScaledMetric(relativeTo: .caption) private var plotHeight: CGFloat = 98
 
     private static let laneOrder: [SleepStage] = [.awake, .rem, .light, .deep]
-    private static let barThickness: CGFloat = 10
+    private static let barThickness: CGFloat = 14
 
     init(timeline: SleepStageTimeline, start: Date, highlighted: SleepStage?) {
         self.timeline = timeline
@@ -286,6 +289,7 @@ struct SleepStageChart: View {
         .environment(\.layoutDirection, .leftToRight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary)
+        .accessibilityIdentifier("sleep.stageChart")
     }
 
     private var plot: some View {
