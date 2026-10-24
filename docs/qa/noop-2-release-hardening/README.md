@@ -1,5 +1,7 @@
 > Integration update, 2026-10-24: Easton requested merging the useful fixes in PR79, followed by PR81 targeting 2.0.2. PR79 now incorporates main through cdbbec24 and uses 2.0.1 build 253. The current-main Lift menu selector and ordered-settings test fixes are retained. The historical evidence below describes earlier snapshots. Fresh required CI is the merge gate. F16 calendar-key migration and physical overnight qualification remain unverified; no phone installation or release publication is authorized.
 
+> Follow-up review, 2026-10-24: disconnect retirement could suppress an already committed history receipt. The repair publishes the immutable receipt under its original database/source, rejects restore and replaced-store generations, and leaves a replacement session and ACK state unchanged. Negative proof failed two real-store methods; four host controls and 59 focused native methods pass after the repair. The three fixture waits now have five-second deadlines. The PR comparison is refreshed to current main cdbbec24 so CI does not count already merged work. Fresh required CI remains the merge gate.
+
 # NOOP 2.0 release-hardening audit
 
 Audit date: 2026-10-23. Repository: `eastonplace/noop-ios`.
