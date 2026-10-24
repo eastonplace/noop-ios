@@ -8,7 +8,10 @@ final class SettingsSheetTests: XCTestCase {
         let app = XCUIApplication()
         // Use the simulator shell fixture, as the other navigation tests do. Demo data alone
         // leaves onboarding and Terms over Today, so its profile button exists behind an overlay.
-        app.launchArguments = ["--noop-coach-shell-qa", "--demo-seed", "--demo-tab", "today", "-AppleInterfaceStyle", "Dark"]
+        // Load the idle Lift fixture too: without it the shell restores the lift a preceding routine
+        // test saved and presents Lift over Today, so the profile tap lands on the Lift sheet.
+        app.launchArguments = ["--noop-coach-shell-qa", "--demo-seed", "--noop-lift-demo", "fresh",
+                               "--demo-tab", "today", "-AppleInterfaceStyle", "Dark"]
         app.launch()
         // Seeding finishes after the shell is interactive. Match the other navigation
         // suites' readiness condition before a seed-driven root redraw can interrupt a tap.
