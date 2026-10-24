@@ -1,0 +1,143 @@
+{
+  "base": "a7ade2598d439d33cd20816d69ccc991b29322fc",
+  "fix_references": {
+    "F01": [
+      {
+        "file": "Strand/BLE/BLEManager.swift",
+        "line": 5200
+      },
+      {
+        "file": "Strand/BLE/BLEManager.swift",
+        "line": 5330
+      }
+    ],
+    "F02": [
+      {
+        "file": "StrandiOS/App/HistoricalSyncBackgroundTaskRegistrar.swift",
+        "line": 127
+      }
+    ],
+    "F03": [
+      {
+        "file": "Strand/BLE/BLEManager.swift",
+        "line": 7059
+      }
+    ],
+    "F04": [
+      {
+        "file": "Strand/AI/AICoach.swift",
+        "line": 655
+      },
+      {
+        "file": "Strand/AI/AIProvider.swift",
+        "line": 133
+      },
+      {
+        "file": "Strand/AI/Providers/Custom.swift",
+        "line": 13
+      }
+    ],
+    "F05": [
+      {
+        "file": "StrandiOS/Coach/LocalCoachEngine.swift",
+        "line": 420
+      },
+      {
+        "file": "Strand/Screens/TrendsView.swift",
+        "line": 30
+      }
+    ],
+    "F06": [
+      {
+        "file": "Packages/WhoopStore/Sources/WhoopStore/SleepSessionUndoStore.swift",
+        "line": 34
+      }
+    ],
+    "F07": [
+      {
+        "file": "Strand/Data/Repository.swift",
+        "line": 3431
+      }
+    ],
+    "F08": [
+      {
+        "file": "Strand/Data/Repository.swift",
+        "line": 3390
+      }
+    ],
+    "F09": [
+      {
+        "file": "Packages/WhoopStore/Sources/WhoopStore/SleepSessionUndoStore.swift",
+        "line": 79
+      },
+      {
+        "file": "Strand/Screens/SleepView.swift",
+        "line": 536
+      }
+    ],
+    "F10": [
+      {
+        "file": "Packages/StrandImport/Sources/StrandImport/ImportNumericSafety.swift",
+        "line": 5
+      },
+      {
+        "file": "Packages/StrandImport/Sources/StrandImport/AppleHealthAggregator.swift",
+        "line": 370
+      }
+    ],
+    "F11": [
+      {
+        "file": "StrandiOS/Widgets/WorkoutLiveProjectionCache.swift",
+        "line": 140
+      }
+    ],
+    "F12": [
+      {
+        "file": "StrandiOS/Resources/PrivacyInfo.xcprivacy",
+        "line": 5
+      },
+      {
+        "file": "StrandiOSWidgets/PrivacyInfo.xcprivacy",
+        "line": 5
+      }
+    ],
+    "F13": [
+      {
+        "file": "Strand/BLE/SourceCoordinator.swift",
+        "line": 463
+      }
+    ],
+    "F14": [
+      {
+        "file": "Strand/BLE/BLEManager.swift",
+        "line": 913
+      }
+    ],
+    "F15": [
+      {
+        "file": "Strand/BLE/HrBroadcaster.swift",
+        "line": 126
+      }
+    ]
+  },
+  "unresolved_references": {
+    "F16": [
+      {
+        "file": "Strand/Data/IntelligenceEngine.swift",
+        "line": 391
+      },
+      {
+        "file": "Strand/Data/IntelligenceAnalysisCoordinator.swift",
+        "line": 836
+      },
+      {
+        "file": "Strand/Data/Repository.swift",
+        "line": 1152
+      },
+      {
+        "file": "StrandiOSTests/IntelligenceTimestampSafetyTests.swift",
+        "line": 82
+      }
+    ]
+  }
+}

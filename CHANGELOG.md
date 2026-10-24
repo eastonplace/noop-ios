@@ -19,9 +19,21 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 2.0.1
+
+Reviewed PR79 fixes, integrated with current main before the 2.0.2 feature update. Phone installation and release publication remain on hold.
+
+- **Reliable sleep edits and undo.** Edits and deletion find the visible canonical night after re-pairing, repeated saves preserve stage totals, and undo restores recovered Rest/Charge evidence and auxiliary tracks atomically. Conflicting new data retains the undo action for retry. Historical night selection now shares the engine's existing deduplication and daylight-saving handling.
+- **Coach ownership and privacy.** Requests keep their original provider, model, key and server through context loading and retries. Changed consent or data ownership invalidates obsolete work and outbound history. Weekly insights belong to the current source and database. All existing Coach prompts and instructions are unchanged.
+- **Strap and background reliability.** Bluetooth loss and Forget retire the connection's timers, secure state and queued work while preserving received samples under their original owner. Expired background launches cannot start another history transfer. Repeated WHOOP 5/MG fallback notifications publish/log a mode only when it changes; every sensor reading is still processed.
+- **Faster live workout updates.** Correcting the current heart-rate second uses the existing incremental projection operation instead of repeatedly sorting and rebuilding the whole workout. Exact calories, zones and trace outputs are preserved, including pauses and fallback rebuilds.
+- **Safer health imports.** Invalid or out-of-range numeric fields cannot trap integer conversion or contaminate daily heart-rate aggregation. Other valid readings and workout fields continue to import with the existing rounding rules.
+- **Release privacy declarations.** App and widget bundles declare their existing required-reason API usage, with tests that inspect the built resources.
+
+
 ## 2.0.0
 
-Staged combined release. Phone installation and publication remain on hold until Easton calls the batch ready. This entry accumulates implemented work from PR68 onward; the tentative endpoint is PR77 and may change. Unmerged features are not listed as delivered.
+Easton approved and installed the combined 2.0.0 candidate as build 252 on October 24. This entry covers merged work from PR68 through PR80 plus the release-copy update in PR81. PR79 was not included in that installed candidate. Release publication remains on hold; new work targets 2.0.2.
 
 - **Recent and stable readiness.** Physiology baselines expire by calendar day, non-finite observations cannot crash the readiness view, and extreme imported loads cannot overflow the training-load warmup. Sparse sleep interpolation preserves the same output with one forward neighbor search.
 - **Review and runtime reliability.** Cancelled HealthKit queries release their import work without waiting for late callbacks, and cancellation before an export deletion keeps the existing samples. Anchored reads stop at cancellation boundaries.
@@ -60,6 +72,8 @@ CI work in PR76 removes duplicate package testing and selects checks by change t
 - **Training load focus.** Review four weeks of workout heart-rate zone minutes grouped into low aerobic, high aerobic and anaerobic load. Training Load adds intensity and sport views with week-by-week contributions; the method explains its data requirements and ranges.
 
 - **Score guides everywhere.** Shared information sheets explain each score or metric, what its ranges mean, how to read the displayed result and how it is calculated. Guides are available from Today, Trends, Sleep, health, stress, training-load and insight screens.
+
+- **Bug fixes and improvements.** Cleaner scores, filtered steps, safer sync and history. The in-app 2.0 showcase now ends with this summary and explicitly includes the Coach brief widget alongside Journal and Insights.
 
 ## 1.8.1
 

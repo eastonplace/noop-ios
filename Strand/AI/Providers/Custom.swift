@@ -5,6 +5,15 @@ import Foundation
 /// the OpenAI chat-completions wire format against `AIProvider.custom` endpoints. The API key is
 /// optional — local servers usually need none — so the `Authorization` header is sent only when set.
 struct CustomClient: AIProviderClient {
+    /// A client belongs to the server selected when the request was admitted. A compatibility retry
+    /// must not read a replacement URL from settings and send the original credential there.
+    private let endpoint: URL
+    private let modelsEndpoint: URL
+
+    init(baseURL: String = AIProvider.customBaseURL) {
+        endpoint = AIProvider.customURL(path: "/chat/completions", baseURL: baseURL)
+        modelsEndpoint = AIProvider.customURL(path: "/models", baseURL: baseURL)
+    }
 
     func send(
         key: String,
@@ -57,7 +66,7 @@ struct CustomClient: AIProviderClient {
     }
 
     func fetchModels(key: String, session: URLSession) async throws -> [String] {
-        var req = URLRequest(url: AIProvider.custom.modelsEndpoint)
+        var req = URLRequest(url: modelsEndpoint)
         req.httpMethod = "GET"
         if !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
 
@@ -93,7 +102,7 @@ struct CustomClient: AIProviderClient {
             body["max_tokens"] = 900
         }
 
-        var req = URLRequest(url: AIProvider.custom.endpoint)
+        var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
         if !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")

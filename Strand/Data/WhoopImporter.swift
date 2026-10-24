@@ -12,8 +12,7 @@ enum WhoopImporter {
 
     /// Keep the CSV's rounding convention, but reject values that cannot become a store integer.
     static func roundedImportedHeartRate(_ value: Double?) -> Int? {
-        guard let value, value.isFinite else { return nil }
-        return Int(exactly: value.rounded())
+        ImportNumericSafety.integer(value, rounding: .toNearestOrAwayFromZero)
     }
 
     /// Validate WHOOP's documented 0...21 scale at the write boundary. Parsed CSV values remain

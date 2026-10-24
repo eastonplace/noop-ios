@@ -192,7 +192,7 @@ extension TrendsView {
     /// The on-device Coach's takeaway for the displayed week when it has written one, else a deterministic
     /// rule-based line. Never empty.
     private func paperInsight(_ digest: WeeklyDigest, reviewLines: [String]) -> (text: String, fromCoach: Bool) {
-        if let stored = coachInsight, stored.weekStart == digest.weekStart, !stored.text.isEmpty {
+        if let stored = currentCoachInsight, stored.weekStart == digest.weekStart, !stored.text.isEmpty {
             return (stored.text, true)
         }
         return (WeeklyDigestEngine.insightLine(

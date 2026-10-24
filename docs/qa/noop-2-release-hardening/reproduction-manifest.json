@@ -1,0 +1,500 @@
+{
+  "files": [
+    {
+      "file": "README.md",
+      "bytes": 1067,
+      "sha256": "92c4d0c9b278c1348c56d87d91b92e35fd5767e7faeb772e2abd817b0e20ec0c"
+    },
+    {
+      "file": "ble-audit-evidence/WhoopProtocol-546-final.log",
+      "bytes": 131386,
+      "sha256": "583437e36025c37df75a99479181889fae55edf2ba63fadca44a8a2ee36d77dd"
+    },
+    {
+      "file": "ble-audit-evidence/ble-lifecycle-probe-main.swift",
+      "bytes": 7970,
+      "sha256": "3e0467a8e41e09be267e196b7cb964dc4d5689e86c4e692f1715e969b50bfc87"
+    },
+    {
+      "file": "ble-audit-evidence/ble-lifecycle-probe-prepare.py",
+      "bytes": 2622,
+      "sha256": "a3ee92b48d7f15e491c2c084eda176fdaf8038a4f9f31ad32b770b76d1cdfb09"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-bootstrap-after.swift",
+      "bytes": 3999,
+      "sha256": "8c71445403de07225ca74664e80f77bb9687792adccd078f22ff07851482948f"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-bootstrap-before.swift",
+      "bytes": 3081,
+      "sha256": "c6e72b276e456ab62f319a79620e99145b66c60c318c0101d0301b0c483f74b9"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-broadcaster-after.swift",
+      "bytes": 590,
+      "sha256": "04c811b1bf6997a98257209739f0ab7649baa8493e1984c114371d90b193b28c"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-broadcaster-before.swift",
+      "bytes": 515,
+      "sha256": "82a0ae3e699c92b8704c8661de04dfed5257f8274d465b6ead57d84e460c7e13"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-cancellation.swift",
+      "bytes": 975,
+      "sha256": "bf3a887493c7b7e0faf50f654a002091bd9949d5d65d9fe32e1acc78b8135dc0"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-fallback.swift",
+      "bytes": 2163,
+      "sha256": "05fe9fe00febe27ebaee8ca84373c69b4dade309ac743ceb3f6aebeb33ec6e72"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-ownership.py",
+      "bytes": 3698,
+      "sha256": "6b164fab6d09a0593a5c08f451f6c45e6c1577153c73dba7b6aef6662ea7d49e"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-prepare.py",
+      "bytes": 2701,
+      "sha256": "48a40416b82cfde121239f70fed1e5e42e91abd004a4b884d836ee51c7bff2e0"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-replay-after.swift",
+      "bytes": 4335,
+      "sha256": "763867669238d5303920c80761e9465935668a7de51cd91fbef04c39f6471920"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-replay-before.swift",
+      "bytes": 3552,
+      "sha256": "6a5b1547a33c4a59fd8f81788567cd89768329ffb1f52052ca8817a20bb9325b"
+    },
+    {
+      "file": "ble-audit-evidence/ble-release-probes-replay.py",
+      "bytes": 3117,
+      "sha256": "fecb8d70773e687e31a0f0fc54bcd5219d30cd1afdd2b31d75b0a5fd5956dea9"
+    },
+    {
+      "file": "ble-audit-evidence/independent-registry-aba-after.swift",
+      "bytes": 3393,
+      "sha256": "dfc78d8002a713c1e656123bfde0f71155a22481163a608ff2e124edb8cedf8b"
+    },
+    {
+      "file": "ble-audit-evidence/independent-registry-aba-before.swift",
+      "bytes": 2851,
+      "sha256": "947b0a930477fa5bfb329a924d2bf828db22126b707e6842f05466d722f413aa"
+    },
+    {
+      "file": "ble-audit-evidence/independent-registry-aba-green.log",
+      "bytes": 170,
+      "sha256": "3cc8bebba75c343b89acd5e15d79675d3a3fcbcba80bf370c2e6effaeddac6bc"
+    },
+    {
+      "file": "ble-audit-evidence/independent-registry-aba-red.log",
+      "bytes": 141,
+      "sha256": "7875aba160a6a825c16c19d3b825dcfbd8b5b34175bccba2bb500b7c54d7fe5d"
+    },
+    {
+      "file": "ble-audit-evidence/source-identity-probe-main.swift",
+      "bytes": 6020,
+      "sha256": "c22fa6aa8f4fca333d380f4c02b1ef38dded586e128dce9b03ceca44040d956a"
+    },
+    {
+      "file": "ble-audit-evidence/source-identity-probe-refresh.py",
+      "bytes": 922,
+      "sha256": "78442decfc74e44d13638856c68cdf67ecdd7c07e76a52413ea801b826d3834b"
+    },
+    {
+      "file": "coach-audit-evidence/README.md",
+      "bytes": 1212,
+      "sha256": "1a0504e50c53017c5e59ba02f35b8dbaaca7e65c3e1997bf64c4c5eb3d4484dd"
+    },
+    {
+      "file": "coach-audit-evidence/SHA256SUMS",
+      "bytes": 6267,
+      "sha256": "88062d2eb5e3ef262f6e7b9c1c96bce97e57d24fd9ce0b08fc984c206ec9aae2"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Package.swift",
+      "bytes": 256,
+      "sha256": "ef24ca4ac24a8e2670c6fd71e47646aaf51d25515b232776d67d001185948075"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/README.md",
+      "bytes": 3939,
+      "sha256": "237280505f882c7244fd8d16205578e6fd2dc8e4b32aafdca5e205208b1b07a1"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Sources/NOOP/AICoach.swift",
+      "bytes": 44278,
+      "sha256": "cca731d7e2da984c3a7b9c081f0226d08da2de201ad9fc793041fc0af7775ebc"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Sources/NOOP/AIProvider.swift",
+      "bytes": 6481,
+      "sha256": "95e04253121cb9bd2e913ab17c4cca37be896b11980702bb53639babbf9774e9"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Sources/NOOP/Anthropic.swift",
+      "bytes": 2178,
+      "sha256": "8ee4ac580ffbae9fd774b38a9a71361905ec0240515409e986aba77b2d111334"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Sources/NOOP/Custom.swift",
+      "bytes": 5671,
+      "sha256": "b7f095708f1d7bf1d8de57be884d62f77890a20cc1ca41ba567e841fa92ea5a6"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Sources/NOOP/Gemini.swift",
+      "bytes": 3393,
+      "sha256": "b6fa2299428d188d149456f01df9ac8f991111932a0cec1fe2f0329b616ee730"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Sources/NOOP/OpenAI.swift",
+      "bytes": 3307,
+      "sha256": "90bda4be9426316bbf9e00453776bf457c1cd96465b8be1386d1256032aed943"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Sources/NOOP/PlatformStubs.swift",
+      "bytes": 3071,
+      "sha256": "111fac37276a88568a90da50d32abd3f0630ee8d650bc38bf2c6b1dabfede4e2"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Tests/NOOPTests/AICoachRefreshModelsRaceTests.swift",
+      "bytes": 4427,
+      "sha256": "d9d1fd0c38e993aa271470aa4dd85be2c19aae0346a4ddeb2cd74bd640bc29ab"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Tests/NOOPTests/AICoachRequestOwnershipTests.swift",
+      "bytes": 24015,
+      "sha256": "8c156da03e27d3327d498f510c945603169bb85fdb1a28a7a6c14ee35af6e229"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/Tests/NOOPTests/AIProviderModelListTests.swift",
+      "bytes": 4206,
+      "sha256": "85cd3350209ce472e1f7e481420eea0bb2be3755ed4edf84bee376671a0f0434"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Sources/NOOP/AICoach.swift",
+      "bytes": 38179,
+      "sha256": "32ba25c9c0df4e254af50e2b687eadb021d917b40b2cd0627d50df56b6bcc710"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Sources/NOOP/AIProvider.swift",
+      "bytes": 5798,
+      "sha256": "1f6dc50f62ceaa6b88e238ddbdb2891a1fbb8dc591a7700af42b5d3bc3d4f605"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Sources/NOOP/Anthropic.swift",
+      "bytes": 2178,
+      "sha256": "8ee4ac580ffbae9fd774b38a9a71361905ec0240515409e986aba77b2d111334"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Sources/NOOP/Custom.swift",
+      "bytes": 5218,
+      "sha256": "fa8050c7fc050807ab07b0ecb884a7485f51312c1e22d9e334c47482c40001f9"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Sources/NOOP/Gemini.swift",
+      "bytes": 3393,
+      "sha256": "b6fa2299428d188d149456f01df9ac8f991111932a0cec1fe2f0329b616ee730"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Sources/NOOP/OpenAI.swift",
+      "bytes": 3307,
+      "sha256": "90bda4be9426316bbf9e00453776bf457c1cd96465b8be1386d1256032aed943"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Sources/NOOP/PlatformStubs.swift",
+      "bytes": 3071,
+      "sha256": "111fac37276a88568a90da50d32abd3f0630ee8d650bc38bf2c6b1dabfede4e2"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Tests/NOOPTests/AICoachRefreshModelsRaceTests.swift",
+      "bytes": 4427,
+      "sha256": "d9d1fd0c38e993aa271470aa4dd85be2c19aae0346a4ddeb2cd74bd640bc29ab"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Tests/NOOPTests/AICoachRequestOwnershipTests.swift",
+      "bytes": 21191,
+      "sha256": "32e15c391082ca65169211aa914117a60b2bccf2dcca9769f54880d4d5c376a1"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/baseline-Tests/NOOPTests/AIProviderModelListTests.swift",
+      "bytes": 4206,
+      "sha256": "85cd3350209ce472e1f7e481420eea0bb2be3755ed4edf84bee376671a0f0434"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/check_ai_literals.py",
+      "bytes": 3584,
+      "sha256": "d327ad06e692d5baa361ea70d976cc7b79714ec292ef4b69a01a92db785134fa"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/green-all.log",
+      "bytes": 8852,
+      "sha256": "4317c0615d8314bc2ecf4b59a6c3e6327bb2a7bd200a27a344e5b087177020ea"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/green.log",
+      "bytes": 5242,
+      "sha256": "94318d5ca0cf51cecafc656978f3486facfb146a86e3501760ab8efd802b3523"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/prompt-literal-proof.json",
+      "bytes": 11012,
+      "sha256": "0852a40a6272a60008a14c041c877fbcee547d53129d29cb9eb4442f9c6afef2"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/red-all.log",
+      "bytes": 13318,
+      "sha256": "417a1b01d0bf8a6ef1b35a421e420790af44aad64375729d089694aab3819a58"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/red.log",
+      "bytes": 6901,
+      "sha256": "2e6e2ed7fee7020486fbdd417e535ac80137f22d187dfaaa82e83fc281709110"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Sources/NOOP/AICoach.swift",
+      "bytes": 44121,
+      "sha256": "c3f563b336864dae8f5f98ee66eb81b2ae5ec812e959a6eece1ae7e8e9160fec"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Sources/NOOP/AIProvider.swift",
+      "bytes": 5894,
+      "sha256": "2750831b8b2e3291981f5de782b9257ec2ae055d62d657b72b9ed7723c97b573"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Sources/NOOP/Anthropic.swift",
+      "bytes": 2178,
+      "sha256": "8ee4ac580ffbae9fd774b38a9a71361905ec0240515409e986aba77b2d111334"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Sources/NOOP/Custom.swift",
+      "bytes": 5671,
+      "sha256": "b7f095708f1d7bf1d8de57be884d62f77890a20cc1ca41ba567e841fa92ea5a6"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Sources/NOOP/Gemini.swift",
+      "bytes": 3393,
+      "sha256": "b6fa2299428d188d149456f01df9ac8f991111932a0cec1fe2f0329b616ee730"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Sources/NOOP/OpenAI.swift",
+      "bytes": 3307,
+      "sha256": "90bda4be9426316bbf9e00453776bf457c1cd96465b8be1386d1256032aed943"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Sources/NOOP/PlatformStubs.swift",
+      "bytes": 3071,
+      "sha256": "111fac37276a88568a90da50d32abd3f0630ee8d650bc38bf2c6b1dabfede4e2"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Tests/NOOPTests/AICoachRefreshModelsRaceTests.swift",
+      "bytes": 4427,
+      "sha256": "d9d1fd0c38e993aa271470aa4dd85be2c19aae0346a4ddeb2cd74bd640bc29ab"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Tests/NOOPTests/AICoachRequestOwnershipTests.swift",
+      "bytes": 24015,
+      "sha256": "8c156da03e27d3327d498f510c945603169bb85fdb1a28a7a6c14ee35af6e229"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-baseline-Tests/NOOPTests/AIProviderModelListTests.swift",
+      "bytes": 4206,
+      "sha256": "85cd3350209ce472e1f7e481420eea0bb2be3755ed4edf84bee376671a0f0434"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/retry-red.log",
+      "bytes": 2404,
+      "sha256": "0f3d532ccb7a6bd494f664241d26ad8b124de9f467a330df2b90a84939164f55"
+    },
+    {
+      "file": "coach-audit-evidence/cloud/sync.py",
+      "bytes": 1613,
+      "sha256": "34905ed5c8ed5a1996debb5fb931a312b2eee6a059bf99383d2536c88a87dd5a"
+    },
+    {
+      "file": "coach-audit-evidence/coach-validation.json",
+      "bytes": 2501,
+      "sha256": "feb77144dff07882639af5fad4a666925a0902d28578165a4e8e0ffc50431351"
+    },
+    {
+      "file": "coach-audit-evidence/ui-audit.md",
+      "bytes": 28114,
+      "sha256": "549ed65ac5ad2c2a95a83e29ae45eca2b6c0dd524edfbeb4de0925c1cb0a0b89"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/EngineShell.swift.txt",
+      "bytes": 2153,
+      "sha256": "cbedd4cc62584fdbe64a592e8296d3f111a998deb160fb33cdb5cd6c1cc75f70"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/Package.swift",
+      "bytes": 300,
+      "sha256": "70a1e59e0beef8b374784fb7b3688caf30bce424d3c4be4dec22b969c232bc9c"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/README.md",
+      "bytes": 2168,
+      "sha256": "729bc5a11c9fc03c69a2e29dc1fca8847189f0126b71fbafe9ba83eaf4e919e8"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/Sources/NOOP/LocalCoachModels.swift",
+      "bytes": 6022,
+      "sha256": "4030e7908cb5b0617d3a71339ce7714a19acb25205dffb76e7ab80e92685f40a"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/Sources/NOOP/WeeklyEngine.swift",
+      "bytes": 15428,
+      "sha256": "4a454a9ff1343d918b3162e8cd91295f9a79027ba0153a24220ca2bd4bc3c5b9"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/Sources/StrandAnalytics/WeekMath.swift",
+      "bytes": 3399,
+      "sha256": "a053e21f91d44d53466fe6d991666403dcf3f4f8f57a8befbf2990c693e18161"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/Sources/StrandAnalytics/WeeklyCoachInsightStore.swift",
+      "bytes": 5224,
+      "sha256": "f229611323df87e1ee56afc5d014ab5ded59f7b8136083547b2b9fa0ea5aa545"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/Tests/NOOPTests/LocalCoachWeeklyInsightOwnershipTests.swift",
+      "bytes": 9075,
+      "sha256": "c8aa456a11ea5336d0ba68fb1d5adbba1048ec9f2fa53b77dd3b0ffb6f193faf"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/baseline-Sources/NOOP/LocalCoachModels.swift",
+      "bytes": 6022,
+      "sha256": "4030e7908cb5b0617d3a71339ce7714a19acb25205dffb76e7ab80e92685f40a"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/baseline-Sources/NOOP/WeeklyEngine.swift",
+      "bytes": 14630,
+      "sha256": "e566009a198419e77bfba4f3c93cc3fac6a8516a2178d113efe5b12202b864ec"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/baseline-Sources/StrandAnalytics/WeekMath.swift",
+      "bytes": 3399,
+      "sha256": "a053e21f91d44d53466fe6d991666403dcf3f4f8f57a8befbf2990c693e18161"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/baseline-Sources/StrandAnalytics/WeeklyCoachInsightStore.swift",
+      "bytes": 4825,
+      "sha256": "51f9a5078143b3309c4693a9fbbf914cdbf5f544d1c724469e7319df1b96ca25"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/baseline-Tests/NOOPTests/LocalCoachWeeklyInsightOwnershipTests.swift",
+      "bytes": 9075,
+      "sha256": "c8aa456a11ea5336d0ba68fb1d5adbba1048ec9f2fa53b77dd3b0ffb6f193faf"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/green.log",
+      "bytes": 3377,
+      "sha256": "b3bdac855d91146cf066969ac49660cdff4372b9d4d99318235e3e7cd020088f"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/red.log",
+      "bytes": 6598,
+      "sha256": "ed3df9f1149753060c2756b2b78ab57654ba5c0f95a497ad380107141eb5a32d"
+    },
+    {
+      "file": "coach-audit-evidence/weekly/sync.py",
+      "bytes": 3008,
+      "sha256": "2fda4eb9c71fcb8e3b10dd34506f17939a6292325fca2703b3532ccf9ed2ce3a"
+    },
+    {
+      "file": "data-audit-evidence/baseline_sleep_sql.log",
+      "bytes": 243,
+      "sha256": "c295b23bdc792f5b07f81f1e25ab5192910907c326e2d38c667be72f80f1491f"
+    },
+    {
+      "file": "data-audit-evidence/focused_store_green.log",
+      "bytes": 3877,
+      "sha256": "0a5d1e4c44700b53cb8f13a821d8205b4614be71482f3f7e828118cff5135b72"
+    },
+    {
+      "file": "data-audit-evidence/focused_store_red.log",
+      "bytes": 6793,
+      "sha256": "0f3e9e2e45ce1763f32d1d47f0d2ac193ad46a3c6e06b0f5648860533f41c0d3"
+    },
+    {
+      "file": "data-audit-evidence/full_store_linux_blocked.log",
+      "bytes": 20706,
+      "sha256": "1d129370a54c351f7aacac0a029e0111b69f62e9acf3cfd7b80ea4b9a0992742"
+    },
+    {
+      "file": "data-audit-evidence/habitual_dst.log",
+      "bytes": 240,
+      "sha256": "3758180f5e4ff3cffe4fc8e138952534fc39afec50e34334508dc99a2f8d42ba"
+    },
+    {
+      "file": "data-audit-evidence/habitual_dst.swift",
+      "bytes": 55688,
+      "sha256": "8a357d21a19a2ff6fb099b71b075297ff4dde4fdc5fe62349f03d372108b6b25"
+    },
+    {
+      "file": "data-audit-evidence/make_focused_store_harness.py",
+      "bytes": 5248,
+      "sha256": "e1955648847893ece2c523c14178345076ef870740d73d0112508587c111eeb0"
+    },
+    {
+      "file": "data-audit-evidence/reclip_contract.log",
+      "bytes": 159,
+      "sha256": "57899113ec5165586ff41243999fd37d7b7f26a020591804bf89bcf7c91914b1"
+    },
+    {
+      "file": "data-audit-evidence/reclip_contract.swift",
+      "bytes": 8264,
+      "sha256": "3c1ac4829e0a47a4ff9ff6a9a599e28c5c1319c40190bf652b326429ea13d4f9"
+    },
+    {
+      "file": "data-audit-evidence/reproduce_baseline_sleep_sql.py",
+      "bytes": 4431,
+      "sha256": "437852fcf4fcf8760d8d161690c22af6b64e8cd0957976f30a701aebaa464408"
+    },
+    {
+      "file": "data-audit-evidence/reproduce_habitual_dst.py",
+      "bytes": 2859,
+      "sha256": "1486f3cb730bbdc7e9451d4665757e8f0a2c9bddce9bd20e561bc2eff0696755"
+    },
+    {
+      "file": "data-audit-evidence/reproduce_reclip.swift.py",
+      "bytes": 1988,
+      "sha256": "83bb6c84ee15ee8938fb4ab18939d94338da970406acb423812de5bd732e9b7e"
+    },
+    {
+      "file": "root-evidence/connection-admission-green.log",
+      "bytes": 60,
+      "sha256": "90b6d97ac740bcced9303986659418314af24815cf15badc84afef70d510ec19"
+    },
+    {
+      "file": "root-evidence/connection-admission-red.log",
+      "bytes": 328,
+      "sha256": "1b07a27d9a3d7bbba534f0cdf59a5f4886c7d07fa951f66e822aecfd28a5a116"
+    },
+    {
+      "file": "root-evidence/import-numeric-before.log",
+      "bytes": 3318,
+      "sha256": "08cdcaf7948dd65d0456295f1b2851d708fd91ab462dc882342dd93afca95180"
+    },
+    {
+      "file": "root-evidence/import-numeric-before.swift",
+      "bytes": 77684,
+      "sha256": "ca9bc9f8b1717669416b9c24e0d0e5d8def5603b1e847156772ce4bd593f6340"
+    },
+    {
+      "file": "root-evidence/import-numeric-green.log",
+      "bytes": 1899,
+      "sha256": "9e992154cbcb5070f927be9d112243c84e428c96119c812a6ffd7c741945b67e"
+    },
+    {
+      "file": "root-evidence/import-numeric-tests.swift",
+      "bytes": 92489,
+      "sha256": "800595f5dbab12e91c69b04feb1343a5d150744622d2369741c3d9a32a6eb523"
+    }
+  ],
+  "scope": "synthetic source-derived reproduction evidence; not native iOS qualification"
+}

@@ -266,14 +266,14 @@ public struct WhoopExportImporter {
             if r.cycleStart == nil && r.cycleEnd == nil { continue }
 
             r.recoveryScore    = row.double("recovery_score_pct")
-            r.restingHeartRate = row.double("resting_heart_rate_bpm", "resting_heart_rate")
+            r.restingHeartRate = ImportNumericSafety.integerValue(row.double("resting_heart_rate_bpm", "resting_heart_rate"))
             r.hrvMs            = row.double("heart_rate_variability_ms", "heart_rate_variability_rmssd_ms")
             r.skinTempCelsius  = row.double("skin_temp_celsius", "skin_temp_f")
             r.bloodOxygenPct   = row.double("blood_oxygen_pct", "blood_oxygen_pct_pct")
             r.dayStrain        = row.double("day_strain")
             r.energyKcal       = row.double("energy_burned_cal")  // CSV "(cal)" == kcal
-            r.avgHeartRate     = row.double("average_hr_bpm", "average_heart_rate_bpm")
-            r.maxHeartRate     = row.double("max_hr_bpm", "max_heart_rate_bpm")
+            r.avgHeartRate     = ImportNumericSafety.integerValue(row.double("average_hr_bpm", "average_heart_rate_bpm"))
+            r.maxHeartRate     = ImportNumericSafety.integerValue(row.double("max_hr_bpm", "max_heart_rate_bpm"))
 
             r.sleepOnset = WhoopTime.parse(row.cell("sleep_onset"), offsetMinutes: tz)
             r.wakeOnset  = WhoopTime.parse(row.cell("wake_onset"), offsetMinutes: tz)
@@ -353,8 +353,8 @@ public struct WhoopExportImporter {
             // 0–21→0–100 Effort rescale is applied at the store-write (WhoopImporter), like day_strain.
             r.activityStrain = row.double("activity_strain")
             r.energyKcal     = row.double("energy_burned_cal")  // CSV "(cal)" == kcal
-            r.avgHeartRate   = row.double("average_hr_bpm", "average_heart_rate_bpm")
-            r.maxHeartRate   = row.double("max_hr_bpm", "max_heart_rate_bpm")
+            r.avgHeartRate   = ImportNumericSafety.integerValue(row.double("average_hr_bpm", "average_heart_rate_bpm"))
+            r.maxHeartRate   = ImportNumericSafety.integerValue(row.double("max_hr_bpm", "max_heart_rate_bpm"))
 
             r.hrZone1Pct = row.double("hr_zone_1_pct", "zone_1_pct", "hr_zone_1_pct_pct")
             r.hrZone2Pct = row.double("hr_zone_2_pct", "zone_2_pct", "hr_zone_2_pct_pct")

@@ -1,0 +1,49 @@
+{
+  "compiler": "Swift version 6.4.1 (swift-6.4.1-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+  "host": "Linux-6.18.55-x86_64-with-glibc2.39",
+  "optimization": "-O",
+  "results": [
+    {
+      "checksum": 185224,
+      "equivalence_checks": 220,
+      "initial_samples": 3600,
+      "measured_iterations": 200,
+      "median_ms": 0.5382085000000001,
+      "p95_ms": 0.666878,
+      "paused": false,
+      "warmup_iterations": 20
+    },
+    {
+      "checksum": 185224,
+      "equivalence_checks": 220,
+      "initial_samples": 3600,
+      "measured_iterations": 200,
+      "median_ms": 0.5429505,
+      "p95_ms": 0.782823,
+      "paused": true,
+      "warmup_iterations": 20
+    },
+    {
+      "checksum": 895968,
+      "equivalence_checks": 220,
+      "initial_samples": 21600,
+      "measured_iterations": 200,
+      "median_ms": 2.5878565,
+      "p95_ms": 3.379067,
+      "paused": false,
+      "warmup_iterations": 20
+    },
+    {
+      "checksum": 895968,
+      "equivalence_checks": 220,
+      "initial_samples": 21600,
+      "measured_iterations": 200,
+      "median_ms": 2.683892,
+      "p95_ms": 3.23506,
+      "paused": true,
+      "warmup_iterations": 20
+    }
+  ],
+  "scope": "production cache/accumulator host microbenchmark; synthetic app object boundary",
+  "source_ref": "a7ade2598d439d33cd20816d69ccc991b29322fc"
+}

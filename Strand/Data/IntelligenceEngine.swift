@@ -4705,7 +4705,7 @@ final class IntelligenceEngine: ObservableObject {
         return samples
     }
 
-    private static func computeHabitualMidsleep(
+    static func computeHabitualMidsleep(
         store: WhoopStore, importedId: String, computedId: String,
         windowStart: Int, windowEnd: Int, timeZone: TimeZone
     ) async -> Int? {

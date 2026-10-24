@@ -1,0 +1,127 @@
+{
+  "audit_date": "2026-10-23",
+  "conclusion": "failure",
+  "repository": "eastonplace/noop-ios",
+  "pull_request": 79,
+  "run_id": 40002121607,
+  "run_attempt": 1,
+  "workflow_url": "https://github.com/eastonplace/noop-ios/actions/runs/40002121607",
+  "job_id": 120581722324,
+  "head_sha": "346da5302250cdff9b57532f18375e561eb06eeb",
+  "base_sha": "b7ebe85b2a7f5c0d25f2ef5a04b9d8dce8815679",
+  "tested_merge_sha": "e516579ef7da5e30c3674ac627500e1e58ab37a7",
+  "head_and_tested_tree": "1ad4789173e00a5cfd7c8592b56c605c0f5dd826",
+  "completed_at_utc": "2026-10-23T19:41:43Z",
+  "actual_results": {
+    "native_xctest": {
+      "executed": 3338,
+      "passed": 3334,
+      "skipped": 4,
+      "failed": 0
+    },
+    "native_swift_testing": {
+      "passed": 302,
+      "suites": 41,
+      "known_issues": 3
+    },
+    "targeted_release_hardening_cases": {
+      "passed": 73,
+      "executions_per_case": 1
+    },
+    "integrated_main_native_cases": {
+      "passed": 15,
+      "executions_per_case": 1
+    },
+    "selected_ui": {
+      "executed": 21,
+      "passed": 20,
+      "skipped": 0,
+      "failed": 1,
+      "missing": 0,
+      "unexpected": 0
+    },
+    "native_and_ui_unique_paired_xctest_cases": 3359,
+    "repeated_xctest_cases": 0,
+    "native_safety_harnesses_passed": 9,
+    "source_audits": "success",
+    "package_run": {
+      "run_id": 40002121569,
+      "run_attempt": 1,
+      "required_jobs": 9,
+      "passed": 3716,
+      "skipped": 1,
+      "failed": 0,
+      "conclusion": "success"
+    },
+    "aggregate_gate": {
+      "job_id": 120619112529,
+      "conclusion": "failure",
+      "errors": [
+        "app job build-and-test: expected success, got failure",
+        "app stage ui: expected success, got failure"
+      ]
+    }
+  },
+  "failed_ui_test": {
+    "id": "NOOPCoachUITests/ApprovedDashboardUITests/testDashboardSettingsSelectionPersists",
+    "seconds": 506.439,
+    "final_issue": "StrandiOSUITests/ApprovedDashboardUITests.swift:423: Could not restore dashboard preferences: invalidValue(\"The native toggle did not save the exact expected selection for today.health.skinTemp\")",
+    "primary_readback": {
+      "switch_id": "today.health.sleep",
+      "previous": true,
+      "desired": false,
+      "expected": "summary:strain,recovery;health:hrv,stress,steps,calories",
+      "saved_value": "summary:strain,recovery;health:hrv,stress,steps,calories",
+      "independently_parsed_selection": "summary:strain,recovery;health:hrv,stress,steps,calories",
+      "current_row": "virtualized",
+      "log_lines": [
+        23762,
+        23774
+      ]
+    },
+    "cleanup_readback": {
+      "switch_id": "today.health.skinTemp",
+      "previous": false,
+      "desired": true,
+      "expected": "summary:recovery,strain,sleep;health:hrv,restingHr,respiratory,bloodOxygen,skinTemp",
+      "saved_value": "summary:recovery,strain,sleep;health:hrv,restingHr,respiratory,bloodOxygen,skinTemp",
+      "independently_parsed_selection": "summary:recovery,strain,sleep;health:hrv,restingHr,respiratory,bloodOxygen,skinTemp",
+      "current_row": "1",
+      "log_lines": [
+        24200,
+        24215
+      ]
+    },
+    "interpretation": "Both eight-second predicate waits failed; subsequent exact readbacks matched expected. Cleanup failure masked the primary throw. Relaunch/persistence assertions did not complete. Lost preferences or an application performance regression are not demonstrated.",
+    "unchanged_sources_from_prior_passing_529adf2": [
+      "StrandiOSUITests/ApprovedDashboardUITests.swift",
+      "Strand/Screens/TodayDashboardSettingsView.swift"
+    ]
+  },
+  "followup": {
+    "changed_path": "StrandiOSUITests/ApprovedDashboardUITests.swift",
+    "change": "Replace the client-side block predicate's separate existence/value accessibility reads with an exact identifier-and-value query and waitForExistence(timeout: 8).",
+    "retained": [
+      "eight-second deadline",
+      "one physical native-switch activation",
+      "precondition and exact ordered-selection checks",
+      "failure diagnostics",
+      "post-wait selection and native-row checks",
+      "process relaunch, Today rendering, and original-selection restoration assertions"
+    ],
+    "runtime_verification": "pending fresh exact-head UI execution",
+    "production_code_changed": false,
+    "test_disabled": false,
+    "timeout_increased": false,
+    "retry_or_waiver_used": false
+  },
+  "evidence": {
+    "full_job_log_sha256": "cc329e0ddec6e597af82e93beeb6b9e478f3cdad7f8b10132456a38eb64cdc00",
+    "xcode_artifact_url": "https://github.com/eastonplace/noop-ios/actions/runs/40002121607/artifacts/12526718702",
+    "xcode_artifact_sha256": "cb4327bde8c2aedbd6376b7e3eba8baf973e73aca3efe650c5cafdf7504d5f9a",
+    "aggregate_artifact_sha256": "cdb872112f2775f60f4558857944acb90e1685923886c3042a662b03d551e323",
+    "note": "Complete raw logs, plan, run/job API responses, gate artifacts, case parser, and 32-file hash manifest were independently checked in the audit workspace. This record retains the failed attempt; a later pass does not replace it.",
+    "plan_file_sha256": "6c092e7839a3bb263dccec7f9a01dae9723c05eee1716b4e3f3137ba7f1da94f"
+  },
+  "plan_hash": "cd2fca032070ed644972a4ae25a6ace27d6adfafa6601b51c5d340cd63ad218f"
+}

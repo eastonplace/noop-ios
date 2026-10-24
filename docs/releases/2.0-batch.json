@@ -1,8 +1,13 @@
 {
   "version": "2.0.0",
-  "status": "staging",
+  "status": "closed",
   "first_pr": 68,
-  "tentative_last_pr": 77,
-  "phone_installs": "hold",
-  "release_publication": "hold"
+  "phone_installs": "approved-build-252-only",
+  "release_publication": "hold",
+  "last_included_pr": 81,
+  "unmerged_prs_excluded": [
+    79
+  ],
+  "approved_candidate": "5235f823c719419d9006fab89b750484c20d246e",
+  "next_version": "2.0.2"
 }

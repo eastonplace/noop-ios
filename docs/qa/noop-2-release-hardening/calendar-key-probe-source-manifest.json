@@ -1,0 +1,56 @@
+[
+  {
+    "file": "Strand/Data/IntelligenceEngine.swift",
+    "start_line": 383,
+    "signature": "struct CivilDayWindow:",
+    "sha256": "382370877582b1a9bb76e3dd09ed963ca3de7c2714ed90c14da15c396a3ee429"
+  },
+  {
+    "file": "Strand/Data/IntelligenceEngine.swift",
+    "start_line": 391,
+    "signature": "nonisolated static func civilDayWindows(",
+    "sha256": "c267ace64c500ae1b68d23827bf19abc412ad44bc095ada75a45a469f75fce81"
+  },
+  {
+    "file": "Strand/Data/IntelligenceEngine.swift",
+    "start_line": 4020,
+    "signature": "nonisolated static func civilDayStart(",
+    "sha256": "44b5ec65c1834c2dd73d97960b8d21bd483eaf36821abfeefa3383e576dba775"
+  },
+  {
+    "file": "Strand/Data/Repository.swift",
+    "start_line": 1152,
+    "signature": "nonisolated static func localDayKey(",
+    "sha256": "91ec0c57020561df89adecd5191165bc5e006b16831a15c28a80b6ba0e62e565"
+  },
+  {
+    "file": "Strand/Data/Repository.swift",
+    "start_line": 1169,
+    "signature": "nonisolated static func logicalDay(",
+    "sha256": "e181a9ba225382e274fb1b2ac3cec1a072031cafbab047f5a1562776b2790d25"
+  },
+  {
+    "file": "Strand/Data/Repository.swift",
+    "start_line": 1177,
+    "signature": "nonisolated static func logicalDayKey(",
+    "sha256": "60cdd71a9e8b5659807a4cd14dd33134b3539bb7cf110e5871db5c37dc5f2093"
+  },
+  {
+    "file": "Strand/Data/Repository.swift",
+    "start_line": 5309,
+    "signature": "private static let dayFormatter: DateFormatter =",
+    "sha256": "32f93cdad28ead38bab64cc7e7c4a60144c039b28954cfd1188a6bd07df49419"
+  },
+  {
+    "file": "Strand/Data/Repository.swift",
+    "start_line": 5316,
+    "signature": "static func dayString(",
+    "sha256": "21e92cc8be3b99e62eddfcee9c263ecd5006ffb8e790b6d1b570b757d1cd420a"
+  },
+  {
+    "file": "Packages/WhoopStore/Sources/WhoopStore/TimestampHeal.swift",
+    "start_line": 80,
+    "signature": "public static func localDayKey(",
+    "sha256": "9049df0da82b003ccbf1938fdf829293124158ec5859e5259cf336d3889f9ca0"
+  }
+]
