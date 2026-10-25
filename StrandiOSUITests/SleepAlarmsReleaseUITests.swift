@@ -5,11 +5,11 @@ final class SleepAlarmsReleaseUITests: XCTestCase {
     func testSleepChartLeadsWithLargerFiguresAndAlarmsBelow() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        launch(app, route: "sleep")
+        launch(app, route: "sleep", contentSize: "UICTContentSizeCategoryXS")
         defer { app.terminate() }
         let chart = element("sleep.stageChart", in: app)
         XCTAssertTrue(chart.waitForExistence(timeout: 60))
-        XCTAssertGreaterThanOrEqual(chart.frame.height, 155)
+        XCTAssertGreaterThanOrEqual(chart.frame.height, 185, "Small text must not shrink the focal plot")
         XCTAssertGreaterThanOrEqual(chart.frame.width, 300)
         XCTAssertTrue(chart.frame.intersects(app.frame), "The chart is visible before any scroll")
         capture(app, "sleep-201-larger-kpis-and-chart")
@@ -127,11 +127,12 @@ final class SleepAlarmsReleaseUITests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
-    private func launch(_ app: XCUIApplication, route: String, preservePreferences: Bool = false) {
+    private func launch(_ app: XCUIApplication, route: String, preservePreferences: Bool = false,
+                        contentSize: String = "UICTContentSizeCategoryL") {
         app.launchArguments = [
             "--noop-coach-shell-qa", "--demo-seed", "--noop-lift-demo", "fresh",
             "--demo-tab", "today", "--noop-qa-route", route,
-            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL",
+            "-UIPreferredContentSizeCategoryName", contentSize,
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-AppleInterfaceStyle", "Dark",
         ]
         if preservePreferences { app.launchArguments.append("--noop-qa-preserve-preferences") }

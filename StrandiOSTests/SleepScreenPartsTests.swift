@@ -245,6 +245,18 @@ final class SleepScreenPartsTests: XCTestCase {
     }
 
     @MainActor
+    func testExpandedStageTargetStaysInsideItsLane() {
+        let timeline = inspectionTimeline()
+        func hit(_ x: CGFloat, _ y: CGFloat) -> SleepInterval? {
+            SleepStageInspection.hit(in: timeline, at: CGPoint(x: x, y: y),
+                size: CGSize(width: 240, height: 100), barThickness: 44)
+        }
+        XCTAssertEqual(hit(30, 74)?.stage, .light, "Nearby touches can select the thin bar")
+        XCTAssertNil(hit(30, 80), "The expanded target must not leak into the next lane")
+        XCTAssertNil(hit(150, 62.5), "The expanded target must not fill a real time gap")
+    }
+
+    @MainActor
     func testStageInspectionRejectsInvalidAndOutsideCoordinates() {
         let timeline = inspectionTimeline()
         for x in [CGFloat(-1), 241, .nan, .infinity] {

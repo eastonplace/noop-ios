@@ -5,19 +5,16 @@ open-source NOOP, forked at upstream 9.0.1 in July 2026. Its own version history
 
 ## Versions and releases
 
-**Next release: 2.0.2, requested by Easton on 2026-10-24.** Easton approved the installed
-2.0.0 build 252 and requested a new PR for larger Sleep figures and chart, multiple alarms,
-and confirmed bug fixes. Use `2.0.2` for PR81 despite the general minor-version rule below.
-Add a new What's New entry and preserve the cumulative 2.0.0 history. This request authorizes
-reviewing and merging useful PR79 fixes first, then merging PR81 with the requested changes
-after validation. PR79 uses the intermediate patch 2.0.1, build 253; PR81 uses 2.0.2, build 254.
-It does not authorize another phone install, tag or release publication.
+**Next release: 2.0.3, a corrective patch to the intended 2.0.2 Sleep behavior.**
+Easton confirmed the installed 2.0.2 build 254 on 2026-10-24 and reported that the chart and
+KPI figures still look small and a normal stage tap does not show details. Correct the local
+Sleep sizing and stage selection with a focused readout. Preserve the compact stage totals.
+The ongoing request authorizes an in-place phone update after qualification. Do not publish
+or tag a release. The prior pending-CI merge exception applied only to PR81 head 564a13d3.
 
-The shared 2.0 staging batch is closed in `docs/releases/2.0-batch.json`. Its approved installed
-candidate is `5235f823c719419d9006fab89b750484c20d246e` (build 252, PR81). It includes merged work
-from PR68 through PR80 plus the PR81 release copy; PR79 was excluded from that candidate. PR81 remains a branch
-dependency until merged. Publication remains held. The old same-version staging exception no
-longer applies to new app changes.
+PR79 and PR81 are merged; main 823a329e is the installed 2.0.2 source. The shared 2.0 staging
+batch is closed in `docs/releases/2.0-batch.json`. Its old same-version exception no longer
+applies to new app changes. Preserve the cumulative 2.0.0 What's New history.
 
 Every PR that changes what a user sees or how the app behaves ships a version bump and a What's New entry.
 
