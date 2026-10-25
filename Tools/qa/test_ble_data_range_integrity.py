@@ -62,6 +62,8 @@ final class BLEManager {
     var backfiller: Backfiller? = Backfiller()
     var state = LiveState()
     var fallbackChecks = 0
+    var backgroundStateChanges = 0
+    func notifyHistoricalSyncBackgroundStateDidChange() { backgroundStateChanges += 1 }
     func applyClockFallbackIfReady() { fallbackChecks += 1 }
     func log(_ message: String) {}
     __METHODS__
@@ -96,6 +98,7 @@ func assertRejected(_ frame: [UInt8], _ label: String) {
           "\(label) cannot change historical timestamp window")
     check(h.fallbackChecks == 0, "\(label) cannot trigger approximate clock fallback")
     check(h.state.rangeWrites == 0, "\(label) cannot publish strap range")
+    check(h.backgroundStateChanges == 0, "\(label) cannot refresh background scheduling")
 }
 
 // Constructed command response uses the production builder and validator. No new
@@ -110,6 +113,7 @@ do {
     check(h.strapNewestTs != nil && h.backfiller?.sessionNewestUnix != nil,
           "valid response still updates range and history")
     check(h.fallbackChecks == 1 && h.state.rangeWrites == 1, "valid response still drives fallback and visible range")
+    check(h.backgroundStateChanges == 1, "valid response refreshes background scheduling once")
 }
 var corrupt = valid
 corrupt[corrupt.count - 1] ^= 1
@@ -136,6 +140,7 @@ check(captureParsed.envelopeOK && captureParsed.headerCRCOK == true && capturePa
 do {
     let h = BLEManager(); h.receive(captured)
     check(h.strapNewestTs == 1_783_785_625, "existing captured range keeps its decoded marker")
+    check(h.backgroundStateChanges == 1, "captured valid range refreshes background scheduling once")
 }
 print("BLE range integrity: 6 scenarios, \(failures) failed assertions")
 if failures != 0 { exit(1) }
