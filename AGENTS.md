@@ -5,16 +5,15 @@ open-source NOOP, forked at upstream 9.0.1 in July 2026. Its own version history
 
 ## Versions and releases
 
-**Next release: 2.0.3, a corrective patch to the intended 2.0.2 Sleep behavior.**
-Easton confirmed the installed 2.0.2 build 254 on 2026-10-24 and reported that the chart and
-KPI figures still look small and a normal stage tap does not show details. Correct the local
-Sleep sizing and stage selection with a focused readout. Preserve the compact stage totals.
-The ongoing request authorizes an in-place phone update after qualification. Do not publish
-or tag a release. The prior pending-CI merge exception applied only to PR81 head 564a13d3.
+**Next release: 2.0.4, requested by Easton on 2026-10-25.**
+This PR is stacked after the existing 2.0.3 Sleep PR82. Easton chose a separate 2.0.4 PR for
+WHOOP 4 overnight history catch-up and automatic battery refresh. Use build 256. Preserve
+all Sleep changes from PR82 and both prior What's New entries. This follow-up authorizes
+investigation, bounded root fixes, validation and a PR. It does not authorize merging,
+phone installation, live strap commands, re-pairing, database changes or publication.
 
-PR79 and PR81 are merged; main 823a329e is the installed 2.0.2 source. The shared 2.0 staging
-batch is closed in `docs/releases/2.0-batch.json`. Its old same-version exception no longer
-applies to new app changes. Preserve the cumulative 2.0.0 What's New history.
+The prior pending-CI merge exception applied only to PR81 head 564a13d3. Normal required CI
+still applies. The shared 2.0 staging batch is closed in `docs/releases/2.0-batch.json`.
 
 Every PR that changes what a user sees or how the app behaves ships a version bump and a What's New entry.
 

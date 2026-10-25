@@ -19,6 +19,14 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 2.0.4
+
+WHOOP 4 background history and battery refresh corrections, stacked after the 2.0.3 Sleep PR82. Physical overnight qualification remains pending. No phone deployment or release publication is part of this PR.
+
+- **WHOOP history catch-up.** An eligible connected WHOOP 4 retains a discretionary background check after a caught-up sync. Existing radio budgets, power-saving cadence and connection admission still apply. Productive capped or interrupted passes retain pending-history debt until an empty completed tail is observed.
+- **Automatic battery updates.** Current WHOOP 4 proprietary battery events can update the live reading, including during historical offload, with frame integrity, payload bounds, source ownership, plausible range and freshness checks. Old events cannot overwrite a newer command reading. Standard WHOOP 4 battery-characteristic stubs remain excluded.
+- **Bug fixes and improvements.** Background scheduling follows connection readiness, deliberate disconnect and power-state changes. The WHOOP 5/MG battery source and existing data ownership protections remain in place. iOS controls when discretionary background work can run.
+
 ## 2.0.3
 
 Corrective Sleep update after the installed 2.0.2 review. Release publication remains on hold.
