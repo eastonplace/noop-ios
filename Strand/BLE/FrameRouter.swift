@@ -17,6 +17,10 @@ public final class FrameRouter {
     var family: DeviceFamily = .whoop4
     private var alarmReadbackRequest: SmartAlarmReadbackRequest?
     private var alarmReadbackSequences: [UInt8: SmartAlarmReadbackRequest] = [:]
+    /// Live battery ordering belongs to a physical connection. Retaining the displayed percentage
+    /// across reconnects must not let the retired connection fence a new owner's observations.
+    private var batteryObservationSource: LiveHeartRateSource?
+    private var latestBatteryObservationAt: Date?
 
     func registerAlarmReadback(_ request: SmartAlarmReadbackRequest, sequence: UInt8) {
         if alarmReadbackRequest?.id != request.id {
@@ -121,7 +125,12 @@ public final class FrameRouter {
 
         case "COMMAND_RESPONSE":
             if let pct = parsed.parsed["battery_pct"]?.doubleValue {
-                state.setBattery(pct)
+                if family == .whoop4 {
+                    applyWhoop4CommandBattery(pct, parsed: parsed, frame: frame,
+                                             observedAt: observedAt, source: source)
+                } else {
+                    state.setBattery(pct)
+                }
             }
             // Firmware version from the connect handshake: WHOOP 4.0 decodes `fw_harvard`
             // (REPORT_VERSION_INFO), WHOOP 5/MG decodes `fw_version` (GET_HELLO). Take whichever the
@@ -226,6 +235,15 @@ public final class FrameRouter {
                 if !ev.hasPrefix("BLE_REALTIME_HR") {
                     state.lastEvent = ev
                 }
+                // Apply a current WHOOP4 battery observation before the event asks the sync policy
+                // for radio time. Historical/invalid battery events cannot change live power state.
+                if family == .whoop4, ev.hasPrefix("BATTERY_LEVEL") {
+                    applyLiveWhoop4Battery(parsed: parsed, frame: frame,
+                                          observedAt: observedAt, source: source)
+                } else {
+                    applyLiveChargingState(
+                        event: ev, batteryCharging: parsed.parsed["battery_charging"]?.intValue)
+                }
                 // Strap-pushed event = "I may have new data" → kick a (rate-limited) sync. BLE-4: not for
                 // the BLE_REALTIME_HR_* echo of our own toggle, which says nothing about banked history.
                 if StrapEventSyncPolicy.shouldTriggerSync(eventName: ev) {
@@ -236,14 +254,6 @@ public final class FrameRouter {
                 if ev.hasPrefix("BLE_BONDED") {
                     state.bonded = true
                 }
-                // BATTERY_LEVEL events carry the only charging flag the strap reports (wire
-                // observation: u8 bit0, ~every 8 min on captured links). Flag only — battery %
-                // keeps its family-specific source (#77). No freshness gate needed here: this
-                // path never sees historical replay (backfill skips handle(frame:), see below).
-                applyLiveChargingState(
-                    event: ev,
-                    batteryCharging: parsed.parsed["battery_charging"]?.intValue
-                )
                 // Physical inputs the strap exposes — live only (this path never sees historical
                 // replay, which goes through the Backfiller). Event strings are "NAME(rawValue)".
                 if ev.hasPrefix("DOUBLE_TAP") {
@@ -293,6 +303,72 @@ public final class FrameRouter {
         ) {
             state.charging = charging
         }
+    }
+
+    /// WHOOP4 battery events use the observed fixed layout, not the standard 2A19 stub. Require the
+    /// complete protected battery payload: the generic decoder may otherwise read a field from CRC.
+    private func whoop4BatteryPayloadEnd(parsed: ParsedFrame, frame: [UInt8]) -> Int? {
+        guard family == .whoop4, parsed.ok, parsed.envelopeOK,
+              parsed.headerCRCOK == true, parsed.payloadCRCOK == true,
+              frame.count >= 7, frame[0] == 0xAA else { return nil }
+        let end = Int(frame[1]) | Int(frame[2]) << 8
+        guard frame.count == end + 4 else { return nil }
+        return end
+    }
+
+    private func selectBatteryObservationSource(_ source: LiveHeartRateSource) {
+        guard batteryObservationSource != source else { return }
+        batteryObservationSource = source
+        latestBatteryObservationAt = nil
+    }
+
+    private func applyWhoop4CommandBattery(_ pct: Double, parsed: ParsedFrame, frame: [UInt8],
+                                           observedAt: Date, source: LiveHeartRateSource?) {
+        guard let end = whoop4BatteryPayloadEnd(parsed: parsed, frame: frame), end >= 11,
+              frame[4] == 36, frame[6] == WhoopCommand.getBatteryLevel.rawValue,
+              pct.isFinite, (0...100).contains(pct) else { return }
+        // Standalone legacy decode callers have no source. A supplied source must always match;
+        // production callbacks capture it before routing, so a queued old owner fails closed.
+        let owner = source ?? state.currentHeartRateSource
+        if let owner {
+            guard owner == state.currentHeartRateSource, owner.providerSessionID == nil,
+                  state.connected, state.bonded else { return }
+            selectBatteryObservationSource(owner)
+            latestBatteryObservationAt = max(latestBatteryObservationAt ?? observedAt, observedAt)
+        }
+        state.setBattery(pct)
+    }
+
+    private func applyLiveWhoop4Battery(parsed: ParsedFrame, frame: [UInt8],
+                                       observedAt: Date, source: LiveHeartRateSource?) {
+        guard state.connected, state.bonded, let source,
+              source == state.currentHeartRateSource, source.providerSessionID == nil,
+              let end = whoop4BatteryPayloadEnd(parsed: parsed, frame: frame), end >= 27,
+              parsed.typeName == "EVENT", frame[4] == 48, frame[6] == 3,
+              let pct = parsed.parsed["battery_pct"]?.doubleValue,
+              pct.isFinite, (0...100).contains(pct),
+              let timestamp = parsed.parsed["event_timestamp"]?.intValue, timestamp > 0 else { return }
+        let eventAt = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        // Actual callback wall time only. Data Range and historical clock correction must never
+        // turn an old offload event into a fresh battery observation.
+        guard abs(observedAt.timeIntervalSince(eventAt)) <= 45 else { return }
+        selectBatteryObservationSource(source)
+        guard latestBatteryObservationAt.map({ eventAt > $0 }) ?? true else { return }
+        latestBatteryObservationAt = eventAt
+        // setBattery can invoke power policy synchronously, so publish charging first.
+        if let charging = parsed.parsed["battery_charging"]?.intValue {
+            state.charging = charging != 0
+        }
+        state.setBattery(pct)
+    }
+
+    /// Offload routing skips the general live router to keep replay out of the UI. A recent,
+    /// current-owner battery event can still refresh the strap percentage without triggering sync.
+    func dispatchLiveBatteryIfFresh(frame: [UInt8], observedAt: Date,
+                                    source: LiveHeartRateSource?) {
+        guard family == .whoop4, frameTypeName(frame, family: family) == "EVENT" else { return }
+        applyLiveWhoop4Battery(parsed: parseFrame(frame, family: family), frame: frame,
+                              observedAt: observedAt, source: source)
     }
 
     // MARK: - Advertising-name decode (WHOOP 4.0 / Harvard)

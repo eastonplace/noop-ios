@@ -20,14 +20,21 @@ private final class HistoricalSyncBackgroundCompletionGate: @unchecked Sendable 
     }
 }
 
-/// A discretionary iOS wake for durable historical debt. This is only a scheduler: all Bluetooth,
-/// secure-session, store, rate-limit, and active-sync admission remains inside `BLEManager.requestSync`.
+/// Discretionary iOS wakes for durable historical debt and eligible WHOOP 4 maintenance. This is only a
+/// scheduler: Bluetooth, secure-session, store, rate-limit, and active-sync admission stays inside
+/// `BLEManager.requestSync`.
 @MainActor
 enum HistoricalSyncBackgroundTaskRegistrar {
     nonisolated static let identifier = "com.noopapp.noop.historysync"
 
     typealias Snapshot = @MainActor @Sendable () -> HistoricalSyncBackgroundSnapshot?
     typealias RequestSync = @MainActor @Sendable () -> Bool
+
+    enum LaunchAdmission: Equatable {
+        case completed(success: Bool)
+        case syncStarted
+        case cancelled
+    }
 
     private static var snapshot: Snapshot?
     private static var requestSync: RequestSync?
@@ -64,31 +71,25 @@ enum HistoricalSyncBackgroundTaskRegistrar {
                     return
                 }
                 guard let snapshot = Self.snapshot,
-                      let requestSync = Self.requestSync,
-                      let initial = snapshot() else {
+                      let requestSync = Self.requestSync else {
                     Self.cancel()
                     completion.complete(success: false)
                     return
                 }
 
-                switch initial.plan {
-                case .cancel:
-                    Self.cancel()
-                    completion.complete(success: true)
+                switch admitLaunch(
+                    initial: snapshot(),
+                    requestSync: requestSync,
+                    schedule: { Self.schedule(after: $0) },
+                    cancel: { Self.cancel() }
+                ) {
+                case .completed(let success):
+                    completion.complete(success: success)
                     return
-                case .schedule(let delay) where delay > 1:
-                    Self.schedule(after: delay)
-                    completion.complete(success: true)
+                case .cancelled:
                     return
-                case .schedule:
+                case .syncStarted:
                     break
-                }
-
-                guard !Task.isCancelled else { return }
-                guard requestSync() else {
-                    Self.schedule(after: HistoricalSyncBackgroundSchedulingPolicy.minimumRetrySeconds)
-                    completion.complete(success: true)
-                    return
                 }
 
                 do {
@@ -121,6 +122,37 @@ enum HistoricalSyncBackgroundTaskRegistrar {
         }
         refresh()
         return registered
+    }
+
+    /// The real launch admission path, independent of BGTaskScheduler delivery and the later wait for
+    /// completion. In particular, caught-up maintenance must reach the same gated request as debt.
+    static func admitLaunch(
+        initial: HistoricalSyncBackgroundSnapshot?,
+        requestSync: RequestSync,
+        schedule: (TimeInterval) -> Void,
+        cancel: () -> Void
+    ) -> LaunchAdmission {
+        guard let initial else {
+            cancel()
+            return .completed(success: false)
+        }
+        switch initial.plan {
+        case .cancel:
+            cancel()
+            return .completed(success: true)
+        case .schedule(let delay) where delay > 1:
+            schedule(delay)
+            return .completed(success: true)
+        case .schedule:
+            break
+        }
+
+        guard !Task.isCancelled else { return .cancelled }
+        guard requestSync() else {
+            schedule(HistoricalSyncBackgroundSchedulingPolicy.minimumRetrySeconds)
+            return .completed(success: true)
+        }
+        return .syncStarted
     }
 
     /// A launch can expire before its main-actor operation first executes.

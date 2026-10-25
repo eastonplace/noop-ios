@@ -1189,14 +1189,27 @@ public final class BLEManager: NSObject, ObservableObject {
         now: TimeInterval = Date().timeIntervalSince1970
     ) -> HistoricalSyncBackgroundSnapshot {
         let secureTransportReady = selectedModel.deviceFamily != .whoop5 || whoop5SecureReady
+        let clockTrusted = !BackfillContinuation.isFutureDatedNewest(strapNewestTs, wallNowUnix: Int(now))
+        let connectionReady = state.connected && state.bonded && connectHandshakeDone
+            && secureTransportReady && !restoreInProgress
+        let isCurrentPreferredPeripheral = peripheral.map {
+            $0.state == .connected && $0.identifier == preferredPeripheralUUID
+        } ?? false
+        let maintenanceEligible = HistoricalSyncBackgroundSchedulingPolicy.maintenanceEligible(
+            family: selectedModel.deviceFamily,
+            clockTrusted: clockTrusted,
+            connectionReady: connectionReady,
+            isCurrentPreferredPeripheral: isCurrentPreferredPeripheral,
+            intentionalDisconnect: intentionalDisconnect,
+            autoReconnectPaused: autoReconnectPaused,
+            restoreInProgress: restoreInProgress
+        )
         return HistoricalSyncBackgroundSnapshot(
             backlogRemains: historicalBacklogRemains,
+            maintenanceEligible: maintenanceEligible,
+            automaticSyncAllowed: !intentionalDisconnect && !autoReconnectPaused && clockTrusted,
             syncActive: backfilling || historicalRadioDeadline != nil,
-            connectionReady: state.connected
-                && state.bonded
-                && connectHandshakeDone
-                && secureTransportReady
-                && !restoreInProgress,
+            connectionReady: connectionReady,
             now: now,
             lastBackfillAt: UserDefaults.standard.object(forKey: Self.backfillLastAtKey) as? Double,
             powerSaving: periodicPowerSavingActive(),
@@ -1242,6 +1255,18 @@ public final class BLEManager: NSObject, ObservableObject {
         guard historicalBacklogRemains != remains else { return }
         historicalBacklogRemains = remains
         log("Backfill: durable background debt \(remains ? "armed" : "cleared") — \(reason)")
+    }
+
+    // The terminal debt transition is separate from radio admission so capped and interrupted
+    // sessions can be verified without a live Bluetooth connection.
+    func finishHistoricalBacklogDecision(
+        endedWithHistoryComplete: Bool,
+        freshSourceProgress: Bool
+    ) {
+        // A range read at connection cannot prove that a later productive or capped pass
+        // drained the strap. Keep durable debt until a completed tail adds no new sensors.
+        guard endedWithHistoryComplete, !freshSourceProgress else { return }
+        setHistoricalBacklogRemains(false, reason: "the completed tail contained no fresh sensor receipts")
     }
 
     private func notifyHistoricalSyncBackgroundStateDidChange() {
@@ -1431,6 +1456,7 @@ public final class BLEManager: NSObject, ObservableObject {
 
     public func disconnect() {
         intentionalDisconnect = true
+        notifyHistoricalSyncBackgroundStateDidChange()
         cancelPendingReconnect()
         cancelScanFallback()
         // CoreBluetooth disconnect is asynchronous. Retire secure work now so a queued deadline cannot
@@ -1498,6 +1524,7 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         let isCurrent = target == nil || peripheral?.identifier == target
         intentionalDisconnect = true            // defuses the disconnect→3s-reconnect loop's guard
+        notifyHistoricalSyncBackgroundStateDidChange()
         cancelPendingReconnect()
         cancelScanFallback()
         if isCurrent { state.clearBatterySamples() }   // BLE-12: forgetting the strap drops its history
@@ -2082,8 +2109,9 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     /// Refresh the battery reading on demand. Source is FAMILY-SPECIFIC (#77): on a WHOOP 4.0 the
-    /// standard 0x2A19 characteristic is a STUB that reports a constant 100 — the real charge only
-    /// comes from the proprietary GET_BATTERY_LEVEL command (COMMAND_RESPONSE, u16/10). Reading both
+    /// standard 0x2A19 characteristic is a STUB that reports a constant 100. Real charge comes from
+    /// proprietary command replies and admitted live battery events. Manual refresh uses the command.
+    /// Reading both
     /// flashed 100% before the true value corrected it (and a stub notification could revert a real
     /// 94% back to 100%). So WHOOP 4 uses ONLY the command; WHOOP 5/MG uses ONLY 0x2A19.
     public func refreshBattery() {
@@ -3689,22 +3717,10 @@ public final class BLEManager: NSObject, ObservableObject {
                 if totalPasses < BackfillContinuation.defaultMaxTotalPasses {
                     historicalBurstPasses.reset()
                 }
-                let futureDated = BackfillContinuation.isFutureDatedNewest(
-                    newest,
-                    wallNowUnix: wallNow
+                finishHistoricalBacklogDecision(
+                    endedWithHistoryComplete: endedWithHistoryComplete,
+                    freshSourceProgress: freshSourceProgress
                 )
-                let caughtUpByFrontier = !futureDated
-                    && newest != nil
-                    && frontier != nil
-                    && (newest! - frontier!) <= BackfillContinuation.defaultBehindGapSeconds
-                if caughtUpByFrontier || (endedWithHistoryComplete && !freshSourceProgress) {
-                    setHistoricalBacklogRemains(
-                        false,
-                        reason: caughtUpByFrontier
-                            ? "the source-scoped durable frontier reached the strap's newest banked record"
-                            : "the completed tail contained no fresh sensor receipts"
-                    )
-                }
                 historicalRadioDeadline = nil
                 self.publishBackfillBurstIfNeeded()
                 self.notifyHistoricalSyncBackgroundStateDidChange()
@@ -4368,10 +4384,13 @@ public final class BLEManager: NSObject, ObservableObject {
             send(.toggleRealtimeHR, payload: [0x01])
         }   // re-arm so it can't lapse
         keepAliveTick += 1
-        if keepAliveTick % 2 == 0 { send(.getBatteryLevel, payload: []) }  // ~every 60s
+        if keepAliveTick % 2 == 0 { refreshBattery() }  // same command path as manual refresh, about every 60s
     }
 
     private func startBackfillTimer(minimumDelaySeconds: TimeInterval = 0) {
+        // requestSync persists its successful attempt before rearming this timer. Refresh the
+        // discretionary request from that same absolute deadline and current power/readiness.
+        defer { notifyHistoricalSyncBackgroundStateDidChange() }
         guard state.connected, state.bonded, !restoreInProgress else {
             backfillTimer?.cancel()
             backfillTimer = nil
@@ -4415,7 +4434,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// (persisted) and starts the offload.
     @discardableResult
     func requestSync(_ trigger: BackfillTrigger) -> Bool {
-        guard !restoreInProgress else { return false }
+        guard !intentionalDisconnect, !restoreInProgress else { return false }
         let requestOwnership = HistoricalSyncRequestOwnership(
             secureSessionID: selectedModel.deviceFamily == .whoop5 ? currentWhoop5SecureSessionID : nil,
             storeGeneration: historicalMaterializationStoreGeneration)
@@ -6800,6 +6819,9 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         guard connectHandshakeDone, cmdNotifyConfirmedActive, !connectSettledSignaled else { return }
         connectSettledSignaled = true
         state.connectSettled &+= 1
+        // Subscription requests are asynchronous. Seed only after the reply channel is
+        // confirmed; an active offload keeps its radio slot and the normal poll resumes later.
+        if selectedModel.deviceFamily == .whoop4, !backfilling { refreshBattery() }
         log("Connect settled: handshake done + cmd-notify confirmed — alarm re-arm (if due) can fire now")
     }
 
@@ -7164,6 +7186,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     // …but a REAL-TIME physical gesture (double-tap / wrist) must still fire even mid-
                     // offload (#69). Gated on ts≈now so replayed historical EVENTs (old ts) are ignored.
                     router.dispatchLiveGestureIfFresh(frame: frame, now: strapClockNow)
+                    router.dispatchLiveBatteryIfFresh(
+                        frame: frame, observedAt: observedAt, source: receiptSource)
                     continue
                 }
                 // #47: decode this live WHOOP4 frame ONCE here and thread the result to every consumer
@@ -7188,6 +7212,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     log("Get Data Range raw frame (#451 — for offset analysis): \(lowercaseHex(frame))")
                     if let newest = BLEManager.dataRangeNewestUnix(from: frame) {
                         strapNewestTs = newest                    // feeds the liveness watchdog
+                        notifyHistoricalSyncBackgroundStateDidChange()
                         // If GET_CLOCK has already exhausted its bounded retry budget, this current-link
                         // banked marker is the sole safe fallback source. Until then it must not alter the
                         // retry cadence or replace a precise correlation.

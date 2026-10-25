@@ -632,6 +632,143 @@ final class BackfillPolicyTests: XCTestCase {
         )
     }
 
+    func testReadyPreferredWhoopFourConnectionIsEligibleForHistoryMaintenance() {
+        XCTAssertTrue(HistoricalSyncBackgroundSchedulingPolicy.maintenanceEligible(
+            family: .whoop4,
+            connectionReady: true,
+            isCurrentPreferredPeripheral: true,
+            intentionalDisconnect: false,
+            autoReconnectPaused: false,
+            restoreInProgress: false
+        ))
+    }
+
+    func testHistoryMaintenanceRejectsOtherFamiliesAndUnavailableOrStoppedConnections() {
+        let cases: [(family: DeviceFamily, ready: Bool, preferred: Bool, stopped: Bool,
+                     paused: Bool, restoring: Bool)] = [
+            (.whoop5, true, true, false, false, false),
+            (.whoop4, false, true, false, false, false),
+            (.whoop4, true, false, false, false, false),
+            (.whoop4, true, true, true, false, false),
+            (.whoop4, true, true, false, true, false),
+            (.whoop4, true, true, false, false, true)
+        ]
+        for item in cases {
+            XCTAssertFalse(HistoricalSyncBackgroundSchedulingPolicy.maintenanceEligible(
+                family: item.family,
+                connectionReady: item.ready,
+                isCurrentPreferredPeripheral: item.preferred,
+                intentionalDisconnect: item.stopped,
+                autoReconnectPaused: item.paused,
+                restoreInProgress: item.restoring
+            ))
+        }
+    }
+
+    func testEligibleCaughtUpHistoryMaintenanceSchedulesAtExistingFloor() {
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: false,
+                maintenanceEligible: true,
+                syncActive: false,
+                connectionReady: true,
+                now: 10_100,
+                lastBackfillAt: 10_000,
+                powerSaving: false,
+                emptyStreak: 0
+            ),
+            .schedule(after: 800)
+        )
+    }
+
+    func testEligibleCaughtUpHistoryMaintenanceBecomesDueAfterExistingFloor() {
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: false,
+                maintenanceEligible: true,
+                syncActive: false,
+                connectionReady: true,
+                now: 11_000,
+                lastBackfillAt: 10_000,
+                powerSaving: false,
+                emptyStreak: 0
+            ),
+            .schedule(after: 0)
+        )
+    }
+
+    func testCaughtUpHistoryMaintenanceKeepsLowPowerAndEmptyFloors() {
+        let cases: [(powerSaving: Bool, emptyStreak: Int, delay: TimeInterval)] = [
+            (true, 0, 2_600),
+            (false, 1, 1_700),
+            (false, 2, 3_500)
+        ]
+        for item in cases {
+            XCTAssertEqual(
+                HistoricalSyncBackgroundSchedulingPolicy.plan(
+                    backlogRemains: false,
+                    maintenanceEligible: true,
+                    syncActive: false,
+                    connectionReady: true,
+                    now: 10_100,
+                    lastBackfillAt: 10_000,
+                    powerSaving: item.powerSaving,
+                    emptyStreak: item.emptyStreak
+                ),
+                .schedule(after: item.delay)
+            )
+        }
+    }
+
+    func testCaughtUpHistoryMaintenanceRequiresEligibilityAndAReadyConnection() {
+        for (eligible, ready) in [(false, true), (false, false), (true, false)] {
+            XCTAssertEqual(
+                HistoricalSyncBackgroundSchedulingPolicy.plan(
+                    backlogRemains: false,
+                    maintenanceEligible: eligible,
+                    syncActive: false,
+                    connectionReady: ready,
+                    now: 11_000,
+                    lastBackfillAt: 10_000,
+                    powerSaving: false,
+                    emptyStreak: 0
+                ),
+                .cancel
+            )
+        }
+    }
+
+    func testCaughtUpHistoryMaintenanceDoesNotOverlapAnActiveSync() {
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: false,
+                maintenanceEligible: true,
+                syncActive: true,
+                connectionReady: true,
+                now: 11_000,
+                lastBackfillAt: 10_000,
+                powerSaving: false,
+                emptyStreak: 0
+            ),
+            .cancel
+        )
+    }
+
+    func testBackgroundHistorySnapshotPreservesCaughtUpMaintenanceEligibility() {
+        let snapshot = HistoricalSyncBackgroundSnapshot(
+            backlogRemains: false,
+            maintenanceEligible: true,
+            syncActive: false,
+            connectionReady: true,
+            now: 10_100,
+            lastBackfillAt: 10_000,
+            powerSaving: false,
+            emptyStreak: 0
+        )
+
+        XCTAssertEqual(snapshot.plan, .schedule(after: 800))
+    }
+
     func testBackgroundHistorySchedulingExistsOnlyForDurableDebt() {
         XCTAssertEqual(
             HistoricalSyncBackgroundSchedulingPolicy.plan(
@@ -968,4 +1105,24 @@ final class BackfillPolicyTests: XCTestCase {
             storeAttemptAt: nil
         ))
     }
+
+    func testExplicitAutomaticSyncStopCancelsDebtAndMaintenanceWithoutChangingTheHint() {
+        for debt in [false, true] {
+            let snapshot = HistoricalSyncBackgroundSnapshot(
+                backlogRemains: debt, maintenanceEligible: true, automaticSyncAllowed: false,
+                syncActive: false, connectionReady: true, now: 11_000, lastBackfillAt: 10_000,
+                powerSaving: false, emptyStreak: 0)
+            XCTAssertEqual(snapshot.plan, .cancel)
+            XCTAssertEqual(snapshot.backlogRemains, debt)
+        }
+    }
+
+
+    func testFutureDatedClockCannotKeepCaughtUpMaintenanceAlive() {
+        XCTAssertFalse(HistoricalSyncBackgroundSchedulingPolicy.maintenanceEligible(
+            family: .whoop4, clockTrusted: false, connectionReady: true,
+            isCurrentPreferredPeripheral: true, intentionalDisconnect: false,
+            autoReconnectPaused: false, restoreInProgress: false))
+    }
+
 }
