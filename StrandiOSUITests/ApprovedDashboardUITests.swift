@@ -857,6 +857,13 @@ final class ApprovedDashboardUITests: XCTestCase {
                     print("[health-gesture] attempt=\(attempt) explicitViewport=\(viewport != nil) surfaceType=\(surface.elementType.rawValue) surfaceID=\(surface.identifier) gestureFrame=\(gestureFrame)")
                 }
                 let origin = app.coordinate(withNormalizedOffset: .zero)
+                let defaultEndY = gestureFrame.minY + gestureFrame.height * (scrollUp ? 0.2 : 0.8)
+                // Text inside a tappable Today card (Stress, Live Heart Rate) may start only a drag long enough
+                // to be an unmistakable scroll. A 44-50pt crawl from the Stress heading near the viewport edge
+                // looks to have been delivered as a tap on hosted simulators: the Stress detail was pushed, Today's
+                // scroll view left the screen, and the Health Monitor heading could never be reached. The
+                // Health Monitor heading is plain text, so its short drags stay.
+                let minimumCardDragTravel: CGFloat = 150
                 let anchorPoints = scrollAnchors.compactMap { anchor -> CGPoint? in
                     guard anchor.exists else { return nil }
                     let frame = anchor.frame
@@ -868,13 +875,14 @@ final class ApprovedDashboardUITests: XCTestCase {
                     let inset = min(8, visible.height / 2)
                     let y = scrollUp ? visible.maxY - inset : visible.minY + inset
                     guard scrollUp ? y > gestureFrame.minY + 44 : y < gestureFrame.maxY - 44 else { return nil }
+                    let travel = scrollUp ? y - defaultEndY : defaultEndY - y
+                    if travel < minimumCardDragTravel, anchor.identifier != "today.health.title" { return nil }
                     return CGPoint(x: visible.midX, y: y)
                 }
                 let anchor = scrollUp ? anchorPoints.max(by: { $0.y < $1.y })
                     : anchorPoints.min(by: { $0.y < $1.y })
                 let x = (anchor?.x ?? (gestureFrame.minX + gestureFrame.width * 0.02)) - appFrame.minX
                 let startY = anchor?.y ?? (gestureFrame.minY + gestureFrame.height * (scrollUp ? 0.8 : 0.2))
-                let defaultEndY = gestureFrame.minY + gestureFrame.height * (scrollUp ? 0.2 : 0.8)
                 let endY = anchor == nil ? defaultEndY
                     : (scrollUp ? min(defaultEndY, startY - 44) : max(defaultEndY, startY + 44))
                 let start = origin.withOffset(CGVector(dx: x, dy: startY - appFrame.minY))
