@@ -138,6 +138,13 @@ private struct SmartAlarmPersistedConfiguration: Codable, Equatable, Sendable {
 @MainActor
 final class SmartAlarmRuntimeController: ObservableObject {
     static let backupBaseIdentifier = "smart-alarm-wake-backup"
+    /// A strap clock ahead of the phone by up to this much still counts as "the armed alarm just fired".
+    private static let firedSkewTolerance: TimeInterval = 30
+    /// How long past the endpoint live data must keep arriving before we stop waiting for the strap's fire event.
+    private static let passedGrace: TimeInterval = 5
+    /// Waits before re-checking that a WHOOP 4.0 arm took. A strap may ignore an arm sent while it is still
+    /// buzzing from the alarm that just fired, so the hand-off is verified and retried instead of trusted.
+    private static let armVerifyDelays: [TimeInterval] = [12, 45, 120]
     static func backupIdentifiers(configurationID: UUID, generation: UInt64? = nil) -> [String] {
         // A foreground/reconnect reconcile keeps the configuration but replaces its
         // async task. Its cancelled predecessor must only clean up its own requests.
@@ -163,6 +170,14 @@ final class SmartAlarmRuntimeController: ObservableObject {
     private var started = false
     private var strapHooksInstalled = false
     private var observedSnapshot: SmartAlarmRuntimeSnapshot?
+    /// The one endpoint the strap currently holds. The firmware keeps a single alarm, so a later saved alarm
+    /// only reaches the strap after this one has passed and we re-arm.
+    private var armedEndpoint: Date?
+    /// Endpoint known to have just fired; the next lookup starts after it even if the phone clock lags the strap.
+    private var consumedEndpoint: Date?
+    private var watchdogEndpoint: Date?
+    private var verifyEndpoint: Date?
+    private var verifyAttempts = 0
     private var generation = SmartAlarmRuntimeGeneration()
     private var configurationID: UUID
     private var cancellables = Set<AnyCancellable>()
@@ -174,6 +189,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
     private var evidenceTask: Task<Void, Never>?
     private var dailyTask: Task<Void, Never>?
     private var endpointTask: Task<Void, Never>?
+    private var verifyTask: Task<Void, Never>?
 
     init(model: AppModel, modeStore: SmartAlarmAdaptiveModeStore) {
         self.model = model
@@ -199,6 +215,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         evidenceTask?.cancel()
         dailyTask?.cancel()
         endpointTask?.cancel()
+        verifyTask?.cancel()
     }
 
     /// Strap-driven edges: a reconnect re-arms the firmware alarm, and a strap-fired event correlates evidence,
@@ -224,8 +241,33 @@ final class SmartAlarmRuntimeController: ObservableObject {
             guard let self else { return }
             SmartAlarmEvidenceStore.refreshCorrelation()
             AppModel.postSmartAlarm()
-            self.reconcileImmediately(trigger: .configured)
+            self.rearmAfterFire("strap-fired")
         }
+    }
+
+    /// Hand the strap's single alarm slot to the next saved alarm. Called when the strap reports a fire, when
+    /// the in-process timer sees the endpoint pass, and when live data arrives after the endpoint passed.
+    private func rearmAfterFire(_ event: String) {
+        // Only an endpoint that is due may be skipped: a late or replayed event must not jump over a later alarm.
+        if let armed = armedEndpoint, armed.timeIntervalSinceNow < Self.firedSkewTolerance {
+            consumedEndpoint = armed
+        }
+        WakeAlarmChainReceipts.record(event, endpoint: armedEndpoint)
+        reconcileImmediately(trigger: .configured)
+    }
+
+    /// The strap's BLE fire event is not seen on every model (no 5/MG fire event has been observed) and the timer in
+    /// `scheduleEndpointRearm` cannot run while iOS has the app suspended. Any live sample after the endpoint
+    /// wakes the app, so use it as the fallback signal that the armed alarm has passed.
+    private func rearmIfEndpointPassed() {
+        guard let armed = armedEndpoint, watchdogEndpoint != armed,
+              Date() >= armed.addingTimeInterval(Self.passedGrace) else { return }
+        watchdogEndpoint = armed
+        rearmAfterFire("live-data-after-endpoint")
+    }
+
+    private func nextOccurrence(in snapshot: SmartAlarmRuntimeSnapshot, now: Date = Date()) -> WakeAlarmPlan.Occurrence? {
+        WakeAlarmPlan.next(in: snapshot.schedules, afterFiring: consumedEndpoint, now: now)
     }
 
     func start() {
@@ -264,6 +306,13 @@ final class SmartAlarmRuntimeController: ObservableObject {
                     guard let self else { return }
                     self.refreshEvidence(for: self.currentEndpoint())
                 }
+            }
+            .store(in: &cancellables)
+
+        model.live.$heartRate
+            .throttle(for: .seconds(5), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.rearmIfEndpointPassed() }
             }
             .store(in: &cancellables)
 
@@ -402,6 +451,8 @@ final class SmartAlarmRuntimeController: ObservableObject {
 
     private func applyDisabled(snapshot: SmartAlarmRuntimeSnapshot, token: UInt64) {
         guard generation.accepts(token, request: snapshot, current: currentSnapshot) else { return }
+        armedEndpoint = nil
+        verifyTask?.cancel()
         model.ble.disableStrapAlarm()
         SmartAlarmRuntimeBackgroundScheduler.cancel()
         deliveryStatus = String(localized: "Off")
@@ -422,8 +473,10 @@ final class SmartAlarmRuntimeController: ObservableObject {
         trigger: SmartAlarmEvaluator.Trigger
     ) {
         guard generation.accepts(token, request: snapshot, current: currentSnapshot),
-              let occurrence = snapshot.next(after: Date())
+              let occurrence = nextOccurrence(in: snapshot)
         else {
+            armedEndpoint = nil
+            verifyTask?.cancel()
             model.ble.disableStrapAlarm()
             removeAllBackupNotifications(snapshot: snapshot, token: token)
             SmartAlarmRuntimeBackgroundScheduler.cancel()
@@ -434,12 +487,15 @@ final class SmartAlarmRuntimeController: ObservableObject {
 
         let endpoint = occurrence.date
         let arm = model.ble.armStrapAlarm(at: endpoint)
+        armedEndpoint = endpoint
+        WakeAlarmChainReceipts.record(Self.receiptName(for: arm), endpoint: endpoint)
         persistEndpointEvidence(endpoint: endpoint, mode: occurrence.alarm.mode, arm: arm)
         updateDeliveryStatus(endpoint: endpoint, arm: arm, snapshot: snapshot)
         scheduleBackupNotifications(snapshot: snapshot, token: token)
         scheduleEvidenceRefresh(snapshot: snapshot, endpoint: endpoint, token: token)
 
         scheduleEndpointRearm(snapshot: snapshot, endpoint: endpoint, token: token)
+        scheduleArmVerification(endpoint: endpoint, arm: arm, token: token, snapshot: snapshot)
 
         if snapshot.mode(for: endpoint) == .exactTime {
             SmartAlarmRuntimeBackgroundScheduler.cancel()
@@ -462,7 +518,43 @@ final class SmartAlarmRuntimeController: ObservableObject {
             guard let self, !Task.isCancelled,
                   self.generation.accepts(token, request: snapshot, current: self.currentSnapshot)
             else { return }
+            self.rearmAfterFire("timer-endpoint-passed")
+        }
+    }
+
+    /// WHOOP 4.0 reads the armed time back, so a missing, empty or wrong answer is detectable. Re-arm a bounded
+    /// number of times per endpoint; 5/MG has no readback, and a queued arm is already retried on reconnect.
+    private func scheduleArmVerification(
+        endpoint: Date, arm: BLEManager.AlarmCommandResult, token: UInt64, snapshot: SmartAlarmRuntimeSnapshot
+    ) {
+        verifyTask?.cancel()
+        if endpoint != verifyEndpoint {
+            verifyEndpoint = endpoint
+            verifyAttempts = 0
+        }
+        guard !model.whoop5Detected, arm == .sentAwaitingReadback,
+              verifyAttempts < Self.armVerifyDelays.count else { return }
+        let delay = Self.armVerifyDelays[verifyAttempts]
+        verifyTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard let self, !Task.isCancelled,
+                  self.generation.accepts(token, request: snapshot, current: self.currentSnapshot),
+                  self.armedEndpoint == endpoint, endpoint.timeIntervalSinceNow > 0 else { return }
+            SmartAlarmEvidenceStore.refreshCorrelation()
+            guard let latest = SmartAlarmEvidenceStore.latest, latest.windowEndpoint == endpoint,
+                  let status = latest.readbackStatus,
+                  status == .noAlarm || status == .mismatch || status == .unconfirmed else { return }
+            self.verifyAttempts += 1
+            WakeAlarmChainReceipts.record("rearm-after-\(status.rawValue)", endpoint: endpoint)
             self.reconcileImmediately(trigger: .configured)
+        }
+    }
+
+    private static func receiptName(for arm: BLEManager.AlarmCommandResult) -> String {
+        switch arm {
+        case .sentAwaitingReadback: return "armed"
+        case .queuedForReconnect: return "queued-strap-not-ready"
+        case .experimentalDisabled: return "not-armed-experimental-off"
         }
     }
 
@@ -498,7 +590,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
     private func currentEndpoint(now: Date = Date()) -> Date? {
         let snapshot = currentSnapshot
         guard snapshot.enabled else { return nil }
-        return snapshot.next(after: now)?.date
+        return nextOccurrence(in: snapshot, now: now)?.date
     }
 
     private func evaluateIfInsideWindow(trigger: SmartAlarmEvaluator.Trigger) {

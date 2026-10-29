@@ -19,6 +19,14 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 2.0.5
+
+Corrective update for multiple wake alarms: the second and later saved alarms did not reliably reach the strap. Physical overnight qualification on a WHOOP 4 and a WHOOP 5/MG remains pending.
+
+- **Later alarms reach the strap.** The strap holds one alarm at a time, so a later saved alarm only arms after the previous one passes. That hand-off no longer depends on the strap's fire event or on a timer iOS can suspend: live heart-rate data arriving after the alarm time also triggers it, and the next alarm is chosen after the one that just fired even when the strap clock runs ahead of the phone.
+- **Retry if unconfirmed.** A WHOOP 4 alarm whose readback is missing, empty or wrong is sent again, up to three times per alarm, instead of being left unarmed.
+- **Bug fixes and improvements.** The debug export lists each alarm hand-off with its time, so a missed alarm can be traced. Phone backup notifications are unchanged.
+
 ## 2.0.4
 
 WHOOP 4 background history and battery refresh corrections, stacked after the 2.0.3 Sleep PR82. Physical overnight qualification remains pending. No phone deployment or release publication is part of this PR.

@@ -49,6 +49,14 @@ public enum WakeAlarmPlan {
         }.min { $0.date < $1.date }
     }
 
+    /// Next occurrence once the strap has fired `fired`. The strap's clock can run a few seconds ahead of the
+    /// phone, so its fire event may arrive before `now` reaches that endpoint. A plain "next after now" would
+    /// then hand the strap the alarm that just fired and the following alarm would never be armed.
+    public static func next(in alarms: [WakeAlarm], afterFiring fired: Date?, now: Date = Date(),
+                            calendar: Calendar = .current) -> Occurrence? {
+        next(in: alarms, after: fired.map { max(now, $0) } ?? now, calendar: calendar)
+    }
+
     public static func backups(for alarms: [WakeAlarm]) -> [Backup] {
         alarms.prefix(maximumAlarms).filter(\.enabled).flatMap { alarm -> [Backup] in
             if alarm.weekdays.isEmpty {
