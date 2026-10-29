@@ -285,6 +285,12 @@ enum DebugDataDiagnostics {
         } else {
             lines.append("Last fired: never observed")
         }
+        // How the strap's single alarm slot moved between saved alarms (arm, fire event, re-arm trigger).
+        let chain = WakeAlarmChainReceipts.lines(from: d)
+        if !chain.isEmpty {
+            lines.append("Alarm hand-offs (local time):")
+            lines.append(contentsOf: chain.suffix(15).map { "  " + $0 })
+        }
         return lines
     }
 
