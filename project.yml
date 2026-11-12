@@ -13,7 +13,7 @@ settings:
     CURRENT_PROJECT_VERSION: "256"
     SWIFT_EMIT_LOC_STRINGS: YES
     SWIFT_STRICT_CONCURRENCY: complete
-    DEVELOPMENT_TEAM: "479HYY24G2"
+    DEVELOPMENT_TEAM: "QDJ575GGH4"
     CODE_SIGN_STYLE: Automatic
     APP_GROUP_ID: group.com.eastonplace.noop
   configs:
